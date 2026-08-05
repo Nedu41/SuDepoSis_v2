@@ -1110,6 +1110,11 @@ void handleSSE() {
 }
 
 // ============ API ROTALARI ============
+void handleRestart() {
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Yeniden baslatiliyor\"}");
+  delay(100);
+  ESP.restart();
+}
 void handleMeasure() { olcumYap(); ssePush(); server.send(200, "application/json", durumJson()); }
 void handleStatus() { moistureOku(); if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
 void handleTime() {
@@ -1521,6 +1526,7 @@ void setup() {
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
   server.on("/ota", handleOTAUpdate);
+  server.on("/restart", handleRestart);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
   server.begin();
   sonOtomatikOlcumMs = millis();
