@@ -135,6 +135,23 @@ bool geocodeIlIlce(const String& il, const String& ilce, double& lat, double& lo
   return ok;
 }
 
+// Il/ilce kaydedildi ama internet olmadigi icin koordinat cozulemediyse,
+// internet geldiginde (en fazla 60sn'de bir) otomatik tekrar dener.
+void konumCozumKontrolEt() {
+  if (rainLocationValid) return;
+  if (savedIl.length() == 0) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  static unsigned long sonDenemeMs = 0;
+  if (sonDenemeMs != 0 && millis() - sonDenemeMs < 60000UL) return;
+  sonDenemeMs = millis();
+  double lat, lon;
+  if (geocodeIlIlce(savedIl, savedIlce, lat, lon)) {
+    savedLat = lat; savedLon = lon; rainLocationValid = true;
+    locPrefsKaydet();
+    DEBUG_PRINTLN("[RAIN] Konum internet gelince cozuldu");
+  }
+}
+
 // Yarinki yagmur tahminini sorgular ve degistiyse/gecerliyse esp8266_slave'e
 // RS485 ile SET_RAIN_SKIP bildirir. Internet yoksa veya konum cozulmemisse
 // sessizce cikar - bir sonraki loop'ta tekrar denenir.
@@ -740,7 +757,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-warn" id="alarm-mute-btn" onclick="alarmMute()">Sustur/Sireni Kapat</button>
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn btn-danger" id="alarm-onayla-btn" style="display:none" onclick="alarmOnayla()">Tetiklenmeyi Onayla</button>
+        <button class="btn btn-danger" id="alarm-onayla-btn" style="display:none" onclick="alarmOnayla()">Tetikle</button>
+        <button class="btn btn-warn" id="alarm-onayla-lamba-btn" style="display:none" onclick="alarmOnaylaLamba()">Sadece Lamba</button>
       </div>
       <div id="alarm-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
@@ -1045,8 +1063,10 @@ function renderUI(d){
   const rain=d.rain||{};
   const rdk=$('#rain-durum-kutu');
   if(rdk){
-    if(!rain.gecerli){
+    if(!rain.gecerli && !rain.il){
       rdk.innerHTML='Konum kaydedilmedi';
+    } else if(!rain.gecerli && rain.il){
+      rdk.innerHTML='Konum kaydedildi: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Koordinat henuz cozulemedi - internet gelince otomatik denenecek.';
     } else {
       rdk.innerHTML='Konum: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Yarın yağmur: <b>'+(rain.tomorrow?'Evet, sulama atlanacak':'Hayır')+'</b> (son kontrol: '+(rain.lastCheck||'-')+')';
     }
@@ -1084,6 +1104,7 @@ function renderUI(d){
   if(!busySet.has('#alarm-mod-sel')){ const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
   if(!busySet.has('#alarm-mute-btn')){ const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
   if(!busySet.has('#alarm-onayla-btn')){ const aob=$('#alarm-onayla-btn'); if(aob) aob.style.display = (d.alarm&&d.alarm.pending) ? 'inline-block' : 'none'; }
+  if(!busySet.has('#alarm-onayla-lamba-btn')){ const aolb=$('#alarm-onayla-lamba-btn'); if(aolb) aolb.style.display = (d.alarm&&d.alarm.pending) ? 'inline-block' : 'none'; }
   if(!busySet.has('#moisture-settings-toggle-btn')){ const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   if(!busySet.has('#moisture-settings-auto-btn')){ const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
   // Nem verileri
@@ -1223,6 +1244,9 @@ function alarmMute(){
 }
 function alarmOnayla(){
   sendCommand('#alarm-onayla-btn', '/api/alarm/onayla', '#alarm-sonuc');
+}
+function alarmOnaylaLamba(){
+  sendCommand('#alarm-onayla-lamba-btn', '/api/alarm/onayla_lamba', '#alarm-sonuc');
 }
 function otaGuncelle(){
   const u=$('#otaUrl').value; if(!u){$('#ota-sonuc').textContent='URL gerekli';return;}
@@ -1520,16 +1544,24 @@ void handleAPI_LocationSet() {
   if (!server.hasArg("il")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"il eksik\"}"); return; }
   String il = server.arg("il");
   String ilce = server.hasArg("ilce") ? server.arg("ilce") : "";
-  double lat, lon;
-  bool ok = geocodeIlIlce(il, ilce, lat, lon);
-  if (ok) {
-    savedIl = il; savedIlce = ilce; savedLat = lat; savedLon = lon; rainLocationValid = true;
-    locPrefsKaydet();
+  // FIX: Il/ilce secimini kaydetmek ile koordinat cozmek (internet gerektirir)
+  // ayni islemdeymis gibi yapiliyordu - internet o an yoksa (bahcede sabit
+  // internet olmadigindan bu sik bir durum) hicbir sey kaydedilmiyordu, sayfa
+  // yenilenince secim sifirlaniyordu. Simdi secim HER ZAMAN kaydedilir;
+  // koordinat cozulemezse konumCozumKontrolEt() internet gelince tekrar dener.
+  savedIl = il; savedIlce = ilce;
+  double lat = 0, lon = 0;
+  bool geocodeOk = geocodeIlIlce(il, ilce, lat, lon);
+  rainLocationValid = geocodeOk;
+  if (geocodeOk) { savedLat = lat; savedLon = lon; }
+  locPrefsKaydet();
+  if (geocodeOk) {
     lastRainCheckMs = 0;  // konum degisti, hemen yeniden kontrol edilsin
     yagmurTahminiKontrolEt(true);
   }
-  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
-              String(ok ? "Konum bulundu" : "Konum bulunamadi - il/ilce adini kontrol et") + "\",\"lat\":" + String(lat, 4) + ",\"lon\":" + String(lon, 4) + "}");
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" +
+              String(geocodeOk ? "Konum kaydedildi ve bulundu" : "Il/ilce kaydedildi - internet gelince koordinat otomatik cozulecek") +
+              "\",\"lat\":" + String(lat, 4) + ",\"lon\":" + String(lon, 4) + "}");
 }
 
 void handleAPI_RainToggle() {
@@ -1688,6 +1720,15 @@ void handleAPI_AlarmOnayla() {
   rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Onaylandi" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
+}
+
+void handleAPI_AlarmOnaylaLamba() {
+  String reply;
+  rs485_api_busy = true;
+  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Sadece lamba flasoru aktif" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
 void handleAPI_MoistureToggle() {
@@ -1879,6 +1920,7 @@ void setupWebServer() {
   server.on("/api/alarm/mod", handleAPI_AlarmMod);
   server.on("/api/alarm/mute", handleAPI_AlarmMute);
   server.on("/api/alarm/onayla", handleAPI_AlarmOnayla);
+  server.on("/api/alarm/onayla_lamba", handleAPI_AlarmOnaylaLamba);
   server.on("/api/role-test", handleAPI_RoleTest);
   server.on("/api/kapi", handleAPI_Kapi);
   server.on("/api/panic", handleAPI_Panic);
@@ -2037,6 +2079,9 @@ void loop() {
   
   // RS485 Polling
   rs485_poll();
+
+  // Il/ilce secilmis ama internet olmadigi icin koordinat cozulememisse tekrar dene
+  konumCozumKontrolEt();
 
   // Hava durumu / yagmur tahmini - internet varken periyodik kontrol
   yagmurTahminiKontrolEt();

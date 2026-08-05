@@ -172,6 +172,7 @@ uint8_t alarmTetikleyenMask = 0; // O an alarmi tetikleyen sensor(ler) - bitmask
 bool alarmSusturuldu = false;   // Susturma - tetikleyici aktifken siren susturulur (mesaj/banner kalir)
 bool alarmOnayBekliyor = false; // Mod 3 (Onayli): tetiklendi, onay bekleniyor
 bool alarmOnaylandi = false;    // Mod 3 (Onayli): onaylandi, sesli mod gibi davranir
+bool alarmOnaySadeceLamba = false; // Mod 3 (Onayli): "sadece lamba" secildi - siren/role yok, sadece lamba flaşörü
 
 // ============ ALARM LAMBA FLASI ============
 // Alarm fiziksel olarak tetiklendiginde (role aktifken) depo lambasi da
@@ -636,7 +637,7 @@ void rs485KomutDinle() {
         } else if (komut.startsWith("SET_ALARM_MOD=")) {
           int m = komut.substring(14).toInt();
           if (m >= 1 && m <= 3) {
-            ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmSusturuldu = false;
+            ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false; alarmSusturuldu = false;
             ayarlariKaydet();
             response = "ACK:" + komut;
           } else {
@@ -646,7 +647,10 @@ void rs485KomutDinle() {
           alarmSusturuldu = !alarmSusturuldu;
           response = "ACK:" + komut;
         } else if (komut == "ALARM_ONAYLA") {
-          alarmOnaylandi = true; alarmOnayBekliyor = false;
+          alarmOnaylandi = true; alarmOnayBekliyor = false; alarmOnaySadeceLamba = false;
+          response = "ACK:" + komut;
+        } else if (komut == "ALARM_ONAYLA_LAMBA") {
+          alarmOnaySadeceLamba = true; alarmOnayBekliyor = false; alarmOnaylandi = false;
           response = "ACK:" + komut;
         } else if (komut == "PANIC") {
           // ESP32'nin /api/panic'i bunu bekler: web /role/panic ile ayni
@@ -991,6 +995,7 @@ String durumJson() {
    j += "\"alarmSusturuldu\":" + String(alarmSusturuldu ? "true" : "false") + ",";
    j += "\"alarmOnayBekliyor\":" + String(alarmOnayBekliyor ? "true" : "false") + ",";
    j += "\"alarmOnaylandi\":" + String(alarmOnaylandi ? "true" : "false") + ",";
+   j += "\"alarmOnaySadeceLamba\":" + String(alarmOnaySadeceLamba ? "true" : "false") + ",";
    j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false") + ",";
    j += "\"yagmurSulamaAtla\":" + String(yagmurSulamaAtlaGecerli() ? "true" : "false");
    j += "}";
@@ -1146,7 +1151,7 @@ void handleSaveSettings() {
   if (server.hasArg("triggerGece")) ayar.alarmTriggerGece = server.arg("triggerGece").toInt();
   if (server.hasArg("alarmMod")) {
     int m = server.arg("alarmMod").toInt();
-    if (m >= 1 && m <= 3) { ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmSusturuldu = false; }
+    if (m >= 1 && m <= 3) { ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false; alarmSusturuldu = false; }
   }
   if (server.hasArg("alarmMaskSesli")) ayar.alarmMaskSesli = server.arg("alarmMaskSesli").toInt();
   if (server.hasArg("alarmMaskSessiz")) ayar.alarmMaskSessiz = server.arg("alarmMaskSessiz").toInt();
@@ -1218,8 +1223,13 @@ void handleAlarmSustur() {
 }
 void handleAlarmOnayla() {
   // Mod 3 (Onayli): kullanici tetiklenmeyi onaylar, siren sesli mod gibi calismaya baslar.
-  alarmOnaylandi = true; alarmOnayBekliyor = false;
+  alarmOnaylandi = true; alarmOnayBekliyor = false; alarmOnaySadeceLamba = false;
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Onaylandi\"}");
+}
+void handleAlarmOnaylaLamba() {
+  // Mod 3 (Onayli): kullanici sadece lamba flasoru ister - siren/role calismaz.
+  alarmOnaySadeceLamba = true; alarmOnayBekliyor = false; alarmOnaylandi = false;
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Sadece lamba flasoru aktif\"}");
 }
 void handleWifiDurum() {
   bool b = (WiFi.status() == WL_CONNECTED);
@@ -1434,7 +1444,7 @@ void setup() {
   server.on("/ayarlar", HTTP_GET, handleGetSettings); server.on("/ayarlar/kaydet", handleSaveSettings);
   server.on("/kayit/liste", handleKayitListesi); server.on("/kayit/ekle", handleKayitEkle); server.on("/kayit/guncelle", handleKayitGuncelle); server.on("/kayit/sil", handleKayitSil); server.on("/kayit/csv", handleKayitCSV); server.on("/kc", handleKayitCSV); server.on("/kayit/temizle", handleKayitTemizle);
   server.on("/role/test", handleRoleTest); server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
-  server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla);
+  server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
   server.on("/wifi/scan", handleWifiScan); server.on("/wifi/kart", handleWifiKart);
@@ -1600,7 +1610,7 @@ void loop() {
       if (!roleFizikselDurum) nanoRoleKontrol(true);
     } else if (!ayar.alarmRoleAktif) {
       // Alarm sistemi kapali: hicbir tetikleyici sirene/roleye yansimamali
-      alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false;
+      alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
       alarmTetikleyenMask = 0;
       if (roleFizikselDurum) nanoRoleKontrol(false);
     } else {
@@ -1627,7 +1637,7 @@ void loop() {
       if (!triggerActive) {
         // Tetikleyici temizlendi - susturma/onay durumlari sifirlanir (bir sonraki
         // tetiklenmede modun varsayilan davranisi yeniden gecerli olsun)
-        alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false;
+        alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
         if (roleFizikselDurum) nanoRoleKontrol(false);
       } else {
         bool sirenIstenen;
@@ -1635,8 +1645,13 @@ void loop() {
           // Sessiz mod: role/siren hic calismaz, sadece web/SSE bildirimi (durumJson) gosterilir
           sirenIstenen = false;
         } else if (ayar.alarmMod == ALARM_MOD_ONAYLI) {
-          if (!alarmOnaylandi) { alarmOnayBekliyor = true; sirenIstenen = false; }
-          else sirenIstenen = !alarmSusturuldu;
+          if (alarmOnaySadeceLamba) {
+            sirenIstenen = false; // sadece lamba flaşörü - siren/role calismaz
+          } else if (!alarmOnaylandi) {
+            alarmOnayBekliyor = true; sirenIstenen = false;
+          } else {
+            sirenIstenen = !alarmSusturuldu;
+          }
         } else {
           // Sesli mod
           sirenIstenen = !alarmSusturuldu;
@@ -1650,7 +1665,7 @@ void loop() {
   // yanip soner; role kapaninca lamba tetiklenmeden onceki durumuna doner.
   // Kendi !nanoMesgul kontrolünü ayrı yapar ki yukarıdaki role komutu
   // kuyruğu meşgul ettiğinde bu döngüde beklesin, bir sonrakinde devam etsin.
-  if (roleFizikselDurum) {
+  if (roleFizikselDurum || alarmOnaySadeceLamba) {
     if (!lambaFlashAktif) {
       lambaFlashAktif = true;
       lambaFlashOncekiManuel = lambaAcik;
