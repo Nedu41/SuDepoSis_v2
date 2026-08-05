@@ -756,10 +756,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         </select>
         <button class="btn btn-warn" id="alarm-mute-btn" onclick="alarmMute()">Sustur/Sireni Kapat</button>
       </div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn btn-danger" id="alarm-onayla-btn" style="display:none" onclick="alarmOnayla()">Tetikle</button>
-        <button class="btn btn-warn" id="alarm-onayla-lamba-btn" style="display:none" onclick="alarmOnaylaLamba()">Sadece Lamba</button>
-      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Onay bekleyen bir tetiklenme olursa "Sesli"/"Sessiz" secenekleri ekranin ustundeki uyari kutusunda (hangi sekmede olursan ol) cikar.</p>
       <div id="alarm-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
@@ -1048,7 +1045,11 @@ function renderUI(d){
       if(d.alarm && d.alarm.muted) msg += ' (Susturuldu)';
       const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, d.alarm&&d.alarm.panic);
       msg += ' | Tetikleyen: '+tk;
-      ban.textContent = '⚠ '+msg;
+      let html = '⚠ '+msg;
+      if(bekliyor){
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="alarmOnayla()">Sesli</button><button class="btn btn-warn" onclick="alarmOnaylaLamba()">Sessiz (Lamba)</button></div>';
+      }
+      ban.innerHTML = html;
       ban.style.display='block';
     } else {
       ban.style.display='none';
@@ -1114,8 +1115,6 @@ function renderUI(d){
   if(!busySet.has('#panic-btn')){ const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
   if(!busySet.has('#alarm-mod-sel')){ const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
   if(!busySet.has('#alarm-mute-btn')){ const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
-  if(!busySet.has('#alarm-onayla-btn')){ const aob=$('#alarm-onayla-btn'); if(aob) aob.style.display = (d.alarm&&d.alarm.pending) ? 'inline-block' : 'none'; }
-  if(!busySet.has('#alarm-onayla-lamba-btn')){ const aolb=$('#alarm-onayla-lamba-btn'); if(aolb) aolb.style.display = (d.alarm&&d.alarm.pending) ? 'inline-block' : 'none'; }
   if(!busySet.has('#moisture-settings-toggle-btn')){ const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   if(!busySet.has('#moisture-settings-auto-btn')){ const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
   // Nem verileri
@@ -1254,10 +1253,10 @@ function alarmMute(){
   sendCommand('#alarm-mute-btn', '/api/alarm/mute', '#alarm-sonuc');
 }
 function alarmOnayla(){
-  sendCommand('#alarm-onayla-btn', '/api/alarm/onayla', '#alarm-sonuc');
+  sendCommand(null, '/api/alarm/onayla', '#alarm-sonuc');
 }
 function alarmOnaylaLamba(){
-  sendCommand('#alarm-onayla-lamba-btn', '/api/alarm/onayla_lamba', '#alarm-sonuc');
+  sendCommand(null, '/api/alarm/onayla_lamba', '#alarm-sonuc');
 }
 function otaGuncelle(){
   const u=$('#otaUrl').value; if(!u){$('#ota-sonuc').textContent='URL gerekli';return;}
@@ -1615,17 +1614,19 @@ void handleAPI_LocationSet() {
   if (!server.hasArg("il")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"il eksik\"}"); return; }
   String il = server.arg("il");
   String ilce = server.hasArg("ilce") ? server.arg("ilce") : "";
-  // FIX: Il/ilce secimini kaydetmek ile koordinat cozmek (internet gerektirir)
-  // ayni islemdeymis gibi yapiliyordu - internet o an yoksa (bahcede sabit
-  // internet olmadigindan bu sik bir durum) hicbir sey kaydedilmiyordu, sayfa
-  // yenilenince secim sifirlaniyordu. Simdi secim HER ZAMAN kaydedilir;
-  // koordinat cozulemezse konumCozumKontrolEt() internet gelince tekrar dener.
+  // FIX: Il/ilce secimini kaydetmek ile koordinat cozmek (internet gerektirir,
+  // HTTPS/TLS istegi asilabilir/uzun surebilir) ayni islemdeymis gibi
+  // yapiliyordu - geocode adimi tamamlanmadan/basarisiz olursa kaydetme hic
+  // gerceklesmiyordu, sayfa yenilenince secim sifirlaniyordu. Simdi il/ilce
+  // ONCE, geocode denemeden HEMEN kaydedilir; boylece o adim ne olursa olsun
+  // secim guvende. Koordinat cozulemezse konumCozumKontrolEt() internet
+  // gelince tekrar dener.
   savedIl = il; savedIlce = ilce;
+  locPrefsKaydet();
   double lat = 0, lon = 0;
   bool geocodeOk = geocodeIlIlce(il, ilce, lat, lon);
   rainLocationValid = geocodeOk;
-  if (geocodeOk) { savedLat = lat; savedLon = lon; }
-  locPrefsKaydet();
+  if (geocodeOk) { savedLat = lat; savedLon = lon; locPrefsKaydet(); }
   if (geocodeOk) {
     lastRainCheckMs = 0;  // konum degisti, hemen yeniden kontrol edilsin
     yagmurTahminiKontrolEt(true);
