@@ -80,7 +80,12 @@
 // struct'a yeni alan eklenirse taşma riski var.
 // 512 byte, ESP8266 EEPROM (4096 max) için güvenli ve geleceğe dönük.
 #define EEPROM_SIZE 512
-#define EEPROM_MAGIC 0xA546  // pirOnaySaniye eklendi (eski: 0xA545)
+#define EEPROM_MAGIC 0xA547  // alarmOutputSesli/alarmOutputSessiz eklendi (eski: 0xA546)
+
+// Alarm CIKISLARI (siren/role, lamba) - mod basina bitmask, ALARM_TRIGGER_*
+// (girdi/sensor) bitmask'inden bagimsiz ayri bir kume.
+#define ALARM_OUTPUT_SIREN 1
+#define ALARM_OUTPUT_LAMBA 2
 
 // WiFi (STA) bilgileri artik ayri bir EEPROM bolgesinde, kendi magic'i ile
 // saklanir. Boylece Ayarlar struct'ina alan eklenip EEPROM_MAGIC degistiginde

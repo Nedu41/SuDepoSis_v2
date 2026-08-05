@@ -57,6 +57,8 @@ struct Ayarlar {
   uint8_t alarmMaskSesli;      // Sesli mod senaryosu (bitmask)
   uint8_t alarmMaskSessiz;     // Sessiz mod senaryosu (bitmask)
   uint8_t alarmMaskOnayli;     // Onayli mod senaryosu (bitmask)
+  uint8_t alarmOutputSesli;    // Sesli mod cikislari (bitmask: ALARM_OUTPUT_SIREN|ALARM_OUTPUT_LAMBA)
+  uint8_t alarmOutputSessiz;   // Sessiz mod cikislari (bitmask) - varsayilan: sadece lamba
   uint8_t moistureAutomatic;
   uint8_t moistureThresholdLow;
   uint8_t moistureThresholdHigh;
@@ -115,6 +117,8 @@ void varsayilanAyarlar() {
   ayar.alarmMaskSesli = 0xFF;
   ayar.alarmMaskSessiz = 0xFF;
   ayar.alarmMaskOnayli = 0xFF;
+  ayar.alarmOutputSesli = ALARM_OUTPUT_SIREN | ALARM_OUTPUT_LAMBA;
+  ayar.alarmOutputSessiz = ALARM_OUTPUT_LAMBA;  // sessiz mod: siren yok, sadece lamba bildirimi
   ayar.moistureAutomatic = 0;
   ayar.moistureThresholdLow = 40;
   ayar.moistureThresholdHigh = 70;
@@ -169,6 +173,7 @@ unsigned long sonOtomatikOlcumMs = 0;
 
 // ============ ALARM MOD DURUMU ============
 uint8_t alarmTetikleyenMask = 0; // O an alarmi tetikleyen sensor(ler) - bitmask, banner/uyarida gosterilir
+bool alarmCikisLambaIstenen = false; // Bu dongude lamba flasinin acik olmasi gerekiyor mu (mod cikis ayarindan)
 bool alarmSusturuldu = false;   // Susturma - tetikleyici aktifken siren susturulur (mesaj/banner kalir)
 bool alarmOnayBekliyor = false; // Mod 3 (Onayli): tetiklendi, onay bekleniyor
 bool alarmOnaylandi = false;    // Mod 3 (Onayli): onaylandi, sesli mod gibi davranir
@@ -1134,7 +1139,7 @@ void handleSetTime() {
 }
 void handleGetSettings() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"pirOnaySaniye\":" + String(ayar.pirOnaySaniye) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirOnaySaniye\":" + String(ayar.pirOnaySaniye) + "}";
   server.send(200, "application/json", j);
 }
 void handleSaveSettings() {
@@ -1163,6 +1168,8 @@ void handleSaveSettings() {
   if (server.hasArg("alarmMaskSesli")) ayar.alarmMaskSesli = server.arg("alarmMaskSesli").toInt();
   if (server.hasArg("alarmMaskSessiz")) ayar.alarmMaskSessiz = server.arg("alarmMaskSessiz").toInt();
   if (server.hasArg("alarmMaskOnayli")) ayar.alarmMaskOnayli = server.arg("alarmMaskOnayli").toInt();
+  if (server.hasArg("alarmOutputSesli")) ayar.alarmOutputSesli = server.arg("alarmOutputSesli").toInt();
+  if (server.hasArg("alarmOutputSessiz")) ayar.alarmOutputSessiz = server.arg("alarmOutputSessiz").toInt();
   if (server.hasArg("pirOnaySaniye")) {
     int v = server.arg("pirOnaySaniye").toInt(); if (v < 0) v = 0; if (v > 30) v = 30; ayar.pirOnaySaniye = v;
   }
@@ -1615,11 +1622,13 @@ void loop() {
     // PANIK MODU - toggle, sürekli komut gönderme (her seyin onunde, mod/susturma etkilemez)
     if (panicRoleAktif) {
       alarmTetikleyenMask = 0; // panikte sensor tetikleyicisi yok, elle acildi
+      alarmCikisLambaIstenen = true; // panikte her zaman hem siren hem lamba
       if (!roleFizikselDurum) nanoRoleKontrol(true);
     } else if (!ayar.alarmRoleAktif) {
       // Alarm sistemi kapali: hicbir tetikleyici sirene/roleye yansimamali
       alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
       alarmTetikleyenMask = 0;
+      alarmCikisLambaIstenen = false;
       if (roleFizikselDurum) nanoRoleKontrol(false);
     } else {
       // Zaman bazli (gunduz/gece) VE secili modun kendi senaryosu (hangi sensorler
@@ -1646,23 +1655,29 @@ void loop() {
         // Tetikleyici temizlendi - susturma/onay durumlari sifirlanir (bir sonraki
         // tetiklenmede modun varsayilan davranisi yeniden gecerli olsun)
         alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
+        alarmCikisLambaIstenen = false;
         if (roleFizikselDurum) nanoRoleKontrol(false);
       } else {
         bool sirenIstenen;
+        // Sesli/Sessiz modda hangi cikislarin (siren/lamba) aktif olacagi artik
+        // kullanicinin Alarm Ayarlari'ndaki "Mod Senaryolari" cikis secimlerinden
+        // (ayar.alarmOutputSesli/Sessiz) geliyor - eskiden Sessiz mod icin siren
+        // VE lamba sabit/hardcoded kapaliydi, "sadece bildirim" hic gorunmuyordu.
         if (ayar.alarmMod == ALARM_MOD_SESSIZ) {
-          // Sessiz mod: role/siren hic calismaz, sadece web/SSE bildirimi (durumJson) gosterilir
-          sirenIstenen = false;
+          sirenIstenen = (ayar.alarmOutputSessiz & ALARM_OUTPUT_SIREN) && !alarmSusturuldu;
+          alarmCikisLambaIstenen = (ayar.alarmOutputSessiz & ALARM_OUTPUT_LAMBA) != 0;
         } else if (ayar.alarmMod == ALARM_MOD_ONAYLI) {
           if (alarmOnaySadeceLamba) {
-            sirenIstenen = false; // sadece lamba flaşörü - siren/role calismaz
+            sirenIstenen = false; alarmCikisLambaIstenen = true; // sadece lamba flaşörü - siren/role calismaz
           } else if (!alarmOnaylandi) {
-            alarmOnayBekliyor = true; sirenIstenen = false;
+            alarmOnayBekliyor = true; sirenIstenen = false; alarmCikisLambaIstenen = false;
           } else {
-            sirenIstenen = !alarmSusturuldu;
+            sirenIstenen = !alarmSusturuldu; alarmCikisLambaIstenen = sirenIstenen;
           }
         } else {
           // Sesli mod
-          sirenIstenen = !alarmSusturuldu;
+          sirenIstenen = (ayar.alarmOutputSesli & ALARM_OUTPUT_SIREN) && !alarmSusturuldu;
+          alarmCikisLambaIstenen = (ayar.alarmOutputSesli & ALARM_OUTPUT_LAMBA) != 0;
         }
         if (sirenIstenen && !roleFizikselDurum) nanoRoleKontrol(true);
         else if (!sirenIstenen && roleFizikselDurum) nanoRoleKontrol(false);
@@ -1673,7 +1688,12 @@ void loop() {
   // yanip soner; role kapaninca lamba tetiklenmeden onceki durumuna doner.
   // Kendi !nanoMesgul kontrolünü ayrı yapar ki yukarıdaki role komutu
   // kuyruğu meşgul ettiğinde bu döngüde beklesin, bir sonrakinde devam etsin.
-  if (roleFizikselDurum || alarmOnaySadeceLamba) {
+  // Lamba, artik yukarida hesaplanan alarmCikisLambaIstenen'e gore yanip
+  // sonuyor (mod cikis ayarindan geliyor) - roleFizikselDurum'a bagimli
+  // DEGIL, boylece "siren acik, lamba kapali" gibi kombinasyonlar da
+  // dogru calisir (eskiden lamba sadece siren fiziksel olarak tetiklenince
+  // yanip soner, Sessiz modda hicbir zaman yanmazdi).
+  if (alarmCikisLambaIstenen) {
     if (!lambaFlashAktif) {
       lambaFlashAktif = true;
       lambaFlashOncekiManuel = lambaAcik;
