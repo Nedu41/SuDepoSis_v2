@@ -791,9 +791,9 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   <div id="ayarlar" class="section">
     <div class="card">
       <h3>OTA Güncelleme</h3>
+      <p style="font-size:12px;color:var(--muted)">GitHub'daki en son firmware'i indirip yazar (main dalı).</p>
       <div class="row">
-        <input class="input" id="otaUrl" placeholder="https://example.com/firmware.bin">
-        <button class="btn btn-primary" onclick="otaGuncelle()">Güncelle</button>
+        <button class="btn btn-primary" onclick="otaGuncelle()">GitHub'dan Güncelle</button>
       </div>
       <div id="ota-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <div class="row" style="margin-top:10px">
@@ -1285,16 +1285,16 @@ function alarmOnaylaLamba(){
   sendCommand(null, '/api/alarm/onayla_lamba', '#alarm-sonuc');
 }
 function otaGuncelle(){
-  const u=$('#otaUrl').value; if(!u){$('#ota-sonuc').textContent='URL gerekli';return;}
+  if(!confirm('GitHub\'daki en son firmware indirilip yazılacak, cihaz yeniden başlayacak. Emin misin?'))return;
   $('#ota-sonuc').textContent='Güncelleniyor...';
-  api('/api/ota?url='+encodeURIComponent(u)).then(d=>{$('#ota-sonuc').textContent=d.mesaj||'';});
+  api('/api/ota').then(d=>{$('#ota-sonuc').textContent=d.mesaj||'';});
 }
 function rainKonumKaydet(){
   const il=$('#rainIl').value, ilce=$('#rainIlce').value;
   if(!il){$('#rain-sonuc').textContent='Il secin';return;}
   $('#rain-sonuc').textContent='Konum cozuluyor...';
   fetch('/api/location',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'il='+encodeURIComponent(il)+'&ilce='+encodeURIComponent(ilce)})
-    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();})
+    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();guncelle();})
     .catch(()=>{$('#rain-sonuc').textContent='Hata!';});
 }
 function rainKontrolEt(){
@@ -1338,7 +1338,7 @@ function firmwareYukle(){
 }
 function yedekDurumYukle(){
   fetch('/api/kayit/yedek_durum').then(r=>r.json()).then(d=>{
-    $('#yedek-durum-kutu').textContent = d.varMi ? ('Yedek var (son: '+d.sonYedek+')') : 'Henuz yedek alinmadi';
+    $('#yedek-durum-kutu').textContent = d.varMi ? ('Yedek dosyasi: '+d.dosya+' - Son yedekleme: '+d.sonYedek) : 'Henuz yedek alinmadi';
   }).catch(()=>{});
 }
 function kayitYedekle(){
@@ -1509,15 +1509,13 @@ void handleSSE() {
 }
 
 void handleOTA() {
-  if (!server.hasArg("url")) {
-    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"URL eksik\"}");
-    return;
-  }
-  String url = server.arg("url");
+  // Sabit GitHub linkinden ("son surum") indirir - bkz config.h GITHUB_FIRMWARE_URL.
+  String url = GITHUB_FIRMWARE_URL;
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Guncelleniyor\"}");
   delay(100);
-  
-  WiFiClient client;
+
+  WiFiClientSecure client;
+  client.setInsecure();  // raw.githubusercontent.com sertifika zincirini dogrulamadan kabul et
   HTTPClient http;
   http.begin(client, url);
   int httpCode = http.GET();
@@ -1705,7 +1703,15 @@ bool esp8266KayitYedekle() {
     start = tilde + 1;
   }
   f.close();
-  sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
+  // Gercek tarih/saat icin ESP8266'nin RTC'sini sor (ESP32'de RTC yok).
+  String zamanReply;
+  if (rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 1000, 3)) {
+    int eqZ = zamanReply.indexOf("GET_ZAMAN=");
+    if (eqZ >= 0) sonYedekZamanStr = zamanReply.substring(eqZ + 10);
+    else sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
+  } else {
+    sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
+  }
   return true;
 }
 
@@ -1767,7 +1773,7 @@ void handleAPI_KayitGeriYukle() {
 
 void handleAPI_KayitYedekDurum() {
   bool varMi = SPIFFS.exists(KAYIT_BACKUP_DOSYASI);
-  server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"sonYedek\":\"" + sonYedekZamanStr + "\"}");
+  server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"dosya\":\"" + String(KAYIT_BACKUP_DOSYASI) + "\",\"sonYedek\":\"" + sonYedekZamanStr + "\"}");
 }
 
 // ============ RS485 KOMUT API'LERI ============

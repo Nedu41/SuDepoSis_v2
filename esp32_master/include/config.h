@@ -118,6 +118,15 @@
 #define RAIN_THRESHOLD_MM 1.0f          // Yarin bu kadar mm+ yagmur bekleniyorsa sulama atlanir
 #define RAIN_CHECK_INTERVAL_MS (12UL * 3600UL * 1000UL)  // Internet varken en fazla 12 saatte bir kontrol
 
+// ===== OTA (GitHub'dan guncelleme) =====
+// Sabit "en son surum" linki: repoya push edilen .bin dosyasina isaret eder,
+// versiyon karsilastirmasi yapilmaz - "Guncelle" tusuna basildiginda dogrudan
+// bu adresten indirilip yazilir. Yeni bir firmware yayinlamak icin:
+//   1) pio run (esp32_master) ile derle
+//   2) .pio/build/esp32s3/firmware.bin dosyasini esp32_master/firmware/esp32.bin'e kopyala
+//   3) main dalina push et - link otomatik guncel halini gosterir (raw.githubusercontent.com HEAD'i takip eder)
+#define GITHUB_FIRMWARE_URL "https://raw.githubusercontent.com/Nedu41/SuDepoSis_v2/main/esp32_master/firmware/esp32.bin"
+
 // ===== Özellikler =====
 #define ENABLE_MQTT 1
 #define ENABLE_OTA 1
