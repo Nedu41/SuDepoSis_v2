@@ -1685,20 +1685,40 @@ bool esp8266KayitYedekle() {
 // ESP8266'nin RS485 tarafi kucuk SoftwareSerial arabellegi kullaniyor - tum
 // yedegi TEK uzun satirda geri gondermek tasma riski tasir. Bunun yerine
 // satir satir, her birini ACK ile onaylatarak gonderiyoruz.
+String kayitGeriYuklemeHata = "";
+
 bool esp8266KayitGeriYukle() {
+  kayitGeriYuklemeHata = "";
   File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "r");
-  if (!f) return false;
+  if (!f) { kayitGeriYuklemeHata = "Yedek dosyasi yok"; return false; }
   String reply;
-  if (!rs485_send_wait_ack("MASTER:RESTORE_BASLA\n", reply, 1000, 3)) { f.close(); return false; }
+  // FIX: 1000ms/3 deneme ara sira yetersiz kaliyordu (ESP8266 kendi nanoPoll
+  // dongusuyle mesgulken RESTORE_SATIR kacabiliyordu) - "yedeklendi" basarili
+  // oluyordu (tek istek) ama "geri yukle" (10 ardisik istek) sik basarisiz
+  // oluyordu. Sure/deneme arttirildi, satirlar arasina kucuk bir bosluk
+  // eklendi ki ESP8266 arada nefes alsin.
+  if (!rs485_send_wait_ack("MASTER:RESTORE_BASLA\n", reply, 1500, 5)) {
+    f.close(); kayitGeriYuklemeHata = "RESTORE_BASLA yanit vermedi"; return false;
+  }
   bool hepsiOk = true;
+  int satirNo = 0;
   while (f.available()) {
     String satir = f.readStringUntil('\n'); satir.trim();
     if (satir.length() == 0) continue;
+    satirNo++;
     String cmd = "MASTER:RESTORE_SATIR=" + satir + "\n";
-    if (!rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3)) { hepsiOk = false; break; }
+    if (!rs485_send_wait_ack(cmd.c_str(), reply, 1500, 5)) {
+      hepsiOk = false;
+      kayitGeriYuklemeHata = String(satirNo) + ". satirda yanit alinamadi";
+      break;
+    }
+    delay(30);
   }
   f.close();
-  if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1000, 3)) hepsiOk = false;
+  if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1500, 5)) {
+    hepsiOk = false;
+    if (kayitGeriYuklemeHata.length() == 0) kayitGeriYuklemeHata = "RESTORE_BITIR yanit vermedi";
+  }
   return hepsiOk;
 }
 
@@ -1715,7 +1735,7 @@ void handleAPI_KayitGeriYukle() {
   bool ok = esp8266KayitGeriYukle();
   rs485_api_busy = false;
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
-              String(ok ? "Geri yuklendi" : "Geri yukleme basarisiz - once yedek al") + "\"}");
+              String(ok ? "Geri yuklendi" : ("Geri yukleme basarisiz: " + kayitGeriYuklemeHata)) + "\"}");
 }
 
 void handleAPI_KayitYedekDurum() {
