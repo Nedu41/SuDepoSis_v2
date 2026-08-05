@@ -162,6 +162,8 @@ void handleSerialCommand() {
         response += moistureRawVal;
         response += ",MOISTURE_PCT=";
         response += moisturePct;
+        response += ",POLARITY=";
+        response += (relayAktifSeviye == HIGH) ? '1' : '0';
         Serial.println(response);
       } else if (inputString == F("LAMBA_ON")) {
         digitalWrite(LAMBA_PIN, LAMBA_ON_STATE);

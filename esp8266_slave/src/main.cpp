@@ -208,6 +208,7 @@ bool pirTetikleyici = false;
 unsigned long pirYukselmeMs = 0;
 bool pirHamOnceki = false;
 bool roleFizikselDurum = false;
+bool rolePolariteHigh = true;  // Nano GET_STATUS'tan gelir - dropdown gercek durumu yansitsin diye
 bool roleTestAktif = false;
 unsigned long roleTestBitisMs = 0;
 bool nanoBaglantiVar = false;
@@ -311,6 +312,7 @@ void nanoStatusAyristir(const String& yanit) {
       // NOT: pirAcik burada degil, nanoPoll() icinde ayri PIN_READ ile guncellenir
       // (Nano firmware'i GET_STATUS yanitina PIR eklemez, D6 genel GPIO'dur)
       roleFizikselDurum  = (yanit.indexOf("RELE=1") >= 0);
+      if (yanit.indexOf("POLARITY=") >= 0) rolePolariteHigh = (yanit.indexOf("POLARITY=1") >= 0);
       lambaAcik          = (yanit.indexOf("LAMBA=1") >= 0);
       moistureOutputActive = (yanit.indexOf("MOISTURE=1") >= 0);
   int raw_idx = yanit.indexOf("MOISTURE_RAW=");
@@ -951,6 +953,7 @@ String durumJson() {
    j += "\"alarmSusturuldu\":" + String(alarmSusturuldu ? "true" : "false") + ",";
    j += "\"alarmOnayBekliyor\":" + String(alarmOnayBekliyor ? "true" : "false") + ",";
    j += "\"alarmOnaylandi\":" + String(alarmOnaylandi ? "true" : "false") + ",";
+   j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false") + ",";
    j += "\"yagmurSulamaAtla\":" + String(yagmurSulamaAtlaGecerli() ? "true" : "false");
    j += "}";
   return j;
@@ -1000,6 +1003,7 @@ void handleCSS() {
   css += ".duzenle-form select,.duzenle-form input{flex:1;min-width:90px;margin-top:0;padding:8px}";
   css += ".duzenle-form button{width:auto;margin-top:0;padding:8px 14px}";
   css += ".btn-sil{background:none;border:none;cursor:pointer;font-size:14px}";
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.send(200, "text/css", css);
 }
 
@@ -1016,6 +1020,9 @@ void handleCSS() {
 void handleRoot() {
   File f = LittleFS.open("/index.html", "r");
   if (f) {
+    // FIX: tarayici bu sayfayi/JS'i cache'leyip guncellemeleri gostermeyebiliyordu
+    // (uploadfs ile yeni ozellik eklense bile eski surum gorunuyordu).
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.streamFile(f, "text/html");
     f.close();
   } else {
@@ -1275,6 +1282,7 @@ void handleFileUploadProgress() {
 void handleJS() {
   File f = LittleFS.open("/app.js", "r");
   if (f) {
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.streamFile(f, "application/javascript");
     f.close();
   } else {
@@ -1500,6 +1508,21 @@ void loop() {
       DEBUG_PRINTLN("[WIFI] AP kapaliydi, yeniden baslatiliyor");
       WiFi.mode(WIFI_AP_STA);
       WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, WIFI_AP_HIDDEN);
+    }
+  }
+
+  // RTC bagliliğini periyodik yeniden dene. Sadece setup()'ta bir kez
+  // denenirse, boot anindaki gecici bir I2C hazirsizlik/gecikme sorunu
+  // rtcHazir'i kalici olarak false'ta biraktiriyordu - sonraki reboot'a
+  // kadar hicbir zaman duzelmiyordu ("bazen calisiyor bazen calismiyor"
+  // davranisinin sebebi buydu). Simdi 30sn'de bir tekrar denenir.
+  static unsigned long sonRtcDenemeMs = 0;
+  if (!rtcHazir && simdiMs - sonRtcDenemeMs >= 30000UL) {
+    sonRtcDenemeMs = simdiMs;
+    Wire.begin(RTC_SDA, RTC_SCL);
+    if (rtc.begin()) {
+      rtcHazir = true;
+      DEBUG_PRINTLN("[RTC] Yeniden baglanildi");
     }
   }
 
