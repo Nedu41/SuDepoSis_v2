@@ -207,7 +207,7 @@ bool pirAcik = false;           // PIR sensörü hareket algısı (ham deger)
 // PIR'i saniyelerce (modulun kendi hold-time'i kadar) aktif tutar.
 bool pirTetikleyici = false;
 unsigned long pirYukselmeMs = 0;
-bool pirHamOnceki = false;
+unsigned long pirSonAktifMs = 0; // PIR ham en son ne zaman aktif goruldu (kisa kesinti toleransi icin)
 bool roleFizikselDurum = false;
 bool rolePolariteHigh = true;  // Nano GET_STATUS'tan gelir - dropdown gercek durumu yansitsin diye
 bool roleTestAktif = false;
@@ -314,17 +314,30 @@ void nanoStatusAyristir(const String& yanit) {
       // kendisinden okunuyor - iki ayri komutu ayni pencerede art arda
       // gondermenin yol actigi zamanlama/kesilme sorunlari ortadan kalkti.
       {
+        // FIX: Onay suresi uzatildiginda (orn 3sn) tetiklenmenin dengesiz
+        // olmasi - PIR modulunun/RS485-UART hattinin ara sira TEK bir
+        // okumada "0" donmesi (gercek hareket kesilmeden), eskiden
+        // pirYukselmeMs'i aninda sifirlayip onay sayacini bastan
+        // baslatiyordu. Ne kadar uzun onay suresi istenirse, tek bir
+        // kacirilan okumanin sayaci sifirlama ihtimali o kadar artiyordu.
+        // Simdi ham deger 1sn'den kisa sure "0" gorunse bile hareket hala
+        // "devam ediyor" sayilir - gercekten 1sn+ kesilirse sayac sifirlanir.
         bool pirHam = (yanit.indexOf("PIR=1") >= 0);
-        if (pirHam && !pirHamOnceki) pirYukselmeMs = millis();
-        pirAcik = pirHam;
-        if (!pirHam) {
+        unsigned long simdiPir = millis();
+        if (pirHam) {
+          if (!pirAcik) pirYukselmeMs = simdiPir; // yeni hareket dongusu basliyor
+          pirSonAktifMs = simdiPir;
+          pirAcik = true;
+        } else if (pirAcik && simdiPir - pirSonAktifMs > 1000UL) {
+          pirAcik = false;
+        }
+        if (!pirAcik) {
           pirTetikleyici = false;
         } else if (ayar.pirOnaySaniye == 0) {
           pirTetikleyici = true;
-        } else if (millis() - pirYukselmeMs >= (unsigned long)ayar.pirOnaySaniye * 1000UL) {
+        } else if (simdiPir - pirYukselmeMs >= (unsigned long)ayar.pirOnaySaniye * 1000UL) {
           pirTetikleyici = true;
         }
-        pirHamOnceki = pirHam;
       }
       roleFizikselDurum  = (yanit.indexOf("RELE=1") >= 0);
       if (yanit.indexOf("POLARITY=") >= 0) rolePolariteHigh = (yanit.indexOf("POLARITY=1") >= 0);
