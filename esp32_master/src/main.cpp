@@ -60,6 +60,10 @@ bool rainForecastTomorrow = false;
 bool rainLocationValid = false;
 unsigned long lastRainCheckMs = 0;
 String lastRainCheckStr = "-";
+#define RAIN_FORECAST_DAYS 7
+String rainForecastDates[RAIN_FORECAST_DAYS];
+float rainForecastMm[RAIN_FORECAST_DAYS];
+int rainForecastCount = 0;
 
 void locPrefsYukle() {
   locPrefs.begin("loc", true);
@@ -141,7 +145,7 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
   if (!zorla && lastRainCheckMs != 0 && millis() - lastRainCheckMs < RAIN_CHECK_INTERVAL_MS) return;
 
   String url = String(RAIN_FORECAST_API) + "?latitude=" + String(savedLat, 4) + "&longitude=" + String(savedLon, 4) +
-               "&daily=precipitation_sum&forecast_days=2&timezone=auto";
+               "&daily=precipitation_sum&forecast_days=" + String(RAIN_FORECAST_DAYS) + "&timezone=auto";
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -150,11 +154,17 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
   int code = http.GET();
   if (code == HTTP_CODE_OK) {
     String payload = http.getString();
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(3072);
     if (deserializeJson(doc, payload) == DeserializationError::Ok) {
+      JsonArray dates = doc["daily"]["time"].as<JsonArray>();
       JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
-      if (precip.size() >= 2) {
-        float yarinMm = precip[1].as<float>();
+      rainForecastCount = min((int)precip.size(), RAIN_FORECAST_DAYS);
+      for (int i = 0; i < rainForecastCount; i++) {
+        rainForecastDates[i] = dates[i].as<String>();
+        rainForecastMm[i] = precip[i].as<float>();
+      }
+      if (rainForecastCount >= 2) {
+        float yarinMm = rainForecastMm[1];
         rainForecastTomorrow = (yarinMm >= RAIN_THRESHOLD_MM);
         lastRainCheckMs = millis();
         lastRainCheckStr = String(yarinMm, 1) + "mm";
@@ -799,6 +809,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <label><input type="checkbox" id="rainSkipToggle" onchange="rainToggle()"> Yarın yağmur bekleniyorsa otomatik sulamayı atla</label>
       </div>
       <div id="rain-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div id="rain-haftalik" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
 
     <div class="card">
@@ -1212,16 +1223,31 @@ function rainKonumKaydet(){
   if(!il){$('#rain-sonuc').textContent='Il secin';return;}
   $('#rain-sonuc').textContent='Konum cozuluyor...';
   fetch('/api/location',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'il='+encodeURIComponent(il)+'&ilce='+encodeURIComponent(ilce)})
-    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';})
+    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();})
     .catch(()=>{$('#rain-sonuc').textContent='Hata!';});
 }
 function rainKontrolEt(){
   $('#rain-sonuc').textContent='Kontrol ediliyor...';
-  api('/api/rain/check').then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';});
+  api('/api/rain/check').then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();});
 }
 function rainToggle(){
   const aktif=$('#rainSkipToggle').checked?1:0;
-  api('/api/rain/toggle?aktif='+aktif).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';});
+  api('/api/rain/toggle?aktif='+aktif).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();});
+}
+function rainHaftalikYukle(){
+  const kutu=$('#rain-haftalik'); if(!kutu) return;
+  fetch('/api/location').then(r=>r.json()).then(d=>{
+    const gunler=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+    const liste=d.haftalik||[];
+    if(liste.length===0){kutu.innerHTML='';return;}
+    kutu.innerHTML=liste.map((g,i)=>{
+      const tarih=new Date(g.tarih+'T12:00:00');
+      const gunAdi=i===0?'Bugün':(i===1?'Yarın':gunler[tarih.getDay()]);
+      const yagmurVar=g.mm>=1.0;
+      const stil=yagmurVar?'background:rgba(37,99,235,.15);border-color:var(--primary)':'';
+      return '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;'+stil+'">'+gunAdi+'<br><b>'+g.mm.toFixed(1)+'mm</b>'+(yagmurVar?' 🌧':'')+'</div>';
+    }).join('');
+  }).catch(()=>{});
 }
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
@@ -1264,6 +1290,7 @@ function restartSistem(){
 }
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
+rainHaftalikYukle();
 </script>
 </body>
 </html>
@@ -1453,8 +1480,13 @@ void handleAPI_LocationGet() {
   j += "\"gecerli\":" + String(rainLocationValid ? "true" : "false") + ",";
   j += "\"rainSkipEnabled\":" + String(rainSkipEnabled ? "true" : "false") + ",";
   j += "\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + ",";
-  j += "\"lastCheck\":\"" + lastRainCheckStr + "\"";
-  j += "}";
+  j += "\"lastCheck\":\"" + lastRainCheckStr + "\",";
+  j += "\"haftalik\":[";
+  for (int i = 0; i < rainForecastCount; i++) {
+    if (i > 0) j += ",";
+    j += "{\"tarih\":\"" + rainForecastDates[i] + "\",\"mm\":" + String(rainForecastMm[i], 1) + "}";
+  }
+  j += "]}";
   server.send(200, "application/json", j);
 }
 

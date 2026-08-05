@@ -106,6 +106,9 @@
 #define MIN_FILL_LITERS 20.0
 #define LEAK_THRESHOLD_MINUTES 60
 
+// ===== Kayitlar (Dolum Gecmisi) =====
+#define MAX_KAYIT_SAYISI 10  // Sadece en son bu kadar kayit tutulur, eskiler otomatik silinir
+
 // ===== Ölçüm Aralıkları (saniye) =====
 #define DAY_MEASURE_INTERVAL 60
 #define NIGHT_MEASURE_INTERVAL 900
