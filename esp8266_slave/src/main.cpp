@@ -442,13 +442,6 @@ bool nanoMoistureKontrol(bool ac) {
   return true;
 }
 
-void moistureOku() {
-  moistureRaw = analogRead(A0);
-  moisturePercent = 100.0 - (moistureRaw * 100.0 / 1023.0);
-  if (moisturePercent < 0) moisturePercent = 0;
-  if (moisturePercent > 100) moisturePercent = 100;
-}
-
 bool yagmurSulamaAtlaGecerli() {
   return yagmurSulamaAtla && (millis() - yagmurSonGuncellemeMs < RAIN_SKIP_STALE_MS);
 }
@@ -742,7 +735,6 @@ float olcumOrtalama() {
 
 // ============ OLCUM ============
 void olcumYap() {
-  moistureOku();
   applyMoistureControl();
   float m = olcumOrtalama();
   if (m > 0 && m < 500) {
@@ -1112,7 +1104,7 @@ void handleSSE() {
 
 // ============ API ROTALARI ============
 void handleMeasure() { olcumYap(); ssePush(); server.send(200, "application/json", durumJson()); }
-void handleStatus() { moistureOku(); if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
+void handleStatus() { if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
 void handleTime() {
   String json = "{\"zaman\":\"" + simdikiZamanStr() + "\",\"tarihISO\":\"" + simdikiTarihISO() + "\"}";
   server.send(200, "application/json", json);
@@ -1687,7 +1679,7 @@ void loop() {
   if (s - sonOtomatikOlcumMs >= (unsigned long)a * 1000UL) { olcumYap(); sonOtomatikOlcumMs = s; ssePush(); server.handleClient(); }
   // SSE periyodik durum guncelleme (1500ms) - sensör olcumu yapmadan sadece durum iter
   static unsigned long sseGonderMs = 0;
-  if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; moistureOku(); ssePush(); }
+  if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; ssePush(); }
   // Periyodik RS485 gonderimi (1000ms) - ESP32 poll'u kacirsa bile veri akisi devam eder
   static unsigned long sonMasterGonderMs = 0;
   if (s - sonMasterGonderMs >= RS485_SEND_INTERVAL) {
