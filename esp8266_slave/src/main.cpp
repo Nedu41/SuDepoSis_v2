@@ -343,18 +343,12 @@ void nanoStatusAyristir(const String& yanit) {
       if (yanit.indexOf("POLARITY=") >= 0) rolePolariteHigh = (yanit.indexOf("POLARITY=1") >= 0);
       lambaAcik          = (yanit.indexOf("LAMBA=1") >= 0);
       moistureOutputActive = (yanit.indexOf("MOISTURE=1") >= 0);
-  int raw_idx = yanit.indexOf("MOISTURE_RAW=");
-  if (raw_idx >= 0) {
-    int end_idx = yanit.indexOf(',', raw_idx);
-    String raw_str = (end_idx >= 0) ? yanit.substring(raw_idx + 13, end_idx) : yanit.substring(raw_idx + 13);
-    moistureRaw = raw_str.toInt();
-  }
-  int pct_idx = yanit.indexOf("MOISTURE_PCT=");
-  if (pct_idx >= 0) {
-    int end_idx = yanit.indexOf(',', pct_idx);
-    String pct_str = (end_idx >= 0) ? yanit.substring(pct_idx + 13, end_idx) : yanit.substring(pct_idx + 13);
-    moisturePercent = pct_str.toFloat();
-  }
+      // NOT: Nano'nun GET_STATUS yanitindaki MOISTURE_RAW=/MOISTURE_PCT=
+      // ARTIK OKUNMUYOR - gercek nem sensoru Nano'da degil, ESP8266'nin
+      // kendi A0 pininde (bkz moistureOku()). Nano'nunkini buraya
+      // yazdirmak, ESP8266'nin dogru yerel okumasini periyodik olarak
+      // Nano'nun (baglanmamis) A0 gurultusuyle eziyordu - Kalburum
+      // panelinde degerin "bir dogru bir en yuksek" sicramasinin sebebi buydu.
 }
 
 void nanoPoll() {
@@ -442,6 +436,13 @@ bool nanoMoistureKontrol(bool ac) {
   return true;
 }
 
+void moistureOku() {
+  moistureRaw = analogRead(A0);
+  moisturePercent = 100.0 - (moistureRaw * 100.0 / 1023.0);
+  if (moisturePercent < 0) moisturePercent = 0;
+  if (moisturePercent > 100) moisturePercent = 100;
+}
+
 bool yagmurSulamaAtlaGecerli() {
   return yagmurSulamaAtla && (millis() - yagmurSonGuncellemeMs < RAIN_SKIP_STALE_MS);
 }
@@ -496,6 +497,11 @@ void rs485Gonder(const char* data) {
 // Periyodik gönderme, SoftwareSerial'in güvenilmez olduğu durumlarda yedek sağlar.
 // ESP32 poll'u kaçsa bile veri akışı devam eder.
 void masterGonder() {
+  // Kalburum'a (ESP32) her zaman taze nem degeri gitsin diye gonderim
+  // aninda oku - eskiden bu, sadece sudepo sayfasi acikken (SSE) veya
+  // 60-900sn'lik periyodik olcumde tazeleniyordu, aradaki surede Kalburum
+  // eski/durgun deger gorebiliyordu.
+  moistureOku();
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),
@@ -735,6 +741,7 @@ float olcumOrtalama() {
 
 // ============ OLCUM ============
 void olcumYap() {
+  moistureOku();
   applyMoistureControl();
   float m = olcumOrtalama();
   if (m > 0 && m < 500) {
@@ -1104,7 +1111,7 @@ void handleSSE() {
 
 // ============ API ROTALARI ============
 void handleMeasure() { olcumYap(); ssePush(); server.send(200, "application/json", durumJson()); }
-void handleStatus() { if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
+void handleStatus() { moistureOku(); if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
 void handleTime() {
   String json = "{\"zaman\":\"" + simdikiZamanStr() + "\",\"tarihISO\":\"" + simdikiTarihISO() + "\"}";
   server.send(200, "application/json", json);
@@ -1679,7 +1686,7 @@ void loop() {
   if (s - sonOtomatikOlcumMs >= (unsigned long)a * 1000UL) { olcumYap(); sonOtomatikOlcumMs = s; ssePush(); server.handleClient(); }
   // SSE periyodik durum guncelleme (1500ms) - sensör olcumu yapmadan sadece durum iter
   static unsigned long sseGonderMs = 0;
-  if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; ssePush(); }
+  if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; moistureOku(); ssePush(); }
   // Periyodik RS485 gonderimi (1000ms) - ESP32 poll'u kacirsa bile veri akisi devam eder
   static unsigned long sonMasterGonderMs = 0;
   if (s - sonMasterGonderMs >= RS485_SEND_INTERVAL) {
