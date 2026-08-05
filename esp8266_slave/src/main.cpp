@@ -240,36 +240,54 @@ void olcumYap();
 void kayitlariSiniraGetir(int maxKayit);
 
 // ============ ZAMAN YARDIMCILARI ============
+// KRITIK: ESP8266'da Wire/I2C, hardware degil yazilimsal (bit-banging) calisir -
+// SDA/SCL gecisleri arasinda kucuk gecikme donguleriyle zamanlanir. RS485 icin
+// kullanilan SoftwareSerial da GPIO kesmesiyle (interrupt) calisir; bu kesme tam
+// bir I2C darbesinin ortasinda tetiklenirse zamanlama bozulur, DS1307 ACK vermez
+// ya da bozuk bayt okunur - "bazen calisiyor bazen calismiyor" davranisinin en
+// olasi sebeplerinden biri budur (30sn'de bir yeniden baglanma denemesi zaten
+// var, ama TEK bir bozuk okuma bile o an icin yanlis tarih/gece modu vermeye
+// yeterliydi ve bunlarin cogu rtcHazir'i false yapmiyordu bile - asagida
+// duzeltildi). I2C transferini RS485 kesmesinden korumak icin rtc.now() etrafi
+// kisa sureligine kesmeler kapatilarak sarmalaniyor.
+bool rtcOkuGuvenli(DateTime &out) {
+  if (!rtcHazir) return false;
+  noInterrupts();
+  DateTime now = rtc.now();
+  interrupts();
+  if (now.year() < 2024 || now.year() > 2099) { rtcHazir = false; return false; }
+  out = now;
+  return true;
+}
+
 String simdikiZamanStr() {
   if (!rtcHazir) return "RTC yok";
-  DateTime now = rtc.now();
-  if (now.year() < 2024 || now.year() > 2099) { rtcHazir = false; return "RTC gecersiz"; }
+  DateTime now;
+  if (!rtcOkuGuvenli(now)) return "RTC gecersiz";
   char buf[24];
   snprintf(buf, sizeof(buf), "%02d/%02d/%04d %02d:%02d:%02d", now.day(), now.month(), now.year(), now.hour(), now.minute(), now.second());
   return String(buf);
 }
 
 String simdikiTarihISO() {
-  if (!rtcHazir) return "";
-  DateTime now = rtc.now();
-  if (now.year() < 2024 || now.year() > 2099) return "";
+  DateTime now;
+  if (!rtcOkuGuvenli(now)) return "";
   char buf[16];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d", now.year(), now.month(), now.day());
   return String(buf);
 }
 
 String simdikiYilAy() {
-  if (!rtcHazir) return "";
-  DateTime now = rtc.now();
-  if (now.year() < 2024 || now.year() > 2099) return "";
+  DateTime now;
+  if (!rtcOkuGuvenli(now)) return "";
   char buf[10];
   snprintf(buf, sizeof(buf), "%04d-%02d", now.year(), now.month());
   return String(buf);
 }
 
 bool geceModuMu() {
-  if (!rtcHazir) return false;
-  DateTime now = rtc.now();
+  DateTime now;
+  if (!rtcOkuGuvenli(now)) return false;
   int saat = now.hour();
   int b = ayar.geceBaslangicSaat, e = ayar.geceBitisSaat;
   if (b == e) return false;
@@ -1127,7 +1145,7 @@ void handleSetTime() {
     String z = server.arg("zaman");
     if (z.length() >= 16) {
       int y = z.substring(0,4).toInt(), a = z.substring(5,7).toInt(), g = z.substring(8,10).toInt(), s = z.substring(11,13).toInt(), d = z.substring(14,16).toInt(), sn = z.length()>=19?z.substring(17,19).toInt():0;
-      if (rtcHazir) { rtc.adjust(DateTime(y,a,g,s,d,sn)); m = "Zaman ayarlandi"; b = true; } else m = "RTC yok";
+      if (rtcHazir) { noInterrupts(); rtc.adjust(DateTime(y,a,g,s,d,sn)); interrupts(); m = "Zaman ayarlandi"; b = true; } else m = "RTC yok";
     } else m = "Format!";
   }
   server.send(200, "application/json", "{\"mesaj\":\"" + m + "\",\"basarili\":" + String(b?"true":"false") + "}");
@@ -1407,14 +1425,22 @@ void setup() {
   if (!LittleFS.exists(TUKETIM_GECMIS_DOSYASI)) { File f = LittleFS.open(TUKETIM_GECMIS_DOSYASI, "w"); if (f) f.close(); }
   Wire.begin(RTC_SDA, RTC_SCL);
   delay(100);
-  if (!rtc.begin()) {
+  noInterrupts();
+  bool rtcBaslatildi = rtc.begin();
+  interrupts();
+  if (!rtcBaslatildi) {
     rtcHazir = false;
     DEBUG_PRINTLN("[RTC] DS1307 bulunamadi - pil bitmis olabilir!");
   } else {
     rtcHazir = true;
-    if (!rtc.isrunning()) {
+    noInterrupts();
+    bool calisiyor = rtc.isrunning();
+    interrupts();
+    if (!calisiyor) {
       DEBUG_PRINTLN("[RTC] DS1307 calismiyor - degistirin!");
+      noInterrupts();
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+      interrupts();
     }
   }
   olcumYap();
@@ -1585,7 +1611,10 @@ void loop() {
   if (!rtcHazir && simdiMs - sonRtcDenemeMs >= 30000UL) {
     sonRtcDenemeMs = simdiMs;
     Wire.begin(RTC_SDA, RTC_SCL);
-    if (rtc.begin()) {
+    noInterrupts();
+    bool rtcBaglandi = rtc.begin();
+    interrupts();
+    if (rtcBaglandi) {
       rtcHazir = true;
       DEBUG_PRINTLN("[RTC] Yeniden baglanildi");
     }
