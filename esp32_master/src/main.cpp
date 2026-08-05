@@ -814,6 +814,13 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-primary" onclick="firmwareYukle()">Yukle</button>
       </div>
       <div id="fw-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:14px">Dosya sistemi (LittleFS - index.html/app.js, "uploadfs"): PlatformIO'da <code>pio run -t buildfs</code> ile <code>.pio/build/esp8266-12e/littlefs.bin</code> uret, buraya yukle, sonra ESP8266'nin OTA kutusuna asagidaki URL'yi yaz.</p>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="fwfs-durum-kutu">Yukleniyor...</div>
+      <div class="row">
+        <input type="file" id="fwfsDosya" accept=".bin">
+        <button class="btn btn-primary" onclick="firmwareFSYukle()">Yukle</button>
+      </div>
+      <div id="fwfs-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -1335,6 +1342,9 @@ function firmwareDurumYukle(){
     $('#fw-durum-kutu').innerHTML = d.varMi
       ? ('Yuklu: <b>'+(d.boyut/1024).toFixed(0)+' KB</b> (yukleme: '+d.yuklemeZamani+')<br>URL: <code>'+d.url+'</code>')
       : 'Henuz firmware yuklenmedi';
+    $('#fwfs-durum-kutu').innerHTML = d.varMiFS
+      ? ('Yuklu: <b>'+(d.boyutFS/1024).toFixed(0)+' KB</b> (yukleme: '+d.yuklemeZamaniFS+')<br>URL: <code>'+d.urlFS+'</code>')
+      : 'Henuz dosya sistemi imaji yuklenmedi';
   }).catch(()=>{});
 }
 function firmwareYukle(){
@@ -1345,6 +1355,15 @@ function firmwareYukle(){
   fetch('/firmware/upload',{method:'POST',body:fd})
     .then(r=>r.json()).then(d=>{$('#fw-sonuc').textContent='Yuklendi'; firmwareDurumYukle();})
     .catch(()=>{$('#fw-sonuc').textContent='Hata!';});
+}
+function firmwareFSYukle(){
+  const f=$('#fwfsDosya').files[0];
+  if(!f){$('#fwfs-sonuc').textContent='Dosya secin';return;}
+  $('#fwfs-sonuc').textContent='Yukleniyor...';
+  const fd=new FormData(); fd.append('firmware',f);
+  fetch('/firmware/upload_fs',{method:'POST',body:fd})
+    .then(r=>r.json()).then(d=>{$('#fwfs-sonuc').textContent='Yuklendi'; firmwareDurumYukle();})
+    .catch(()=>{$('#fwfs-sonuc').textContent='Hata!';});
 }
 function yedekDurumYukle(){
   fetch('/api/kayit/yedek_durum').then(r=>r.json()).then(d=>{
@@ -1586,6 +1605,10 @@ void handleFileUploadProgress() {
 // Ikisi ayni WiFi agina (orn. telefon hotspot'u) bagliyken calisir.
 #define ESP8266_FIRMWARE_DOSYASI "/esp8266_firmware.bin"
 String esp8266FirmwareYuklemeZamani = "-";
+// LittleFS (data/ - index.html/app.js) imaji icin ayri depo slotu - bkz
+// asagida "ESP8266 DOSYA SISTEMI (LittleFS) DEPOSU" bolumu.
+#define ESP8266_FS_DOSYASI "/esp8266_littlefs.bin"
+String esp8266FSYuklemeZamani = "-";
 
 void handleFirmwareUpload() {
   server.send(200, "application/json", "{\"basarili\":true}");
@@ -1620,8 +1643,49 @@ void handleFirmwareDurum() {
   bool varMi = SPIFFS.exists(ESP8266_FIRMWARE_DOSYASI);
   size_t boyut = 0;
   if (varMi) { File f = SPIFFS.open(ESP8266_FIRMWARE_DOSYASI, "r"); boyut = f.size(); f.close(); }
+  bool varMiFS = SPIFFS.exists(ESP8266_FS_DOSYASI);
+  size_t boyutFS = 0;
+  if (varMiFS) { File f = SPIFFS.open(ESP8266_FS_DOSYASI, "r"); boyutFS = f.size(); f.close(); }
   server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"boyut\":" + String(boyut) +
-              ",\"yuklemeZamani\":\"" + esp8266FirmwareYuklemeZamani + "\",\"url\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266.bin\"}");
+              ",\"yuklemeZamani\":\"" + esp8266FirmwareYuklemeZamani + "\",\"url\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266.bin\"" +
+              ",\"varMiFS\":" + String(varMiFS ? "true" : "false") + ",\"boyutFS\":" + String(boyutFS) +
+              ",\"yuklemeZamaniFS\":\"" + esp8266FSYuklemeZamani + "\",\"urlFS\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266fs.bin\"}");
+}
+
+// ============ ESP8266 DOSYA SISTEMI (LittleFS) DEPOSU ============
+// AMAC: OTA sadece programı (sketch/.bin) gunceller, LittleFS icindeki
+// index.html/app.js DEGISMEZ - "uploadfs" ayri bir islemdir ve normalde
+// USB gerektirir. Bahcede internet/USB yokken data/ klasoru degisince
+// (ornegin bu oturumda alarm banner/cikis ayarlari eklendiginde) ESP8266'yi
+// guncellemenin tek yolu buydu. Program deposuyla ayni mantik: dosya
+// buraya (ESP32 SPIFFS) yuklenir, ESP8266 buradan ceker.
+void handleFirmwareFSUpload() {
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+
+File esp8266FSYazFile;
+void handleFirmwareFSUploadProgress() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    DEBUG_PRINTLN(String("[FS-DEPO] Basliyor: ") + upload.filename);
+    esp8266FSYazFile = SPIFFS.open(ESP8266_FS_DOSYASI, "w");
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (esp8266FSYazFile) esp8266FSYazFile.write(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (esp8266FSYazFile) {
+      esp8266FSYazFile.close();
+      esp8266FSYuklemeZamani = String(millis() / 1000) + "sn (uptime)";
+      DEBUG_PRINTLN(String("[FS-DEPO] Kaydedildi: ") + String(upload.totalSize) + " byte");
+    }
+  }
+}
+
+void handleFirmwareFSServe() {
+  File f = SPIFFS.open(ESP8266_FS_DOSYASI, "r");
+  if (!f) { server.send(404, "text/plain", "Henuz dosya sistemi imaji yuklenmedi"); return; }
+  server.sendHeader("Cache-Control", "no-cache");
+  server.streamFile(f, "application/octet-stream");
+  f.close();
 }
 
 // ============ HAVA DURUMU / YAGMUR TAHMINI API'LERI ============
@@ -2048,6 +2112,8 @@ void setupWebServer() {
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
+  server.on("/firmware/upload_fs", HTTP_POST, handleFirmwareFSUpload, handleFirmwareFSUploadProgress);
+  server.on("/firmware/esp8266fs.bin", HTTP_GET, handleFirmwareFSServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);
