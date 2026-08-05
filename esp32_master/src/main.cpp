@@ -772,6 +772,17 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>Kayit Yedekleme</h3>
+      <p style="font-size:12px;color:var(--muted)">ESP8266'da "uploadfs" yapilinca kayitlar.csv silinir. Buradan yedek alip geri yukleyebilirsin.</p>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="yedek-durum-kutu">Yukleniyor...</div>
+      <div class="row">
+        <button class="btn btn-primary" onclick="kayitYedekle()">Simdi Yedekle</button>
+        <button class="btn btn-warn" onclick="kayitGeriYukle()">ESP8266'ya Geri Yukle</button>
+      </div>
+      <div id="yedek-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
       <h3>Hava Durumu / Yağmur Tahmini</h3>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="rain-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -1249,6 +1260,20 @@ function rainHaftalikYukle(){
     }).join('');
   }).catch(()=>{});
 }
+function yedekDurumYukle(){
+  fetch('/api/kayit/yedek_durum').then(r=>r.json()).then(d=>{
+    $('#yedek-durum-kutu').textContent = d.varMi ? ('Yedek var (son: '+d.sonYedek+')') : 'Henuz yedek alinmadi';
+  }).catch(()=>{});
+}
+function kayitYedekle(){
+  $('#yedek-sonuc').textContent='Yedekleniyor...';
+  api('/api/kayit/yedekle').then(d=>{$('#yedek-sonuc').textContent=d.mesaj||''; yedekDurumYukle();});
+}
+function kayitGeriYukle(){
+  if(!confirm('ESP8266\'nin mevcut kayitlar.csv dosyasi, buradaki yedekle degistirilecek. Emin misin?'))return;
+  $('#yedek-sonuc').textContent='Geri yukleniyor...';
+  api('/api/kayit/geri_yukle').then(d=>{$('#yedek-sonuc').textContent=d.mesaj||'';});
+}
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -1291,6 +1316,7 @@ function restartSistem(){
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
 rainHaftalikYukle();
+yedekDurumYukle();
 </script>
 </body>
 </html>
@@ -1522,6 +1548,76 @@ void handleAPI_RainCheckNow() {
   yagmurTahminiKontrolEt(true);
   server.send(200, "application/json", "{\"basarili\":" + String(rainLocationValid ? "true" : "false") + ",\"mesaj\":\"" +
               String(rainLocationValid ? "Kontrol edildi" : "Once konum kaydet") + "\",\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + "}");
+}
+
+// ============ KAYIT YEDEKLEME (ESP8266'nin kayitlar.csv'si buraya yedeklenir) ============
+// AMAC: ESP8266'da "pio run -t uploadfs" tum LittleFS'i sifirlar, kayitlar.csv da
+// dahil olmak uzere calisma-zamani dosyalarini siler. Yedek burada (ESP32 SPIFFS)
+// tutulur ve istendiginde ESP8266'ya geri gonderilir.
+#define KAYIT_BACKUP_DOSYASI "/kayitlar_backup.csv"
+String sonYedekZamanStr = "-";
+
+bool esp8266KayitYedekle() {
+  String reply;
+  bool ok = rs485_send_wait_ack("MASTER:GET_KAYITLAR\n", reply, 1000, 3);
+  if (!ok) return false;
+  int eq = reply.indexOf("GET_KAYITLAR=");
+  if (eq < 0) return false;
+  String joined = reply.substring(eq + 13);
+  File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "w");
+  if (!f) return false;
+  int start = 0;
+  while (start <= (int)joined.length()) {
+    int tilde = joined.indexOf('~', start);
+    String satir = (tilde >= 0) ? joined.substring(start, tilde) : joined.substring(start);
+    if (satir.length() > 0) f.println(satir);
+    if (tilde < 0) break;
+    start = tilde + 1;
+  }
+  f.close();
+  sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
+  return true;
+}
+
+// ESP8266'nin RS485 tarafi kucuk SoftwareSerial arabellegi kullaniyor - tum
+// yedegi TEK uzun satirda geri gondermek tasma riski tasir. Bunun yerine
+// satir satir, her birini ACK ile onaylatarak gonderiyoruz.
+bool esp8266KayitGeriYukle() {
+  File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "r");
+  if (!f) return false;
+  String reply;
+  if (!rs485_send_wait_ack("MASTER:RESTORE_BASLA\n", reply, 1000, 3)) { f.close(); return false; }
+  bool hepsiOk = true;
+  while (f.available()) {
+    String satir = f.readStringUntil('\n'); satir.trim();
+    if (satir.length() == 0) continue;
+    String cmd = "MASTER:RESTORE_SATIR=" + satir + "\n";
+    if (!rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3)) { hepsiOk = false; break; }
+  }
+  f.close();
+  if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1000, 3)) hepsiOk = false;
+  return hepsiOk;
+}
+
+void handleAPI_KayitYedekle() {
+  rs485_api_busy = true;
+  bool ok = esp8266KayitYedekle();
+  rs485_api_busy = false;
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
+              String(ok ? "Yedeklendi" : "Yedekleme basarisiz") + "\"}");
+}
+
+void handleAPI_KayitGeriYukle() {
+  rs485_api_busy = true;
+  bool ok = esp8266KayitGeriYukle();
+  rs485_api_busy = false;
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
+              String(ok ? "Geri yuklendi" : "Geri yukleme basarisiz - once yedek al") + "\"}");
+}
+
+void handleAPI_KayitYedekDurum() {
+  bool varMi = SPIFFS.exists(KAYIT_BACKUP_DOSYASI);
+  server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"sonYedek\":\"" + sonYedekZamanStr + "\"}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -1772,6 +1868,9 @@ void setupWebServer() {
   server.on("/api/location", HTTP_POST, handleAPI_LocationSet);
   server.on("/api/rain/toggle", handleAPI_RainToggle);
   server.on("/api/rain/check", handleAPI_RainCheckNow);
+  server.on("/api/kayit/yedekle", handleAPI_KayitYedekle);
+  server.on("/api/kayit/geri_yukle", handleAPI_KayitGeriYukle);
+  server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
@@ -1885,6 +1984,11 @@ void setup() {
   
   // RS485 Initialize
   rs485_init();
+
+  // SPIFFS - kayit yedekleme icin (bkz esp8266KayitYedekle/GeriYukle)
+  if (!SPIFFS.begin(true)) {
+    DEBUG_PRINTLN("[SPIFFS] Baslatilamadi");
+  }
 
   // WiFi Connect
   wifi_connect();
