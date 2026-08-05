@@ -790,6 +790,17 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>ESP8266 Firmware Deposu</h3>
+      <p style="font-size:12px;color:var(--muted)">Bahcede internet olmadigindan, ESP8266'nin "URL'den Guncelle" kutusuna GitHub yerine buradaki adresi yaz - ikisi ayni WiFi agindayken calisir.</p>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="fw-durum-kutu">Yukleniyor...</div>
+      <div class="row">
+        <input type="file" id="fwDosya" accept=".bin">
+        <button class="btn btn-primary" onclick="firmwareYukle()">Yukle</button>
+      </div>
+      <div id="fw-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
       <h3>Kayit Yedekleme</h3>
       <p style="font-size:12px;color:var(--muted)">ESP8266'da "uploadfs" yapilinca kayitlar.csv silinir. Buradan yedek alip geri yukleyebilirsin.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="yedek-durum-kutu">Yukleniyor...</div>
@@ -1284,6 +1295,22 @@ function rainHaftalikYukle(){
     }).join('');
   }).catch(()=>{});
 }
+function firmwareDurumYukle(){
+  fetch('/api/firmware/durum').then(r=>r.json()).then(d=>{
+    $('#fw-durum-kutu').innerHTML = d.varMi
+      ? ('Yuklu: <b>'+(d.boyut/1024).toFixed(0)+' KB</b> (yukleme: '+d.yuklemeZamani+')<br>URL: <code>'+d.url+'</code>')
+      : 'Henuz firmware yuklenmedi';
+  }).catch(()=>{});
+}
+function firmwareYukle(){
+  const f=$('#fwDosya').files[0];
+  if(!f){$('#fw-sonuc').textContent='Dosya secin';return;}
+  $('#fw-sonuc').textContent='Yukleniyor...';
+  const fd=new FormData(); fd.append('firmware',f);
+  fetch('/firmware/upload',{method:'POST',body:fd})
+    .then(r=>r.json()).then(d=>{$('#fw-sonuc').textContent='Yuklendi'; firmwareDurumYukle();})
+    .catch(()=>{$('#fw-sonuc').textContent='Hata!';});
+}
 function yedekDurumYukle(){
   fetch('/api/kayit/yedek_durum').then(r=>r.json()).then(d=>{
     $('#yedek-durum-kutu').textContent = d.varMi ? ('Yedek var (son: '+d.sonYedek+')') : 'Henuz yedek alinmadi';
@@ -1518,6 +1545,50 @@ void handleFileUploadProgress() {
       Update.printError(Serial);
     }
   }
+}
+
+// ============ ESP8266 FIRMWARE DEPOSU ============
+// AMAC: Bahcede sabit internet olmadigindan, esp8266_slave'in "URL'den OTA"
+// ozelligi GitHub'a degil buraya (ESP32'nin kendi SPIFFS'i) isaret edebilsin.
+// Ikisi ayni WiFi agina (orn. telefon hotspot'u) bagliyken calisir.
+#define ESP8266_FIRMWARE_DOSYASI "/esp8266_firmware.bin"
+String esp8266FirmwareYuklemeZamani = "-";
+
+void handleFirmwareUpload() {
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+
+File esp8266FirmwareYazFile;
+void handleFirmwareUploadProgress() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    DEBUG_PRINTLN(String("[FW-DEPO] Basliyor: ") + upload.filename);
+    esp8266FirmwareYazFile = SPIFFS.open(ESP8266_FIRMWARE_DOSYASI, "w");
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (esp8266FirmwareYazFile) esp8266FirmwareYazFile.write(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (esp8266FirmwareYazFile) {
+      esp8266FirmwareYazFile.close();
+      esp8266FirmwareYuklemeZamani = String(millis() / 1000) + "sn (uptime)";
+      DEBUG_PRINTLN(String("[FW-DEPO] Kaydedildi: ") + String(upload.totalSize) + " byte");
+    }
+  }
+}
+
+void handleFirmwareServe() {
+  File f = SPIFFS.open(ESP8266_FIRMWARE_DOSYASI, "r");
+  if (!f) { server.send(404, "text/plain", "Henuz firmware yuklenmedi"); return; }
+  server.sendHeader("Cache-Control", "no-cache");
+  server.streamFile(f, "application/octet-stream");
+  f.close();
+}
+
+void handleFirmwareDurum() {
+  bool varMi = SPIFFS.exists(ESP8266_FIRMWARE_DOSYASI);
+  size_t boyut = 0;
+  if (varMi) { File f = SPIFFS.open(ESP8266_FIRMWARE_DOSYASI, "r"); boyut = f.size(); f.close(); }
+  server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"boyut\":" + String(boyut) +
+              ",\"yuklemeZamani\":\"" + esp8266FirmwareYuklemeZamani + "\",\"url\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266.bin\"}");
 }
 
 // ============ HAVA DURUMU / YAGMUR TAHMINI API'LERI ============
@@ -1912,6 +1983,9 @@ void setupWebServer() {
   server.on("/api/kayit/yedekle", handleAPI_KayitYedekle);
   server.on("/api/kayit/geri_yukle", handleAPI_KayitGeriYukle);
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
+  server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
+  server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
+  server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);

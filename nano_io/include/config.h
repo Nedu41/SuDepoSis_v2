@@ -28,8 +28,10 @@
 // Alarm Rölesi (Output) - NC (Normally Closed), LOW = aktif
 #define RELAY_PIN       4       // D4 - Alarm Rölesi
 
+// PIR Hareket Sensörü (Input) - GET_STATUS yanitina dogrudan dahil edilir
+#define PIR_PIN         6       // D6 - PIR sensörü (HIGH = hareket)
+
 // Yedek GPIO pinleri (ESP'den dinamik yapılandırılır)
-// D6=6 (PIR sensörü burada - ESP8266 PIN_READ:6 ile okur, Nano kodu degismez)
 // D7=7, D8=8, D9=9, D10=10, D11=11, D12=12
 
 // Depo İç Lamba Rölesi (Output)
