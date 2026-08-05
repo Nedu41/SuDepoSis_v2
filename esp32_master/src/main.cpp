@@ -50,7 +50,6 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
 bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
 
 // ============ Hava Durumu / Yagmur Tahmini - Konum (NVS'de kalici) ============
-Preferences locPrefs;
 String savedIl = "";
 String savedIlce = "";
 double savedLat = 0.0;
@@ -65,25 +64,45 @@ String rainForecastDates[RAIN_FORECAST_DAYS];
 float rainForecastMm[RAIN_FORECAST_DAYS];
 int rainForecastCount = 0;
 
+// NOT: Bu ayarlar onceden ESP32 Preferences (NVS) ile saklaniyordu, ama
+// kullanicida tekrar tekrar kaydedilmeme sorunu yasandi (sebebi netlesmedi -
+// muhtemelen bu boarddaki NVS partisyonuyla ilgili). Bu oturumda kayit
+// yedekleme ve firmware deposu icin zaten guvenilir calistigini kanitladigimiz
+// SPIFFS dosyasina tasindi.
+#define LOC_AYAR_DOSYASI "/hava_ayarlari.json"
+
 void locPrefsYukle() {
-  locPrefs.begin("loc", true);
-  savedIl = locPrefs.getString("il", "");
-  savedIlce = locPrefs.getString("ilce", "");
-  savedLat = locPrefs.getDouble("lat", 0.0);
-  savedLon = locPrefs.getDouble("lon", 0.0);
-  rainSkipEnabled = locPrefs.getBool("skipOn", false);
-  locPrefs.end();
+  File f = SPIFFS.open(LOC_AYAR_DOSYASI, "r");
+  if (f) {
+    DynamicJsonDocument doc(512);
+    if (deserializeJson(doc, f) == DeserializationError::Ok) {
+      savedIl = doc["il"] | "";
+      savedIlce = doc["ilce"] | "";
+      savedLat = doc["lat"] | 0.0;
+      savedLon = doc["lon"] | 0.0;
+      rainSkipEnabled = doc["skipOn"] | false;
+    }
+    f.close();
+  }
   rainLocationValid = (savedLat != 0.0 || savedLon != 0.0);
+  DEBUG_PRINTLN(String("[HAVA] Yuklendi: il=") + savedIl + " ilce=" + savedIlce + " gecerli=" + String(rainLocationValid ? "1" : "0"));
 }
 
 void locPrefsKaydet() {
-  locPrefs.begin("loc", false);
-  locPrefs.putString("il", savedIl);
-  locPrefs.putString("ilce", savedIlce);
-  locPrefs.putDouble("lat", savedLat);
-  locPrefs.putDouble("lon", savedLon);
-  locPrefs.putBool("skipOn", rainSkipEnabled);
-  locPrefs.end();
+  DynamicJsonDocument doc(512);
+  doc["il"] = savedIl;
+  doc["ilce"] = savedIlce;
+  doc["lat"] = savedLat;
+  doc["lon"] = savedLon;
+  doc["skipOn"] = rainSkipEnabled;
+  File f = SPIFFS.open(LOC_AYAR_DOSYASI, "w");
+  if (f) {
+    serializeJson(doc, f);
+    f.close();
+    DEBUG_PRINTLN(String("[HAVA] Kaydedildi: il=") + savedIl + " ilce=" + savedIlce);
+  } else {
+    DEBUG_PRINTLN("[HAVA] KAYIT HATASI - SPIFFS dosyasi acilamadi");
+  }
 }
 
 // RFC3986 percent-encode - Turkce karakterler ve bosluklar icin gerekli
@@ -1024,7 +1043,11 @@ function renderUI(d){
   $('#bar-pct').style.width=Math.max(0,Math.min(100,d.level_percent||0))+'%';
   // Alarm
   const ad=$('#alarm-dot'); let at='Sistem Normal';
-  const anyAlarm = d.alarm && (d.alarm.leak||d.alarm.low_level||d.alarm.door);
+  // FIX: alarm sistemi kapaliyken (d.alarm.enabled===false) bile ham kapi/
+  // kacak/seviye durumuna bakip banner gosteriyordu - esp8266_slave ise
+  // sistem kapaliyken hicbir sey gostermiyor (tetikleyici mask'i sifirliyor).
+  // Ikisi tutarli olsun diye burada da enabled kontrolu eklendi.
+  const anyAlarm = d.alarm && d.alarm.enabled !== false && (d.alarm.leak||d.alarm.low_level||d.alarm.door);
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
     if(d.alarm.leak) at='ALARM: Kaçak!';
