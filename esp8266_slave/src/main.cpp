@@ -378,7 +378,12 @@ void nanoPoll() {
     // INPUT durumunda acilir, PIN_MODE ayarina gerek yok.
     while (Serial.available()) Serial.read();
     Serial.print("PIN_READ:"); Serial.println(PIR_NANO_PIN);
-    String pirYanit = nanoYanitOku(80);
+    // FIX: 80ms yetersizdi - /pin/read (manuel test) endpoint'i 300ms bekliyor
+    // ve guvenilir calisiyor, buradaki 80ms ise cogu zaman zaman asimina
+    // ugruyordu. Zaman asiminda pirAcik hic guncellenmiyordu (asagida "if"
+    // basarisiz olunca sessizce atlaniyor) - yani PIR ham deger baslangic
+    // degeri olan false'ta sonsuza kadar kaliyordu, hareket olsa bile.
+    String pirYanit = nanoYanitOku(300);
     int esit = pirYanit.indexOf('=');
     if (pirYanit.startsWith("PIN:") && esit >= 0) {
       pirAcik = (pirYanit.substring(esit + 1).toInt() == 1);
