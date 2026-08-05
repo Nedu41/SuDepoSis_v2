@@ -1047,12 +1047,22 @@ function renderUI(d){
   // kacak/seviye durumuna bakip banner gosteriyordu - esp8266_slave ise
   // sistem kapaliyken hicbir sey gostermiyor (tetikleyici mask'i sifirliyor).
   // Ikisi tutarli olsun diye burada da enabled kontrolu eklendi.
-  const anyAlarm = d.alarm && d.alarm.enabled !== false && (d.alarm.leak||d.alarm.low_level||d.alarm.door);
+  // FIX: anyAlarm sadece leak/low_level/door bayraklarina bakiyordu - PIR ve
+  // sensor hatasi tetikleyicileri bu 3 bayraga hic yansimiyor (sadece
+  // trigger_mask'te var), yani PIR ile tetiklenen bir alarmda banner HICBIR
+  // modda (sessiz dahil) gorunmuyordu. trigger_mask ESP8266'nin zaten
+  // mod+zaman senaryosuna gore filtreledigi otoriter kaynak - artik o
+  // kullaniliyor. Panik de ayrica eklendi (eskiden hic banner tetiklemiyordu).
+  const alarmMask = (d.alarm && d.alarm.trigger_mask) || 0;
+  const anyAlarm = d.alarm && d.alarm.enabled !== false && (alarmMask !== 0 || d.alarm.panic);
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
-    if(d.alarm.leak) at='ALARM: Kaçak!';
+    if(d.alarm.panic) at='PANİK AKTİF';
+    else if(d.alarm.leak) at='ALARM: Kaçak!';
     else if(d.alarm.low_level) at='ALARM: Düşük seviye!';
     else if(d.alarm.door) at='ALARM: Kapı açık!';
+    else if(alarmMask & 4) at='ALARM: Hareket algılandı!';
+    else if(alarmMask & 32) at='ALARM: Sensör hatası!';
   }
   $('#alarm-text').textContent=at;
   // Buyuk uyari banner'i - ESP8266'daki gibi, tetiklendiginde sayfanin
