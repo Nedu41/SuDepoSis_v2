@@ -35,8 +35,9 @@
 // ===== Depo Lambası (Nano kontrolü) =====
 #define LAMBA_PIN D13          // xxx - Depo iç lamba rölesi (Nano tetikler)
 
-// ===== PIR Sensörü (Nano D6 - genel GPIO, Nano kodu degismeden PIN_READ ile okunur) =====
-#define PIR_NANO_PIN 6
+// ===== PIR Sensörü =====
+// Artik ayri PIN_READ komutuyla degil, Nano'nun GET_STATUS yanitindaki
+// "PIR=" alaniyla dogrudan okunuyor (bkz nano_io PIR_PIN, config.h).
 
 // ===== RTC I2C (DS1307) =====
 #define RTC_SDA D2            // GPIO4

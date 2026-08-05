@@ -75,6 +75,7 @@ void setup() {
   pinMode(LAMBA_PIN, OUTPUT);
   pinMode(MOISTURE_PIN, OUTPUT);
   pinMode(MOISTURE_ADC_PIN, INPUT);    // A0 - nem sensörü
+  pinMode(PIR_PIN, INPUT);             // D6 - PIR hareket sensörü
 
   relayPolariteYukle();
   digitalWrite(RELAY_PIN, relayPasifSeviye());  // Basta pasif
@@ -164,6 +165,12 @@ void handleSerialCommand() {
         response += moisturePct;
         response += ",POLARITY=";
         response += (relayAktifSeviye == HIGH) ? '1' : '0';
+        // PIR artik ayri bir PIN_READ komutuyla degil, dogrudan GET_STATUS
+        // icinde okunuyor - iki ayri komutu ayni 300ms pencerede art arda
+        // gondermek zamanlama sorunlarina (yanit kesilmesi/karismasi) yol
+        // aciyordu. Tek istekte tum durum alinir, cok daha saglam.
+        response += ",PIR=";
+        response += digitalRead(PIR_PIN) ? '1' : '0';
         Serial.println(response);
       } else if (inputString == F("LAMBA_ON")) {
         digitalWrite(LAMBA_PIN, LAMBA_ON_STATE);

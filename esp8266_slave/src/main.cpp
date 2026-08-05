@@ -310,8 +310,22 @@ void nanoStatusAyristir(const String& yanit) {
   nanoBaglantiVar = true;
       kapi1Acik          = (yanit.indexOf("D0=1") >= 0);
       kapi2Acik          = (yanit.indexOf("D1=1") >= 0);
-      // NOT: pirAcik burada degil, nanoPoll() icinde ayri PIN_READ ile guncellenir
-      // (Nano firmware'i GET_STATUS yanitina PIR eklemez, D6 genel GPIO'dur)
+      // PIR artik ayri bir PIN_READ komutuyla degil, GET_STATUS yanitinin
+      // kendisinden okunuyor - iki ayri komutu ayni pencerede art arda
+      // gondermenin yol actigi zamanlama/kesilme sorunlari ortadan kalkti.
+      {
+        bool pirHam = (yanit.indexOf("PIR=1") >= 0);
+        if (pirHam && !pirHamOnceki) pirYukselmeMs = millis();
+        pirAcik = pirHam;
+        if (!pirHam) {
+          pirTetikleyici = false;
+        } else if (ayar.pirOnaySaniye == 0) {
+          pirTetikleyici = true;
+        } else if (millis() - pirYukselmeMs >= (unsigned long)ayar.pirOnaySaniye * 1000UL) {
+          pirTetikleyici = true;
+        }
+        pirHamOnceki = pirHam;
+      }
       roleFizikselDurum  = (yanit.indexOf("RELE=1") >= 0);
       if (yanit.indexOf("POLARITY=") >= 0) rolePolariteHigh = (yanit.indexOf("POLARITY=1") >= 0);
       lambaAcik          = (yanit.indexOf("LAMBA=1") >= 0);
@@ -381,34 +395,6 @@ void nanoPoll() {
   String yanit = nanoYanitOku(200);
   if (yanit.length() > 0) {
     nanoStatusAyristir(yanit);
-
-    // PIR sensörü Nano D6'da (genel yedek GPIO) - Nano firmware'i degistirmeden
-    // mevcut PIN_READ mekanizmasiyla okunur. Nano varsayilan olarak butun pinler
-    // INPUT durumunda acilir, PIN_MODE ayarina gerek yok.
-    delay(5); // GET_STATUS'tan gecikmeli gelebilecek son baytlarin varmasini bekle
-    while (Serial.available()) Serial.read();
-    Serial.print("PIN_READ:"); Serial.println(PIR_NANO_PIN);
-    // FIX: 80ms yetersizdi - /pin/read (manuel test) endpoint'i 300ms bekliyor
-    // ve guvenilir calisiyor, buradaki 80ms ise cogu zaman zaman asimina
-    // ugruyordu. Zaman asiminda pirAcik hic guncellenmiyordu (asagida "if"
-    // basarisiz olunca sessizce atlaniyor) - yani PIR ham deger baslangic
-    // degeri olan false'ta sonsuza kadar kaliyordu, hareket olsa bile.
-    String pirYanit = nanoYanitOku(300);
-    int esit = pirYanit.indexOf('=');
-    if (pirYanit.startsWith("PIN:") && esit >= 0) {
-      pirAcik = (pirYanit.substring(esit + 1).toInt() == 1);
-      // Onay suresi: ham deger yukselirken zaman damgasi al, kesintisiz
-      // yeterince uzun kaldiysa tetikleyiciyi aktif et. 0 saniye = filtre yok.
-      if (pirAcik && !pirHamOnceki) pirYukselmeMs = millis();
-      if (!pirAcik) {
-        pirTetikleyici = false;
-      } else if (ayar.pirOnaySaniye == 0) {
-        pirTetikleyici = true;
-      } else if (millis() - pirYukselmeMs >= (unsigned long)ayar.pirOnaySaniye * 1000UL) {
-        pirTetikleyici = true;
-      }
-      pirHamOnceki = pirAcik;
-    }
   } else {
     nanoBaglantiVar = false;
   }
