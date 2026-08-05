@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset=UTF-8>
+<meta name=viewport content='width=device-width,initial-scale=1.0'>
+<title>Sulama</title>
+<link rel=stylesheet href=/style.css>
+</head>
+<body>
+<div class=topbar><h1>Sulama</h1><button id=temaBtn class='tema-btn' onclick=temaDegistir()>Moon</button></div>
+<div class=sekmeler><button class='sekme-btn aktif' data-sekme=seviye onclick="sekmeAc('seviye')">Depo</button><button class='sekme-btn' data-sekme=alarm onclick="sekmeAc('alarm')">Alarm</button><button class='sekme-btn' data-sekme=kayitlar onclick="sekmeAc('kayitlar')">Kayitlar</button><button class='sekme-btn' data-sekme=ayarlar onclick="sekmeAc('ayarlar')">Ayarlar</button></div>
+
+<div id=sekme-seviye class='sekme-icerik'>
+<div class=card><div class=zaman-bilgisi>Son Olcum: <span id=zaman>-</span> | <span id=geceBadge>-</span></div>
+<div id=alarmKutu class=alarm-kutu style=display:none>SU DUSUK!</div>
+<div id=kacakKutu class=alarm-kutu style=display:none>KACAK! <span id=kacakDakikaText>0</span> dk.</div>
+<div id=alarmGenelKutu class=alarm-kutu style=display:none></div>
+<div class=depo-container><div class=depo><div class=su id=suBar style=height:0%;></div><div class=su-dalga></div><div class=seviye-text id=yuzdeText>0%</div></div></div>
+<div class=info id=infoKutu><p>Seviye: <b>- cm</b></p><p>Doluluk: <b>-%</b></p><p>Hacim: <b>- L</b> / - L</p><hr><p>Nem: <b id=anaNemText>-%</b></p></div>
+<div class=btn-satir><button onclick=olc() class='btn btn-yesil'>Olc</button><button onclick=zamanGoster() class='btn btn-turuncu'>Zaman</button></div><div id=sonuc class=sonuc-metni></div></div>
+
+<div class=card><h3>Tuketim</h3><div class=info><p>Bugun: <b id=gunlukTuketimText>- L</b></p><p>Bu ay: <b id=aylikTuketimText>- L</b></p></div></div>
+
+<div class=card><h3>Durum</h3><div class=info><p>Sol Kapi: <b id=kapi1Text>-</b></p><p>Sag Kapi: <b id=kapi2Text>-</b></p><p>Nano: <b id=nanoBagliText>-</b></p><p>Alarm: <b id=roleTetikliText>-</b></p><p>Lamba: <b id=lambaText>-</b></p><p>Nem: <b id=moistureText>-</b></p><p>Nem Mod: <b id=moistureAutoText>-</b></p><p>Nem Role: <b id=moistureOutputText>-</b></p></div>
+<div class=btn-satir><button onclick=roleToggle() class='btn btn-turuncu' id=roleToggleBtn>Alarmi Ac</button><button onclick=panicToggle() class='btn btn-kirmizi' id=panicBtn>Panik</button><button onclick=lambaToggle() class='btn btn-mavi' id=lambaToggleBtn>Lamba</button></div>
+<div class=btn-satir><button onclick=alarmSustur() class='btn btn-turuncu' id=susturBtn>Sustur/Sireni Kapat</button><button onclick=alarmOnayla() class='btn btn-kirmizi' id=onaylaBtn style=display:none>Tetiklenmeyi Onayla</button></div>
+<div id=panicSonuc class=sonuc-metni></div><div id=roleSonuc class=sonuc-metni></div><div id=alarmModSonuc class=sonuc-metni></div></div></div>
+
+<div id=sekme-alarm class='sekme-icerik' style=display:none>
+<div class=card><h3>Alarm Durumu</h3><div class=info id=alarmDurumKutu>Yukleniyor...</div></div>
+<div class=card><h3>Alarm Modu</h3><p class=muted>Tetiklenince sistemin nasil davranacagini secin.</p><label><input type=radio name=alarmMod id=mod1 value=1> 1 - Sesli (siren hemen calisir)</label><label><input type=radio name=alarmMod id=mod2 value=2> 2 - Sessiz (siren calismaz, sadece bildirim)</label><label><input type=radio name=alarmMod id=mod3 value=3> 3 - Sadece uyari mesaji (onay verince sesli gibi calisir)</label></div>
+<div class=card><h3>Alarm Esigi ve Gece Saatleri</h3><label>Alarm %</label><input type=number step=1 id=alarmYuzde><label>Gece bas</label><input type=number min=0 max=23 id=geceBaslangic><label>Gece bit</label><input type=number min=0 max=23 id=geceBitis></div>
+<div class=card><h3>PIR Ayarlari</h3><p class=muted>PIR en az bu kadar saniye kesintisiz aktif kalirsa alarm tetiklenir. Ruzgarda dal/yaprak sallanmasi gibi kisa/ani sinyalleri filtrelemek icin yukseltin (0 = filtre yok, anlik tetiklenir).</p><label>Onay suresi (sn)</label><input type=number min=0 max=30 id=pirOnaySaniye><div class=info><p>Anlik PIR durumu: <b id=pirHamText>-</b></p></div></div>
+<div class=card><h3>Zaman Bazli Tetikleyiciler</h3><div class=info><p>Gunduz:</p>
+<label><input type=checkbox id=Gunduz_kapi1> Sol Kapi</label>
+<label><input type=checkbox id=Gunduz_kapi2> Sag Kapi</label>
+<label><input type=checkbox id=Gunduz_pir> PIR</label>
+<label><input type=checkbox id=Gunduz_seviye> Su Seviyesi</label>
+<label><input type=checkbox id=Gunduz_kacak> Kacak</label>
+<label><input type=checkbox id=Gunduz_sensor> Sensor</label>
+</div><div class=info><p>Gece:</p>
+<label><input type=checkbox id=Gece_kapi1> Sol Kapi</label>
+<label><input type=checkbox id=Gece_kapi2> Sag Kapi</label>
+<label><input type=checkbox id=Gece_pir> PIR</label>
+<label><input type=checkbox id=Gece_seviye> Su Seviyesi</label>
+<label><input type=checkbox id=Gece_kacak> Kacak</label>
+<label><input type=checkbox id=Gece_sensor> Sensor</label>
+</div></div>
+<div class=card><h3>Mod Senaryolari</h3><p class=muted>Her modu hangi sensorlerin tetikleyecegini ayri ayri secin.</p><div class=info><p>Sesli mod:</p>
+<label><input type=checkbox id=Sesli_kapi1> Sol Kapi</label>
+<label><input type=checkbox id=Sesli_kapi2> Sag Kapi</label>
+<label><input type=checkbox id=Sesli_pir> PIR</label>
+<label><input type=checkbox id=Sesli_seviye> Su Seviyesi</label>
+<label><input type=checkbox id=Sesli_kacak> Kacak</label>
+<label><input type=checkbox id=Sesli_sensor> Sensor</label>
+</div><div class=info><p>Sessiz mod:</p>
+<label><input type=checkbox id=Sessiz_kapi1> Sol Kapi</label>
+<label><input type=checkbox id=Sessiz_kapi2> Sag Kapi</label>
+<label><input type=checkbox id=Sessiz_pir> PIR</label>
+<label><input type=checkbox id=Sessiz_seviye> Su Seviyesi</label>
+<label><input type=checkbox id=Sessiz_kacak> Kacak</label>
+<label><input type=checkbox id=Sessiz_sensor> Sensor</label>
+</div><div class=info><p>Onayli mod:</p>
+<label><input type=checkbox id=Onayli_kapi1> Sol Kapi</label>
+<label><input type=checkbox id=Onayli_kapi2> Sag Kapi</label>
+<label><input type=checkbox id=Onayli_pir> PIR</label>
+<label><input type=checkbox id=Onayli_seviye> Su Seviyesi</label>
+<label><input type=checkbox id=Onayli_kacak> Kacak</label>
+<label><input type=checkbox id=Onayli_sensor> Sensor</label>
+</div><button class=btn-mavi onclick=ayarKaydet()>Kaydet</button><div id=alarmAyarSonuc class=sonuc-metni></div></div>
+<div class=card><h3>Hizli Islemler</h3><div class=btn-satir><button onclick=roleToggle() class='btn btn-turuncu' id=roleToggleBtn2>Alarmi Ac</button><button onclick=panicToggle() class='btn btn-kirmizi' id=panicBtn2>Panik</button></div>
+<div class=btn-satir><button onclick=lambaToggle() class='btn btn-mavi' id=lambaToggleBtn2>Lamba</button><button onclick=alarmSustur() class='btn btn-turuncu' id=susturBtn2>Sustur/Sireni Kapat</button></div>
+<button onclick=alarmOnayla() class='btn btn-kirmizi' id=onaylaBtn2 style=display:none>Tetiklenmeyi Onayla</button></div>
+<div class=card><h3>Röle Polaritesi (Donanim)</h3><p class=muted>Röle modülünüz ters çalışıyorsa (alarm sönükken tetikli görünüyorsa) burayı değiştirin - Nano reflash gerekmez.</p><label>D4 Aktif Seviyesi</label><select id=rolePolarite onchange=rolePolariteAyarla()><option value=1>HIGH = Aktif</option><option value=0>LOW = Aktif</option></select><div id=polariteSonuc class=sonuc-metni></div></div></div>
+
+<div id=sekme-kayitlar class='sekme-icerik' style=display:none>
+<div class=card><h3>Yeni Kayit</h3><label>Tarih</label><input type=date id=kTarih><label>Kisi</label><input type=text id=kKisi><label>Litre</label><input type=number step=1 id=kLitre><label>TL</label><input type=number step=0.01 id=kUcret><label>Kaynak</label><select id=kKaynak><option value=Sebeke>Sebeke</option><option value=Tanker>Tanker</option><option value=Yagmur>Yagmur</option></select><button class=btn-mavi onclick=kayitEkle()>Kaydet</button><div id=kayitSonuc class=sonuc-metni></div></div>
+<div class=card><h3>Ozet</h3><div class=info id=ozetKutu>Yukleniyor...</div><button class=btn-mavi onclick="window.location.href='/kc'">CSV</button><button class=btn-kirmizi onclick=tumunuSil()>Tumunu Sil</button></div>
+<div class=card><h3>Liste</h3><div id=kayitListesi>Yukleniyor...</div></div></div>
+
+<div id=sekme-ayarlar class='sekme-icerik' style=display:none>
+<div class=card><h3>Kalibrasyon</h3><label>Bos (cm)</label><input type=number step=0.1 id=bosMesafe><label>Dolu (cm)</label><input type=number step=0.1 id=doluMesafe><label>Kapasite (L)</label><input type=number step=1 id=kapasite><label>Sekil</label><select id=depoYatay><option value=1>Yatay</option><option value=0>Dikey</option></select><p class=muted>Alarm esigi, gece saatleri ve tetikleyiciler artik "Alarm" sekmesinde.</p><button class=btn-mavi onclick=ayarKaydet()>Kaydet</button></div>
+<div class=card><h3>Tespit</h3><label>Dolum esik (L)</label><input type=number step=1 id=minDolumLitre><label>Kacak (dk)</label><input type=number step=1 id=kacakEsikDakika><button class=btn-mavi onclick=ayarKaydet()>Kaydet</button></div>
+<div class=card><h3>Nem Ayarlari</h3><label>Dusuk Esik (%)</label><input type=number min=0 max=100 id=moistureLow><label>Yuksek Esik (%)</label><input type=number min=0 max=100 id=moistureHigh><label>Mod</label><select id=moistureAuto><option value=0>Manuel</option><option value=1>Otomatik</option></select><div class=info><p>Nem: <b id=moistureText>-</b></p><p>Ham Deger: <b id=moistureRawText>-</b></p><p>Kontrol: <b id=moistureOutputText>-</b></p></div><div class=btn-satir><button onclick=moistureToggle() class='btn btn-mavi' id=moistureToggleBtn>Ac/Kapat</button><button onclick=moistureModeToggle() class='btn btn-turuncu' id=moistureAutoBtn>Otomatik</button></div><div id=moistureSonuc class=sonuc-metni></div></div>
+<div class=card><h3>WiFi</h3><p class=muted>AP: SuDepo / 18811881</p><div class=info id=wifiDurumKutu>Yukleniyor...</div><label>SSID</label><input type=text id=staSSID><label>Sifre</label><input type=password id=staSifre><div class=btn-satir><button class=btn-mavi onclick=wifiKaydet()>Baglan</button><button class=btn-kirmizi onclick=wifiKaldir()>Kaldir</button></div><div id=wifiSonuc class=sonuc-metni></div></div>
+<div class=card><h3>Zaman</h3><input type=datetime-local id=zamanInput><button class=btn-mavi onclick=zamanAyarla()>Ayarla</button></div>
+<div class=card><h3>OTA Guncelleme</h3><label>Firmware URL</label><input type=text id=otaUrl placeholder='https://github.com/.../firmware.bin'><button class=btn-mavi onclick=otaGuncelle()>Guncelle</button><div id=otaSonuc class=sonuc-metni></div></div></div>
+
+<div class=zaman-bilgisi id=footerIp>AP IP: - | Web: -</div>
+<div class=zaman-bilgisi id=footerBuild>Son guncelleme: -</div>
+<script src=/config.js></script>
+<script src=/app.js></script>
+</body>
+</html>

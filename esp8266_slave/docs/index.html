@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>ESP8266 SuDepoSis v2 - Pinout</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  h1 { color: #1976d2; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  .section { margin-bottom: 30px; }
+  @media print {
+    body { margin: 0; }
+    .no-print { display: none; }
+    table { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<h1>ESP8266 SuDepoSis v2 — Pinout ve Modül Tablosu</h1>
+<p class="no-print">Yazdırmak için tarayıcınızın yazdırma (Ctrl+P) özelliğini kullanabilirsiniz.</p>
+
+<div class="section">
+<h2>ESP8266 NodeMCU 12E — Tüm Pinler</h2>
+<table>
+<tr><th>Pin (NodeMCU)</th><th>GPIO</th><th>Modül</th><th>Fonksiyon</th><th>Not</th></tr>
+<tr><td>D0</td><td>16</td><td>MAX485 RS485</td><td>DI (Data Input)</td><td>UART0, Wake pin</td></tr>
+<tr><td>D1</td><td>5</td><td>DS1307 RTC</td><td>SCL (I2C Clock)</td><td>Pull-up 4.7kΩ</td></tr>
+<tr><td>D2</td><td>4</td><td>DS1307 RTC</td><td>SDA (I2C Data)</td><td>Pull-up 4.7kΩ</td></tr>
+<tr><td>D3</td><td>0</td><td>MAX485 RS485</td><td>DE + RE (Driver/Receiver Enable)</td><td>Boot: LOW, jumper 3V3 for upload</td></tr>
+<tr><td>D4</td><td>2</td><td>Boş</td><td>—</td><td>Boot: HIGH</td></tr>
+<tr><td>D5</td><td>14</td><td>HC-SR04</td><td>TRIG (Trigger)</td><td>Output pulse</td></tr>
+<tr><td>D6</td><td>12</td><td>HC-SR04</td><td>ECHO (Echo)</td><td>Input pulse</td></tr>
+<tr><td>D7</td><td>13</td><td>MAX485 RS485</td><td>RO (Receiver Output)</td><td>UART0</td></tr>
+<tr><td>D8</td><td>15</td><td>Depo Lamba</td><td>Lamba Rölesi (Nano kontrol)</td><td>Boot: LOW</td></tr>
+<tr><td>RX (D9)</td><td>3</td><td>Arduino Nano</td><td>UART0 RX ← Nano TX</td><td>470Ω direnç</td></tr>
+<tr><td>TX (D10)</td><td>1</td><td>Arduino Nano</td><td>UART0 TX → Nano RX</td><td>1kΩ toprak direnci</td></tr>
+<tr><td>A0</td><td>ADC0</td><td>—</td><td>Boş</td><td>Analog 0-1V</td></tr>
+<tr><td>3V3</td><td>—</td><td>Güç</td><td>3.3V</td><td>RTC, sensör</td></tr>
+<tr><td>5V</td><td>—</td><td>Güç</td><td>5V</td><td>HC-SR04, MAX485</td></tr>
+<tr><td>GND</td><td>—</td><td>Tüm modüller</td><td>Common Ground</td><td>Ortak</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 1: HC-SR04 Ultrasonik Sensör</h2>
+<table>
+<tr><th>HC-SR04 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
+<tr><td>VCC</td><td>5V</td><td>—</td><td>5V önerilir (3.3V de çalışır)</td></tr>
+<tr><td>TRIG</td><td>D5</td><td>14</td><td>Trigger pulse input</td></tr>
+<tr><td>ECHO</td><td>D6</td><td>12</td><td>Echo pulse output</td></tr>
+<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 2: DS1307 RTC (Real Time Clock)</h2>
+<table>
+<tr><th>DS1307 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
+<tr><td>VCC</td><td>3V3</td><td>—</td><td>3.3V güç</td></tr>
+<tr><td>SDA</td><td>D2</td><td>4</td><td>I2C Data (pull-up 4.7kΩ)</td></tr>
+<tr><td>SCL</td><td>D1</td><td>5</td><td>I2C Clock (pull-up 4.7kΩ)</td></tr>
+<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+<tr><td>BAT</td><td>3V CR2032</td><td>—</td><td>Batarya desteği</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 3: MAX485 RS485 (ESP32-S3 Master Haberleşme)</h2>
+<table>
+<tr><th>MAX485 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
+<tr><td>DI</td><td>D0</td><td>16</td><td>Data Input (ESP → MAX)</td></tr>
+<tr><td>RO</td><td>D7</td><td>13</td><td>Data Output (MAX → ESP)</td></tr>
+<tr><td>DE</td><td>D3</td><td>0</td><td>Driver Enable (HIGH = send)</td></tr>
+<tr><td>RE</td><td>D3</td><td>0</td><td>Receiver Enable (LOW = receive)</td></tr>
+<tr><td>VCC</td><td>5V</td><td>—</td><td>5V güç (3.3V de çalışır)</td></tr>
+<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+<tr><td>A</td><td>Master A</td><td>—</td><td>Twisted pair A</td></tr>
+<tr><td>B</td><td>Master B</td><td>—</td><td>Twisted pair B</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 4: Arduino Nano (Kapı & Röle Kontrolü)</h2>
+<table>
+<tr><th>Nano Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
+<tr><td>D0 (RX)</td><td>TX (D10)</td><td>1</td><td>ESP → Nano komut (470Ω direnç)</td></tr>
+<tr><td>D1 (TX)</td><td>RX (D9)</td><td>3</td><td>Nano → ESP durum</td></tr>
+<tr><td>D2</td><td>—</td><td>—</td><td>Kapı 1 sensör girişi</td></tr>
+<tr><td>D3</td><td>—</td><td>—</td><td>Kapı 2 sensör girişi</td></tr>
+<tr><td>D4</td><td>D4</td><td>2</td><td>Lamba rölesi çıkışı</td></tr>
+<tr><td>5V</td><td>5V</td><td>—</td><td>5V güç (USB veya ayrı)</td></tr>
+<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 5: Depo Lambası ve Röle</h2>
+<table>
+<tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
+<tr><td>Nano D4</td><td>GPIO</td><td>Röle IN (transistor bazı)</td></tr>
+<tr><td>Röle COM</td><td>Lamba +</td><td>Anahtar</td></tr>
+<tr><td>Röle NO</td><td>Lamba +</td><td>Güç (12V/24V)</td></tr>
+<tr><td>Lamba -</td><td>Güç kaynağı -</td><td>Ortak</td></tr>
+<tr><td>Web Arayüzü</td><td>Kapı sekmesi</td><td>Lamba butonu</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 6: Röle Modülü (Alarm Rölesi)</h2>
+<table>
+<tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
+<tr><td>Nano D4</td><td>GPIO</td><td>Alarm rölesi tetikleme</td></tr>
+<tr><td>Röle COM</td><td>Cihaz +</td><td>Alarm cihazı</td></tr>
+<tr><td>Röle NO</td><td>Cihaz +</td><td>Güç devresi</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>WiFi Konfigürasyonu</h2>
+<table>
+<tr><th>Mod</th><th>SSID</th><th>Şifre</th><th>IP</th><th>Max Client</th></tr>
+<tr><td>AP</td><td>SuDepo</td><td>18811881</td><td>192.168.4.1</td><td>4</td></tr>
+<tr><td>STA</td><td>Kullanıcı tanımlı</td><td>Kullanıcı tanımlı</td><td>DHCP</td><td>—</td></tr>
+</table>
+<p><strong>mDNS:</strong> http://sudepo.local (hostname = AP adından türetilir)</p>
+<p><strong>OTA Şifre:</strong> 1881+</p>
+</div>
+
+<div class="section">
+<h2>Kablaj Özeti</h2>
+<pre>
+ESP8266          MAX485 (RS485)
+D0 (GPIO16) → DI
+D7 (GPIO13) → RO
+D3 (GPIO0)  → DE + RE
+GND        → GND
+A ↔ A, B ↔ B (twisted pair, 120Ω sonlandırıcı)
+
+ESP8266          HC-SR04
+D5 (GPIO14) → TRIG
+D6 (GPIO12) → ECHO
+5V        → VCC
+GND       → GND
+
+ESP8266          DS1307
+D2 (GPIO4)  → SDA
+D1 (GPIO5)  → SCL
+3V3       → VCC
+GND       → GND
+
+ESP8266          Nano
+TX (D10) → D0 (RX)  [470Ω direnç]
+RX (D9)  → D1 (TX)
+GND      → GND
+5V       → 5V (opsiyonel)
+
+Nano D4 → Röle IN (Lamba)
+Nano D2 → Kapı1 sensör
+Nano D3 → Kapı2 sensör
+</pre>
+</div>
+</body>
+</html>
