@@ -598,6 +598,37 @@ void rs485KomutDinle() {
           yagmurSulamaAtla = komut.substring(14).toInt() ? true : false;
           yagmurSonGuncellemeMs = millis();
           response = "ACK:" + komut;
+        } else if (komut == "GET_KAYITLAR") {
+          // Kayit yedekleme: ESP32'ye tum kayitlari tek satirda ('~' ile ayrilmis) gonder.
+          // uploadfs, LittleFS'i tamamen sifirladigi icin bu kayitlar ESP8266 tarafinda
+          // kaybolabiliyor - yedek ESP32'nin kendi SPIFFS'inde tutulur.
+          String joined = "";
+          File f = LittleFS.open(KAYIT_DOSYASI, "r");
+          if (f) {
+            bool ilk = true;
+            while (f.available()) {
+              String satir = f.readStringUntil('\n'); satir.trim();
+              if (satir.length() == 0) continue;
+              if (!ilk) joined += "~";
+              joined += satir;
+              ilk = false;
+            }
+            f.close();
+          }
+          response = "ACK:GET_KAYITLAR=" + joined;
+        } else if (komut == "RESTORE_BASLA") {
+          File f = LittleFS.open("/kayit_restore_tmp.csv", "w");
+          if (f) f.close();
+          response = "ACK:RESTORE_BASLA";
+        } else if (komut.startsWith("RESTORE_SATIR=")) {
+          String satir = komut.substring(14);
+          File f = LittleFS.open("/kayit_restore_tmp.csv", "a");
+          if (f) { f.println(satir); f.close(); }
+          response = "ACK:RESTORE_SATIR";
+        } else if (komut == "RESTORE_BITIR") {
+          LittleFS.remove(KAYIT_DOSYASI);
+          LittleFS.rename("/kayit_restore_tmp.csv", KAYIT_DOSYASI);
+          response = "ACK:RESTORE_BITIR";
         } else if (komut.startsWith("SET_KAPI=")) {
           bool kapiDurum = (komut.substring(9) == "1");
           bool ok = nanoRoleKontrol(kapiDurum);
@@ -998,6 +1029,15 @@ void handleCSS() {
   css += ".btn-yesil{background:var(--accent)}.btn-turuncu{background:var(--warn)}.btn-mavi{background:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
   css += "label{display:block;font-size:12px;color:var(--muted);margin-top:10px}";
+  // Checkbox gruplari (Zaman Bazli Tetikleyiciler / Mod Senaryolari): checkbox+yazi
+  // ayni satirda, dikeyde ortalanmis, birden fazla checkbox yan yana kirilarak dizilir.
+  css += ".cb-grid{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}";
+  css += ".cb-grid p{flex-basis:100%;margin:0 0 4px;color:var(--muted);font-size:12px}";
+  css += ".cb{display:flex;align-items:center;gap:6px;margin-top:0;font-size:13px;color:var(--text);width:auto}";
+  // NOT: genel "input,select{width:100%;padding:11px;border:2px solid...}" kurali
+  // checkbox'lari da dev, kenarlikli kutulara ceviriyordu - burada sifirlaniyor.
+  css += ".cb input[type=checkbox],.cb input[type=radio]{width:16px;height:16px;flex-shrink:0;padding:0;border:1px solid var(--input-border);margin:0;background:var(--input-bg)}";
+  css += ".cb input[type=checkbox]{border-radius:4px}";
   css += "input,select{padding:11px;border:2px solid var(--input-border);border-radius:10px;font-size:14px;width:100%;margin-top:4px;background:var(--input-bg);color:var(--text)}";
   css += ".sonuc-metni{margin-top:10px;font-size:13px;text-align:center;color:var(--muted);min-height:16px}";
   css += ".muted{color:var(--muted);font-size:13px;text-align:center;padding:10px 0}";
