@@ -14,6 +14,7 @@
 #include <LittleFS.h>
 #include <ArduinoOTA.h>
 #include <ESP8266httpUpdate.h>
+#include <Updater.h>
 #include <SoftwareSerial.h>
 #include "config.h"
 
@@ -1214,6 +1215,31 @@ void handleOTAUpdate() {
   }
 }
 
+// ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
+void handleFileUploadUpdate() {
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
+  delay(100);
+  ESP.restart();
+}
+
+void handleFileUploadProgress() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    DEBUG_PRINTF("[OTA-FILE] Basliyor: %s\n", upload.filename.c_str());
+    uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+    if (!Update.begin(maxSketchSpace)) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      DEBUG_PRINTF("[OTA-FILE] Basarili: %u byte\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+
 // /app.js LittleFS'ten servis edilir (statik dosya)
 void handleJS() {
   File f = LittleFS.open("/app.js", "r");
@@ -1397,6 +1423,7 @@ void setup() {
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
   server.on("/ota", handleOTAUpdate);
+  server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
   server.begin();
   sonOtomatikOlcumMs = millis();
   

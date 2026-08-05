@@ -11,6 +11,7 @@
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <Update.h>
 #include <Preferences.h>
 #include "../include/config.h"
@@ -42,6 +43,130 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
   wifiPrefs.end();
   savedSSID = ssid;
   savedPass = pass;
+}
+
+// RS485 uzerinden esp8266_slave'e komut gonderir (tanimi asagida) -
+// yagmurTahminiKontrolEt() bunu kullanir, bu yuzden ileri bildirim gerekir.
+bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
+
+// ============ Hava Durumu / Yagmur Tahmini - Konum (NVS'de kalici) ============
+Preferences locPrefs;
+String savedIl = "";
+String savedIlce = "";
+double savedLat = 0.0;
+double savedLon = 0.0;
+bool rainSkipEnabled = false;
+bool rainForecastTomorrow = false;
+bool rainLocationValid = false;
+unsigned long lastRainCheckMs = 0;
+String lastRainCheckStr = "-";
+
+void locPrefsYukle() {
+  locPrefs.begin("loc", true);
+  savedIl = locPrefs.getString("il", "");
+  savedIlce = locPrefs.getString("ilce", "");
+  savedLat = locPrefs.getDouble("lat", 0.0);
+  savedLon = locPrefs.getDouble("lon", 0.0);
+  rainSkipEnabled = locPrefs.getBool("skipOn", false);
+  locPrefs.end();
+  rainLocationValid = (savedLat != 0.0 || savedLon != 0.0);
+}
+
+void locPrefsKaydet() {
+  locPrefs.begin("loc", false);
+  locPrefs.putString("il", savedIl);
+  locPrefs.putString("ilce", savedIlce);
+  locPrefs.putDouble("lat", savedLat);
+  locPrefs.putDouble("lon", savedLon);
+  locPrefs.putBool("skipOn", rainSkipEnabled);
+  locPrefs.end();
+}
+
+// RFC3986 percent-encode - Turkce karakterler ve bosluklar icin gerekli
+// (HTTPClient/WiFiClientSecure otomatik encode etmez).
+String urlEncode(const String& s) {
+  String out;
+  const char* hex = "0123456789ABCDEF";
+  for (size_t i = 0; i < s.length(); i++) {
+    uint8_t c = (uint8_t)s[i];
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += (char)c;
+    } else {
+      out += '%';
+      out += hex[(c >> 4) & 0xF];
+      out += hex[c & 0xF];
+    }
+  }
+  return out;
+}
+
+// Il/ilce adindan enlem/boylam cozer (Open-Meteo ucretsiz geocoding API).
+// Basarili olursa lat/lon'u doldurur ve true doner.
+bool geocodeIlIlce(const String& il, const String& ilce, double& lat, double& lon) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String query = ilce.length() > 0 ? (ilce + ", " + il + ", Turkiye") : (il + ", Turkiye");
+  String url = String(RAIN_GEOCODE_API) + "?name=" + urlEncode(query) + "&count=1&language=tr&format=json";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  int code = http.GET();
+  bool ok = false;
+  if (code == HTTP_CODE_OK) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(2048);
+    if (deserializeJson(doc, payload) == DeserializationError::Ok) {
+      JsonArray results = doc["results"].as<JsonArray>();
+      if (!results.isNull() && results.size() > 0) {
+        lat = results[0]["latitude"].as<double>();
+        lon = results[0]["longitude"].as<double>();
+        ok = true;
+      }
+    }
+  } else {
+    DEBUG_PRINTLN(String("[GEOCODE] HTTP hata: ") + String(code));
+  }
+  http.end();
+  return ok;
+}
+
+// Yarinki yagmur tahminini sorgular ve degistiyse/gecerliyse esp8266_slave'e
+// RS485 ile SET_RAIN_SKIP bildirir. Internet yoksa veya konum cozulmemisse
+// sessizce cikar - bir sonraki loop'ta tekrar denenir.
+void yagmurTahminiKontrolEt(bool zorla = false) {
+  if (!rainSkipEnabled) return;
+  if (!rainLocationValid) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (!zorla && lastRainCheckMs != 0 && millis() - lastRainCheckMs < RAIN_CHECK_INTERVAL_MS) return;
+
+  String url = String(RAIN_FORECAST_API) + "?latitude=" + String(savedLat, 4) + "&longitude=" + String(savedLon, 4) +
+               "&daily=precipitation_sum&forecast_days=2&timezone=auto";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  int code = http.GET();
+  if (code == HTTP_CODE_OK) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(2048);
+    if (deserializeJson(doc, payload) == DeserializationError::Ok) {
+      JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
+      if (precip.size() >= 2) {
+        float yarinMm = precip[1].as<float>();
+        rainForecastTomorrow = (yarinMm >= RAIN_THRESHOLD_MM);
+        lastRainCheckMs = millis();
+        lastRainCheckStr = String(yarinMm, 1) + "mm";
+        String reply;
+        rs485_send_wait_ack(rainForecastTomorrow ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+        DEBUG_PRINTLN(String("[RAIN] Yarin: ") + yarinMm + "mm -> skip=" + (rainForecastTomorrow ? "1" : "0"));
+      }
+    }
+  } else {
+    DEBUG_PRINTLN(String("[RAIN] HTTP hata: ") + String(code));
+  }
+  http.end();
 }
 
 // ============================================================
@@ -627,6 +752,53 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-primary" onclick="otaGuncelle()">Güncelle</button>
       </div>
       <div id="ota-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div class="row" style="margin-top:10px">
+        <form id="otaDosyaForm" method="POST" action="/update" enctype="multipart/form-data" onsubmit="return otaDosyaOnay()">
+          <input type="file" id="otaDosya" name="update" accept=".bin" required>
+          <button class="btn btn-primary" type="submit">Dosyadan Yukle</button>
+        </form>
+      </div>
+      <div id="ota-dosya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
+      <h3>Hava Durumu / Yağmur Tahmini</h3>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="rain-durum-kutu">Yükleniyor...</div>
+      <div class="row">
+        <select class="input" id="rainIl">
+          <option value="">İl seç...</option>
+          <option>Adana</option><option>Adıyaman</option><option>Afyonkarahisar</option><option>Ağrı</option>
+          <option>Aksaray</option><option>Amasya</option><option>Ankara</option><option>Antalya</option>
+          <option>Ardahan</option><option>Artvin</option><option>Aydın</option><option>Balıkesir</option>
+          <option>Bartın</option><option>Batman</option><option>Bayburt</option><option>Bilecik</option>
+          <option>Bingöl</option><option>Bitlis</option><option>Bolu</option><option>Burdur</option>
+          <option>Bursa</option><option>Çanakkale</option><option>Çankırı</option><option>Çorum</option>
+          <option>Denizli</option><option>Diyarbakır</option><option>Düzce</option><option>Edirne</option>
+          <option>Elazığ</option><option>Erzincan</option><option>Erzurum</option><option>Eskişehir</option>
+          <option>Gaziantep</option><option>Giresun</option><option>Gümüşhane</option><option>Hakkari</option>
+          <option>Hatay</option><option>Iğdır</option><option>Isparta</option><option>İstanbul</option>
+          <option>İzmir</option><option>Kahramanmaraş</option><option>Karabük</option><option>Karaman</option>
+          <option>Kars</option><option>Kastamonu</option><option>Kayseri</option><option>Kırıkkale</option>
+          <option>Kırklareli</option><option>Kırşehir</option><option>Kilis</option><option>Kocaeli</option>
+          <option>Konya</option><option>Kütahya</option><option>Malatya</option><option>Manisa</option>
+          <option>Mardin</option><option>Mersin</option><option>Muğla</option><option>Muş</option>
+          <option>Nevşehir</option><option>Niğde</option><option>Ordu</option><option>Osmaniye</option>
+          <option>Rize</option><option>Sakarya</option><option>Samsun</option><option>Siirt</option>
+          <option>Sinop</option><option>Sivas</option><option>Şanlıurfa</option><option>Şırnak</option>
+          <option>Tekirdağ</option><option>Tokat</option><option>Trabzon</option><option>Tunceli</option>
+          <option>Uşak</option><option>Van</option><option>Yalova</option><option>Yozgat</option>
+          <option>Zonguldak</option>
+        </select>
+        <input class="input" id="rainIlce" placeholder="İlçe (yazın)">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-primary" onclick="rainKonumKaydet()">Konumu Kaydet</button>
+        <button class="btn btn-warn" onclick="rainKontrolEt()">Şimdi Kontrol Et</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label><input type="checkbox" id="rainSkipToggle" onchange="rainToggle()"> Yarın yağmur bekleniyorsa otomatik sulamayı atla</label>
+      </div>
+      <div id="rain-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -846,6 +1018,23 @@ function renderUI(d){
       wdk.innerHTML='Ev WiFi tanımlı değil (AP: '+(d.ap_ip||'-')+')';
     }
   }
+  // Hava durumu / yagmur - dropdown/input sadece ilk yuklemede doldurulur,
+  // kullanici yazarken periyodik yenileme onu ezmesin diye.
+  const rain=d.rain||{};
+  const rdk=$('#rain-durum-kutu');
+  if(rdk){
+    if(!rain.gecerli){
+      rdk.innerHTML='Konum kaydedilmedi';
+    } else {
+      rdk.innerHTML='Konum: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Yarın yağmur: <b>'+(rain.tomorrow?'Evet, sulama atlanacak':'Hayır')+'</b> (son kontrol: '+(rain.lastCheck||'-')+')';
+    }
+  }
+  if(!window.rainUIInitialized){
+    window.rainUIInitialized=true;
+    if(rain.il) $('#rainIl').value=rain.il;
+    if(rain.ilce) $('#rainIlce').value=rain.ilce;
+    $('#rainSkipToggle').checked=!!rain.skipEnabled;
+  }
   // Cihaz durumları
   const esp8266Ok = d.esp8266_online !== false;
   const nanoOk    = d.nano_online !== false;
@@ -1018,6 +1207,29 @@ function otaGuncelle(){
   $('#ota-sonuc').textContent='Güncelleniyor...';
   api('/api/ota?url='+encodeURIComponent(u)).then(d=>{$('#ota-sonuc').textContent=d.mesaj||'';});
 }
+function rainKonumKaydet(){
+  const il=$('#rainIl').value, ilce=$('#rainIlce').value;
+  if(!il){$('#rain-sonuc').textContent='Il secin';return;}
+  $('#rain-sonuc').textContent='Konum cozuluyor...';
+  fetch('/api/location',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'il='+encodeURIComponent(il)+'&ilce='+encodeURIComponent(ilce)})
+    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';})
+    .catch(()=>{$('#rain-sonuc').textContent='Hata!';});
+}
+function rainKontrolEt(){
+  $('#rain-sonuc').textContent='Kontrol ediliyor...';
+  api('/api/rain/check').then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';});
+}
+function rainToggle(){
+  const aktif=$('#rainSkipToggle').checked?1:0;
+  api('/api/rain/toggle?aktif='+aktif).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';});
+}
+function otaDosyaOnay(){
+  const f=$('#otaDosya').files[0];
+  if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
+  if(!confirm(f.name+' yuklenecek ve cihaz yeniden baslayacak. Emin misin?'))return false;
+  $('#ota-dosya-sonuc').textContent='Yukleniyor... (bitince cihaz yeniden baslar)';
+  return true;
+}
 function wifiKaydet(){
   const sel=$('#staSSIDSel').value;
   const s=$('#staSSID').value || sel;
@@ -1109,6 +1321,13 @@ String durumJson() {
   doc["wifi_ssid"] = (WiFi.status() == WL_CONNECTED) ? WiFi.SSID() : (savedSSID.length() > 0 ? savedSSID : "");
   doc["wifi_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
   doc["mdns"] = String(MDNS_NAME) + ".local";
+
+  doc["rain"]["il"] = savedIl;
+  doc["rain"]["ilce"] = savedIlce;
+  doc["rain"]["gecerli"] = rainLocationValid;
+  doc["rain"]["skipEnabled"] = rainSkipEnabled;
+  doc["rain"]["tomorrow"] = rainForecastTomorrow;
+  doc["rain"]["lastCheck"] = lastRainCheckStr;
   
   String jsonStr;
   serializeJson(doc, jsonStr);
@@ -1198,6 +1417,79 @@ void handleOTA() {
     DEBUG_PRINTLN(http.errorToString(httpCode).c_str());
   }
   http.end();
+}
+
+// ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
+void handleFileUploadUpdate() {
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
+  delay(100);
+  ESP.restart();
+}
+
+void handleFileUploadProgress() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    DEBUG_PRINTLN(String("[OTA-FILE] Basliyor: ") + upload.filename);
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      DEBUG_PRINTLN(String("[OTA-FILE] Basarili: ") + String(upload.totalSize) + " byte");
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+
+// ============ HAVA DURUMU / YAGMUR TAHMINI API'LERI ============
+void handleAPI_LocationGet() {
+  String j = "{";
+  j += "\"il\":\"" + savedIl + "\",";
+  j += "\"ilce\":\"" + savedIlce + "\",";
+  j += "\"lat\":" + String(savedLat, 4) + ",";
+  j += "\"lon\":" + String(savedLon, 4) + ",";
+  j += "\"gecerli\":" + String(rainLocationValid ? "true" : "false") + ",";
+  j += "\"rainSkipEnabled\":" + String(rainSkipEnabled ? "true" : "false") + ",";
+  j += "\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + ",";
+  j += "\"lastCheck\":\"" + lastRainCheckStr + "\"";
+  j += "}";
+  server.send(200, "application/json", j);
+}
+
+void handleAPI_LocationSet() {
+  if (!server.hasArg("il")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"il eksik\"}"); return; }
+  String il = server.arg("il");
+  String ilce = server.hasArg("ilce") ? server.arg("ilce") : "";
+  double lat, lon;
+  bool ok = geocodeIlIlce(il, ilce, lat, lon);
+  if (ok) {
+    savedIl = il; savedIlce = ilce; savedLat = lat; savedLon = lon; rainLocationValid = true;
+    locPrefsKaydet();
+    lastRainCheckMs = 0;  // konum degisti, hemen yeniden kontrol edilsin
+    yagmurTahminiKontrolEt(true);
+  }
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
+              String(ok ? "Konum bulundu" : "Konum bulunamadi - il/ilce adini kontrol et") + "\",\"lat\":" + String(lat, 4) + ",\"lon\":" + String(lon, 4) + "}");
+}
+
+void handleAPI_RainToggle() {
+  if (!server.hasArg("aktif")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"aktif eksik\"}"); return; }
+  rainSkipEnabled = server.arg("aktif").toInt() != 0;
+  locPrefsKaydet();
+  if (rainSkipEnabled) { lastRainCheckMs = 0; yagmurTahminiKontrolEt(true); }
+  else {
+    String reply;
+    rs485_send_wait_ack("MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+  }
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(rainSkipEnabled ? "Etkin" : "Kapali") + "\"}");
+}
+
+void handleAPI_RainCheckNow() {
+  yagmurTahminiKontrolEt(true);
+  server.send(200, "application/json", "{\"basarili\":" + String(rainLocationValid ? "true" : "false") + ",\"mesaj\":\"" +
+              String(rainLocationValid ? "Kontrol edildi" : "Once konum kaydet") + "\",\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + "}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -1443,6 +1735,11 @@ void setupWebServer() {
   server.on("/api/status", handleAPI_Status);
   server.on("/events", handleSSE);
   server.on("/api/ota", handleOTA);
+  server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
+  server.on("/api/location", HTTP_GET, handleAPI_LocationGet);
+  server.on("/api/location", HTTP_POST, handleAPI_LocationSet);
+  server.on("/api/rain/toggle", handleAPI_RainToggle);
+  server.on("/api/rain/check", handleAPI_RainCheckNow);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
@@ -1556,10 +1853,13 @@ void setup() {
   
   // RS485 Initialize
   rs485_init();
-  
+
   // WiFi Connect
   wifi_connect();
   setup_ota();
+
+  // Hava durumu / yagmur tahmini - kayitli konumu yukle
+  locPrefsYukle();
   
   // MQTT Setup
   if (ENABLE_MQTT) {
@@ -1601,6 +1901,9 @@ void loop() {
   
   // RS485 Polling
   rs485_poll();
+
+  // Hava durumu / yagmur tahmini - internet varken periyodik kontrol
+  yagmurTahminiKontrolEt();
   
   // MQTT
   mqtt_connect();
