@@ -628,8 +628,8 @@ void handleRoot() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>SuDepoSis - Merkez Kontrol</title>
 <style>
-:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--shadow:0 1px 3px rgba(0,0,0,.1)}
-@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--shadow:0 1px 3px rgba(0,0,0,.1)}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);padding:12px;-webkit-tap-highlight-color:transparent}
 .container{max-width:1100px;margin:0 auto}
@@ -655,7 +655,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .dot.active{background:var(--accent)}
 .dot.alarm{background:var(--danger);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
-#alarm-banner{background:var(--danger);color:#fff;padding:16px;border-radius:12px;margin-bottom:14px;font-weight:700;font-size:16px;text-align:center;animation:pulse 1.2s infinite}
+#alarm-banner{background:var(--danger-bg);color:var(--danger);border:2px solid var(--danger);padding:16px;border-radius:12px;margin-bottom:14px;font-weight:700;font-size:16px;text-align:center;animation:pulse 1.2s infinite}
 .table{width:100%;border-collapse:collapse;font-size:13px}
 .table th,.table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .table th{color:var(--muted);font-weight:600}
@@ -1048,6 +1048,9 @@ function renderUI(d){
       let html = '⚠ '+msg;
       if(bekliyor){
         html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="alarmOnayla()">Sesli</button><button class="btn btn-warn" onclick="alarmOnaylaLamba()">Sessiz (Lamba)</button></div>';
+      } else if(anyAlarm){
+        const susLabel = (d.alarm && d.alarm.muted) ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-warn" onclick="alarmMute()">'+susLabel+'</button></div>';
       }
       ban.innerHTML = html;
       ban.style.display='block';
