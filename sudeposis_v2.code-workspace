@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "esp32_master"
+		},
+		{
+			"name": "esp8266_slave",
+			"path": "esp8266_slave"
+		},
+		{
+			"path": "nano_io"
+		}
+	],
+	"settings": {}
+}
