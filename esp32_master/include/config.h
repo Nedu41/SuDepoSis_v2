@@ -108,6 +108,16 @@
 #define DEVICE_ID_NANO 0x02
 #define DEVICE_ID_MASTER 0x00
 
+// ===== Hava Durumu / Yagmur Tahmini =====
+// Konum secimi (il/ilce) web arayuzunden yapilir; koordinat cozumleme ve
+// hava durumu sorgusu burada (ESP32-S3) yapilir - ESP8266 sadece sonucta
+// olusan SET_RAIN_SKIP bayragini alir (bkz esp8266_slave README).
+// API anahtari gerekmez (Open-Meteo ucretsiz).
+#define RAIN_GEOCODE_API "https://geocoding-api.open-meteo.com/v1/search"
+#define RAIN_FORECAST_API "https://api.open-meteo.com/v1/forecast"
+#define RAIN_THRESHOLD_MM 1.0f          // Yarin bu kadar mm+ yagmur bekleniyorsa sulama atlanir
+#define RAIN_CHECK_INTERVAL_MS (12UL * 3600UL * 1000UL)  // Internet varken en fazla 12 saatte bir kontrol
+
 // ===== Özellikler =====
 #define ENABLE_MQTT 1
 #define ENABLE_OTA 1
