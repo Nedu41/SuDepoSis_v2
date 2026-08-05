@@ -235,6 +235,7 @@ String mdnsHostname() {
 // ============ FORWARD DECLARATIONS ============
 void tuketimYukle();
 void olcumYap();
+void kayitlariSiniraGetir(int maxKayit);
 
 // ============ ZAMAN YARDIMCILARI ============
 String simdikiZamanStr() {
@@ -724,6 +725,7 @@ void olcumYap() {
               f.print(simdikiTarihISO()); f.print(",");
               f.print("Otomatik Tespit,"); f.print(toplamArtis, 1); f.print(",0,Belirsiz\n");
               f.close();
+              kayitlariSiniraGetir(MAX_KAYIT_SAYISI);
             }
           }
           dolumDevamEdiyor = false;
@@ -788,6 +790,29 @@ void tuketimYukle() {
 // ============ KAYIT ISLEMLERI ============
 String csvTemizle(String s) { s.replace(",", " "); s.replace("\n", " "); s.replace("\r", " "); return s; }
 
+// Sadece en son MAX_KAYIT_SAYISI kaydi tutar, daha eskileri siler.
+void kayitlariSiniraGetir(int maxKayit) {
+  File f = LittleFS.open(KAYIT_DOSYASI, "r");
+  if (!f) return;
+  int toplam = 0;
+  while (f.available()) { String s = f.readStringUntil('\n'); s.trim(); if (s.length() > 0) toplam++; }
+  f.close();
+  if (toplam <= maxKayit) return;
+
+  int atlanacak = toplam - maxKayit;
+  File k = LittleFS.open(KAYIT_DOSYASI, "r");
+  File g = LittleFS.open("/k_tmp.csv", "w");
+  if (!k || !g) { if (k) k.close(); if (g) g.close(); return; }
+  int i = 0;
+  while (k.available()) {
+    String s = k.readStringUntil('\n'); s.trim(); if (s.length() == 0) continue;
+    if (i >= atlanacak) g.println(s);
+    i++;
+  }
+  k.close(); g.close();
+  LittleFS.remove(KAYIT_DOSYASI); LittleFS.rename("/k_tmp.csv", KAYIT_DOSYASI);
+}
+
 bool kayitEkle(String tarih, String kisi, float litre, float ucret, String kaynak) {
   File f = LittleFS.open(KAYIT_DOSYASI, "a");
   if (!f) return false;
@@ -797,6 +822,7 @@ bool kayitEkle(String tarih, String kisi, float litre, float ucret, String kayna
   f.print(ucret, 2); f.print(",");
   f.println(csvTemizle(kaynak));
   f.close();
+  kayitlariSiniraGetir(MAX_KAYIT_SAYISI);
   return true;
 }
 
