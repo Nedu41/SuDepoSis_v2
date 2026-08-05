@@ -15,6 +15,7 @@
 #include <ArduinoOTA.h>
 #include <ESP8266httpUpdate.h>
 #include <Updater.h>
+#include <flash_hal.h>
 #include <SoftwareSerial.h>
 #include "config.h"
 
@@ -1324,6 +1325,27 @@ void handleOTAUpdate() {
   }
 }
 
+// ============ DOSYA SISTEMI (LittleFS) OTA - URL'den ============
+// AMAC: /ota (yukarisi) sadece PROGRAMI (sketch) gunceller - data/ klasoru
+// (index.html/app.js) LittleFS'te ayri bir flash bolgesi, normalde "pio run
+// -t uploadfs" ile USB uzerinden yazilir. Bahcede USB yokken bunu da OTA
+// ile yapabilmek icin: ESP32'nin firmware deposuna (bkz esp32_master
+// ESP8266_FS_DOSYASI) yuklenen littlefs.bin'i buradan cekip U_FS hedefine
+// yazar.
+void handleOTAFSUpdate() {
+  if (!server.hasArg("url")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"URL eksik\"}"); return; }
+  String url = server.arg("url");
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Dosya sistemi guncelleniyor: "+url+"\"}");
+  delay(100);
+  WiFiClient client;
+  t_httpUpdate_return ret = ESPhttpUpdate.updateFS(client, url);
+  if (ret == HTTP_UPDATE_OK) {
+    DEBUG_PRINTLN("OTA-FS OK");
+  } else {
+    DEBUG_PRINTLN(String("OTA-FS Hata: ") + String(ESPhttpUpdate.getLastErrorString()));
+  }
+}
+
 // ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
 void handleFileUploadUpdate() {
   server.sendHeader("Connection", "close");
@@ -1343,6 +1365,31 @@ void handleFileUploadProgress() {
   } else if (upload.status == UPLOAD_FILE_END) {
     if (Update.end(true)) {
       DEBUG_PRINTF("[OTA-FILE] Basarili: %u byte\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+
+// ============ DOSYA SISTEMINDEN (littlefs.bin web'den yuklenir) ============
+void handleFileUploadFSUpdate() {
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
+  delay(100);
+  ESP.restart();
+}
+
+void handleFileUploadFSProgress() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    DEBUG_PRINTF("[OTA-FS-FILE] Basliyor: %s\n", upload.filename.c_str());
+    size_t fsSize = ((size_t)FS_end - (size_t)FS_start);
+    if (!Update.begin(fsSize, U_FS)) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) { Update.printError(Serial); }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      DEBUG_PRINTF("[OTA-FS-FILE] Basarili: %u byte\n", upload.totalSize);
     } else {
       Update.printError(Serial);
     }
@@ -1533,8 +1580,10 @@ void setup() {
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
   server.on("/ota", handleOTAUpdate);
+  server.on("/otafs", handleOTAFSUpdate);
   server.on("/restart", handleRestart);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
+  server.on("/updatefs", HTTP_POST, handleFileUploadFSUpdate, handleFileUploadFSProgress);
   server.begin();
   sonOtomatikOlcumMs = millis();
   
