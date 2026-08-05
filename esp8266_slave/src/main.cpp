@@ -371,13 +371,20 @@ void nanoPoll() {
   while (Serial.available()) Serial.read(); // Temiz başla
   Serial.print("GET_STATUS\n");
 
-  String yanit = nanoYanitOku(80);
+  // FIX: GET_STATUS yaniti ~85 karakter - 9600 baud'da iletimi tek basina
+  // ~90ms suruyor, Nano'nun kendi islem/loop gecikmesi eklenince eskiden
+  // buradaki 80ms timeout neredeyse HER ZAMAN yetersiz kaliyordu. Yanit
+  // kesiliyor, kuyrukta kalan baytlar asagidaki "temizle" adiminda TAM
+  // temizlenemeden PIN_READ gonderiliyordu - bu da PIR okumasini sürekli
+  // kirletiyordu (kapi/role/lamba yanitin baslarinda oldugu icin etkilenmiyordu).
+  String yanit = nanoYanitOku(200);
   if (yanit.length() > 0) {
     nanoStatusAyristir(yanit);
 
     // PIR sensörü Nano D6'da (genel yedek GPIO) - Nano firmware'i degistirmeden
     // mevcut PIN_READ mekanizmasiyla okunur. Nano varsayilan olarak butun pinler
     // INPUT durumunda acilir, PIN_MODE ayarina gerek yok.
+    delay(5); // GET_STATUS'tan gecikmeli gelebilecek son baytlarin varmasini bekle
     while (Serial.available()) Serial.read();
     Serial.print("PIN_READ:"); Serial.println(PIR_NANO_PIN);
     // FIX: 80ms yetersizdi - /pin/read (manuel test) endpoint'i 300ms bekliyor
