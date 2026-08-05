@@ -616,6 +616,10 @@ void rs485KomutDinle() {
             f.close();
           }
           response = "ACK:GET_KAYITLAR=" + joined;
+        } else if (komut == "GET_ZAMAN") {
+          // ESP32'nin yedekleme zamanini gercek tarih/saat olarak damgalayabilmesi icin
+          // (ESP32'de RTC yok, sadece uptime var - gercek zaman burada, DS1307'de).
+          response = "ACK:GET_ZAMAN=" + simdikiZamanStr();
         } else if (komut == "RESTORE_BASLA") {
           File f = LittleFS.open("/kayit_restore_tmp.csv", "w");
           if (f) f.close();

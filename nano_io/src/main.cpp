@@ -122,6 +122,35 @@ void readInputs() {
 // bir sonraki loop'ta tekrar acikiyordu). Karar tamamen ESP8266'da.
 
 // ============================================================
+// NEM SENSORU - MEDYAN FILTRE
+// ============================================================
+// TEK analogRead() bazen ham deger 0..1023 arasinda ani ucuk sicramalar
+// veriyordu (uzun/korunmasiz analog kablo + role anahtarlamalarindan
+// gelen elektriksel gurultu) - bu da panelde nem yuzdesinin bir an "cok
+// dusuk", bir an "en yuksek" gorunmesine yol aciyordu. Birden fazla ornek
+// alip medyanini kullanmak, tek bir gurultu sivrisinin sonucu domine
+// etmesini engeller (ortalamanin aksine, medyan aykiri degerden etkilenmez).
+int moistureRawOku() {
+  // NOT: ESP8266 tarafi GET_STATUS yanitini ~200ms icinde bekliyor (bkz
+  // esp8266_slave/src/main.cpp nanoPoll yorumu) - orneklemeyi kisa tutuyoruz
+  // ki bu butceyi zorlamayalim.
+  const int ORNEK = 5;
+  int degerler[ORNEK];
+  for (int i = 0; i < ORNEK; i++) {
+    degerler[i] = analogRead(MOISTURE_ADC_PIN);
+    if (i < ORNEK - 1) delay(1);
+  }
+  // Kucuk dizi - insertion sort yeterli
+  for (int i = 1; i < ORNEK; i++) {
+    int anahtar = degerler[i];
+    int j = i - 1;
+    while (j >= 0 && degerler[j] > anahtar) { degerler[j + 1] = degerler[j]; j--; }
+    degerler[j + 1] = anahtar;
+  }
+  return degerler[ORNEK / 2];
+}
+
+// ============================================================
 // SERİ HABERLEŞME (Non-blocking - while döngüsü yok)
 // ============================================================
 // Her loop çağrısında tek karakter okunur ve biriktirilir.
@@ -145,7 +174,7 @@ void handleSerialCommand() {
 
       // Komutları işle ve ACK gönder
       if (inputString == F("GET_STATUS")) {
-        int moistureRawVal = analogRead(MOISTURE_ADC_PIN);
+        int moistureRawVal = moistureRawOku();
         float moisturePct = 100.0 - (moistureRawVal * 100.0 / 1023.0);
         if (moisturePct < 0) moisturePct = 0;
         if (moisturePct > 100) moisturePct = 100;
