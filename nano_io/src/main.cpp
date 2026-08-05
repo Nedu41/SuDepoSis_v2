@@ -10,7 +10,6 @@
 // FUNCTION PROTOTYPES
 // ============================================================
 void readInputs();
-void updateRelay();
 void handleSerialCommand();
 void sendStatusPeriodic();
 
@@ -35,7 +34,12 @@ unsigned long door2_last_change_ms = 0;
 // ama Nano guncellenemez. Bu ayari calisma zamaninda (seri komutla, EEPROM'a
 // yazarak) degistirilebilir hale getirerek bu sorunu bir daha yasamiyoruz.
 #define EEPROM_ADDR_RELAY_POL   0
-#define EEPROM_MAGIC_RELAY_POL  0xA5
+// NOT: RELAY_ACTIVE varsayilani HIGH'dan LOW'a duzeltildiginde (NC role
+// kablolamasiyla eslessin diye) bu magic bump edildi (eski: 0xA5). Aksi
+// halde daha once bu Nano'da calismis herhangi bir firmware EEPROM'a HIGH
+// yazmis olabilir ve relayPolariteYukle() yeni varsayilani hic gormeden
+// eski (yanlis) degeri okumaya devam ederdi.
+#define EEPROM_MAGIC_RELAY_POL  0xA6
 uint8_t relayAktifSeviye = RELAY_ACTIVE; // varsayilan: config.h'daki (LOW - NC role)
 
 void relayPolariteYukle() {
@@ -109,16 +113,12 @@ void readInputs() {
   }
 }
 
-void updateRelay() {
-  // Kapı açıksa röle tetikle (LOW = aktif, çünkü NC)
-  bool should_activate = door1_open || door2_open;
-
-  if (should_activate != relay_active) {
-    relay_active = should_activate;
-    digitalWrite(RELAY_PIN, relay_active ? relayAktifSeviye : relayPasifSeviye());
-    // D13 sadece depo iç lamba rölesidir - alarmda YAKILMAZ
-  }
-}
+// NOT: Role artik SADECE ESP8266'nin RELAY_ON/RELAY_OFF komutlarıyla
+// kontrol edilir (bkz handleSerialCommand). Eskiden burada kapı durumuna
+// gore rolenin kendi basina karar veren bir updateRelay() vardi - bu,
+// ESP8266'nin alarm modu/susturma/PIR/kacak/panik mantigini tamamen
+// bypass ediyordu (kapı acikken "sustur" komutu gonderilse bile role
+// bir sonraki loop'ta tekrar acikiyordu). Karar tamamen ESP8266'da.
 
 // ============================================================
 // SERİ HABERLEŞME (Non-blocking - while döngüsü yok)
@@ -326,9 +326,6 @@ void sendStatusPeriodic() {
 void loop() {
   // Input oku
   readInputs();
-
-  // Röle güncelle
-  updateRelay();
 
   // Seri komutları dinle
   handleSerialCommand();
