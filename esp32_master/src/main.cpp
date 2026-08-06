@@ -766,7 +766,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="row" style="gap:12px">
         <div><small>Kapı 1:</small> <b id="d1">-</b></div>
         <div><small>Kapı 2:</small> <b id="d2">-</b></div>
-        <div><small>Röle:</small> <b id="rl">-</b></div>
+        <div><small>Alarm Röle:</small> <b id="rl">-</b></div>
         <div><small>Lamba:</small> <b id="lm">-</b></div>
         <div><small>Nem Röle:</small> <b id="mr">-</b></div>
       </div>
@@ -1723,8 +1723,20 @@ void handleAPI_LocationSet() {
   locPrefsKaydet();
   double lat = 0, lon = 0;
   bool geocodeOk = geocodeIlIlce(il, ilce, lat, lon);
-  rainLocationValid = geocodeOk;
-  if (geocodeOk) { savedLat = lat; savedLon = lon; locPrefsKaydet(); }
+  if (geocodeOk) {
+    savedLat = lat; savedLon = lon;
+    rainLocationValid = true;
+    locPrefsKaydet();
+  } else if (savedLat == 0.0 && savedLon == 0.0) {
+    // FIX: rainLocationValid eskiden kosulsuz "= geocodeOk" yapiliyordu -
+    // daha once basariyla kaydedilmis gecerli bir koordinat varken kullanici
+    // (orn. test amacli) ayni il/ilceyi tekrar kaydedip bu seferki geocode
+    // istegi gecici bir ag hatasi yasarsa, onceki gecerli konum SESSIZCE
+    // gecersiz sayiliyordu ("Kontrol edildi" ile "Konum kaydedilmedi"
+    // arasinda tutarsiz gorunmenin sebebi buydu). Simdi sadece HIC gecerli
+    // koordinat yokken basarisizlik gecersiz birakiyor.
+    rainLocationValid = false;
+  }
   if (geocodeOk) {
     lastRainCheckMs = 0;  // konum degisti, hemen yeniden kontrol edilsin
     yagmurTahminiKontrolEt(true);
