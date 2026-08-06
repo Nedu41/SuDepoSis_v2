@@ -59,6 +59,12 @@ bool rainForecastTomorrow = false;
 bool rainLocationValid = false;
 unsigned long lastRainCheckMs = 0;
 String lastRainCheckStr = "-";
+// FIX: yagmurTahminiKontrolEt() basarisiz oldugunda tek gorunur iz sadece
+// Serial'e (DEBUG_PRINTLN) yaziliyordu - USB baglantisi olmadan (sahada)
+// NEDEN calismadigini gormenin hicbir yolu yoktu. Artik son deneme sonucu
+// (basarili/hangi asamada basarisiz) burada tutulup /api/location'dan
+// web arayuzune de gonderiliyor.
+String lastRainCheckDurum = "Henuz denenmedi";
 #define RAIN_FORECAST_DAYS 7
 String rainForecastDates[RAIN_FORECAST_DAYS];
 float rainForecastMm[RAIN_FORECAST_DAYS];
@@ -126,7 +132,7 @@ String urlEncode(const String& s) {
 // Il/ilce adindan enlem/boylam cozer (Open-Meteo ucretsiz geocoding API).
 // Basarili olursa lat/lon'u doldurur ve true doner.
 bool geocodeIlIlce(const String& il, const String& ilce, double& lat, double& lon) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) { lastRainCheckDurum = "Geocode: WiFi STA bagli degil"; return false; }
   String query = ilce.length() > 0 ? (ilce + ", " + il + ", Turkiye") : (il + ", Turkiye");
   String url = String(RAIN_GEOCODE_API) + "?name=" + urlEncode(query) + "&count=1&language=tr&format=json";
 
@@ -145,9 +151,14 @@ bool geocodeIlIlce(const String& il, const String& ilce, double& lat, double& lo
         lat = results[0]["latitude"].as<double>();
         lon = results[0]["longitude"].as<double>();
         ok = true;
+      } else {
+        lastRainCheckDurum = "Geocode: il/ilce icin sonuc bulunamadi";
       }
+    } else {
+      lastRainCheckDurum = "Geocode: JSON parse hatasi";
     }
   } else {
+    lastRainCheckDurum = "Geocode HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
     DEBUG_PRINTLN(String("[GEOCODE] HTTP hata: ") + String(code));
   }
   http.end();
@@ -183,8 +194,8 @@ void konumCozumKontrolEt() {
 // otomasyon ayarindan bagimsiz cekiliyor, rainSkipEnabled sadece asagida
 // ESP8266'ya SET_RAIN_SKIP komutu gonderilip gonderilmeyecegini belirliyor.
 void yagmurTahminiKontrolEt(bool zorla = false) {
-  if (!rainLocationValid) return;
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (!rainLocationValid) { lastRainCheckDurum = "Konum henuz cozulmedi"; return; }
+  if (WiFi.status() != WL_CONNECTED) { lastRainCheckDurum = "WiFi STA bagli degil"; return; }
   if (!zorla && lastRainCheckMs != 0 && millis() - lastRainCheckMs < RAIN_CHECK_INTERVAL_MS) return;
 
   String url = String(RAIN_FORECAST_API) + "?latitude=" + String(savedLat, 4) + "&longitude=" + String(savedLon, 4) +
@@ -198,7 +209,8 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
   if (code == HTTP_CODE_OK) {
     String payload = http.getString();
     DynamicJsonDocument doc(3072);
-    if (deserializeJson(doc, payload) == DeserializationError::Ok) {
+    DeserializationError parseErr = deserializeJson(doc, payload);
+    if (parseErr == DeserializationError::Ok) {
       JsonArray dates = doc["daily"]["time"].as<JsonArray>();
       JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
       rainForecastCount = min((int)precip.size(), RAIN_FORECAST_DAYS);
@@ -211,6 +223,7 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
         rainForecastTomorrow = (yarinMm >= RAIN_THRESHOLD_MM);
         lastRainCheckMs = millis();
         lastRainCheckStr = String(yarinMm, 1) + "mm";
+        lastRainCheckDurum = "OK";
         // Sulamayi FIILEN atlamak icin kullanici bu otomasyonu actiysa
         // ESP8266'ya bildir - tahminin kendisi (yukarida) buna bagli degil.
         if (rainSkipEnabled) {
@@ -218,9 +231,15 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
           rs485_send_wait_ack(rainForecastTomorrow ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
         }
         DEBUG_PRINTLN(String("[RAIN] Yarin: ") + yarinMm + "mm -> skip=" + (rainForecastTomorrow ? "1" : "0"));
+      } else {
+        lastRainCheckDurum = "API yanitinda gun verisi eksik (" + String(rainForecastCount) + " gun)";
       }
+    } else {
+      lastRainCheckDurum = String("JSON parse hatasi: ") + parseErr.c_str();
+      DEBUG_PRINTLN(String("[RAIN] JSON hata: ") + parseErr.c_str());
     }
   } else {
+    lastRainCheckDurum = "HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
     DEBUG_PRINTLN(String("[RAIN] HTTP hata: ") + String(code));
   }
   http.end();
@@ -1138,9 +1157,9 @@ function renderUI(d){
     if(!rain.gecerli && !rain.il){
       rdk.innerHTML='Konum kaydedilmedi';
     } else if(!rain.gecerli && rain.il){
-      rdk.innerHTML='Konum kaydedildi: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Koordinat henuz cozulemedi - internet gelince otomatik denenecek.';
+      rdk.innerHTML='Konum kaydedildi: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Koordinat henuz cozulemedi - internet gelince otomatik denenecek.<br><span style="font-size:11px;color:var(--muted)">Durum: '+(rain.lastCheckDurum||'-')+'</span>';
     } else {
-      rdk.innerHTML='Konum: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Yarın yağmur: <b>'+(rain.tomorrow?'Evet, sulama atlanacak':'Hayır')+'</b> (son kontrol: '+(rain.lastCheck||'-')+')';
+      rdk.innerHTML='Konum: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Yarın yağmur: <b>'+(rain.tomorrow?'Evet, sulama atlanacak':'Hayır')+'</b> (son kontrol: '+(rain.lastCheck||'-')+')<br><span style="font-size:11px;color:var(--muted)">Durum: '+(rain.lastCheckDurum||'-')+'</span>';
     }
   }
   if(!window.rainUIInitialized){
@@ -1491,6 +1510,7 @@ String durumJson() {
   doc["rain"]["skipEnabled"] = rainSkipEnabled;
   doc["rain"]["tomorrow"] = rainForecastTomorrow;
   doc["rain"]["lastCheck"] = lastRainCheckStr;
+  doc["rain"]["lastCheckDurum"] = lastRainCheckDurum;
   
   String jsonStr;
   serializeJson(doc, jsonStr);
@@ -1676,6 +1696,9 @@ void handleAPI_LocationGet() {
   j += "\"rainSkipEnabled\":" + String(rainSkipEnabled ? "true" : "false") + ",";
   j += "\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + ",";
   j += "\"lastCheck\":\"" + lastRainCheckStr + "\",";
+  j += "\"lastCheckDurum\":\"" + lastRainCheckDurum + "\",";
+  j += "\"wifiBagli\":" + String(WiFi.isConnected() ? "true" : "false") + ",";
+  j += "\"wifiSSID\":\"" + (WiFi.isConnected() ? WiFi.SSID() : "-") + "\",";
   j += "\"haftalik\":[";
   for (int i = 0; i < rainForecastCount; i++) {
     if (i > 0) j += ",";
