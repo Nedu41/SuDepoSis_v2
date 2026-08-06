@@ -108,6 +108,19 @@
 #define DEVICE_ID_NANO 0x02
 #define DEVICE_ID_MASTER 0x00
 
+// ===== Hava Durumu / Yagmur Tahmini (sabit konum, internet varken cekilir) =====
+// Konum secimi/geocode YOK - bahce sabit, koordinat burada tanimli. Kalburum'un
+// kendi RTC'si olmadigi icin "ne zaman cekildi" ESP8266'nin DS1307 RTC'sinden
+// (mevcut GET_ZAMAN RS485 komutuyla) okunan gercek takvim gunune gore izlenir -
+// NTP/epoch senkronizasyonuna gerek kalmaz.
+#define GARDEN_LATITUDE 40.833907
+#define GARDEN_LONGITUDE 29.730263
+#define WEATHER_FORECAST_API "https://api.open-meteo.com/v1/forecast"
+#define WEATHER_FORECAST_DAYS 7
+#define WEATHER_RAIN_THRESHOLD_MM 1.0f          // Yarin bu kadar mm+ beklenirse sulama atlanir
+#define WEATHER_STALE_DAYS 7                     // Bu kadar gunden eski tahmin gormezden gelinir (fail-open)
+#define WEATHER_CHECK_INTERVAL_MS (30UL * 60UL * 1000UL)  // Guncellik/oneri bu araliklarla yeniden hesaplanir
+
 // ===== OTA (GitHub'dan guncelleme) =====
 // Sabit "en son surum" linki: repoya push edilen .bin dosyasina isaret eder,
 // versiyon karsilastirmasi yapilmaz - "Guncelle" tusuna basildiginda dogrudan

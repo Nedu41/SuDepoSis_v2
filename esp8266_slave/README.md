@@ -70,7 +70,7 @@ PANIC=..,TRIG_MASK=..
 | `TRIG_MASK` | O an alarmı tetikleyen sensör(ler) bitmask'i |
 
 Master'dan gelen komutlar (`MASTER:<KOMUT>`) için `src/main.cpp` içindeki `rs485KomutDinle()`'ye bak
-— `SET_MOISTURE_AUTO=`, `SET_ALARM_MOD=`, `PANIC`, `ALARM_MUTE` vb.
+— `SET_MOISTURE_AUTO=`, `SET_RAIN_SKIP=`, `SET_ALARM_MOD=`, `PANIC`, `ALARM_MUTE` vb.
 
 ## Gece Enerji Politikası
 

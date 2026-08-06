@@ -465,10 +465,26 @@ void moistureOku() {
   if (moisturePercent > 100) moisturePercent = 100;
 }
 
+// Kalburum'un hava durumu ozelligi ("yarin yagmur var, bugun sulama atla")
+// RS485 ile SET_RAIN_SKIP=1/0 gonderir. Kalici EEPROM alani degil - bilincli
+// tercih: Kalburum zaten RS485 uzerinden periyodik tazeler (WiFi/internet
+// durumundan bagimsiz, kablo baglantisi surdukce), ESP8266 resetlenirse
+// varsayilan "sulama normal calissin" (false) guvenli taraftir. Bayrak,
+// Kalburum'dan uzun sure (RAIN_SKIP_STALE_MS) haber alinamazsa da otomatik
+// geçersiz sayilir - Kalburum kapali/RS485 hatti kopuk gibi durumlarda
+// sulamanin sonsuza kadar yanlislikla engellenmemesi icin (fail-open).
+bool yagmurSulamaAtla = false;
+unsigned long yagmurSonGuncellemeMs = 0;
+
+bool yagmurSulamaAtlaGecerli() {
+  return yagmurSulamaAtla && (millis() - yagmurSonGuncellemeMs < RAIN_SKIP_STALE_MS);
+}
+
 void applyMoistureControl() {
   if (!ayar.moistureAutomatic) return;
   if (sensorHatasi) return;
   if (moisturePercent <= ayar.moistureThresholdLow && !moistureOutputActive) {
+    if (yagmurSulamaAtlaGecerli()) return;  // Yarin yagmur bekleniyor, yeni sulama baslatma
     nanoMoistureKontrol(true);
   } else if (moisturePercent >= ayar.moistureThresholdHigh && moistureOutputActive) {
     nanoMoistureKontrol(false);
@@ -602,6 +618,10 @@ void rs485KomutDinle() {
           if (value > 100) value = 100;
           ayar.moistureThresholdHigh = value;
           ayarlariKaydet();
+          response = "ACK:" + komut;
+        } else if (komut.startsWith("SET_RAIN_SKIP=")) {
+          yagmurSulamaAtla = komut.substring(14).toInt() ? true : false;
+          yagmurSonGuncellemeMs = millis();
           response = "ACK:" + komut;
         } else if (komut == "GET_KAYITLAR") {
           // Kayit yedekleme: ESP32'ye tum kayitlari tek satirda ('~' ile ayrilmis) gonder.
@@ -1001,7 +1021,8 @@ String durumJson() {
    j += "\"alarmOnayBekliyor\":" + String(alarmOnayBekliyor ? "true" : "false") + ",";
    j += "\"alarmOnaylandi\":" + String(alarmOnaylandi ? "true" : "false") + ",";
    j += "\"alarmOnaySadeceLamba\":" + String(alarmOnaySadeceLamba ? "true" : "false") + ",";
-   j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false");
+   j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false") + ",";
+   j += "\"yagmurSulamaAtla\":" + String(yagmurSulamaAtlaGecerli() ? "true" : "false");
    j += "}";
   return j;
 }
