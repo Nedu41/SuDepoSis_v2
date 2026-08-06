@@ -1394,6 +1394,12 @@ void performOTA(const String& url) {
             " [heap:" + String(ESP.getFreeHeap()) +
             " wifi:" + (WiFi.isConnected() ? (WiFi.SSID() + "/" + WiFi.localIP().toString()) : "baglanti-yok") + "]";
   }
+  // FIX: /ota?url=X her tiklamada AYNI URL ile GET istegi - tarayici
+  // Cache-Control gonderilmezse bunu onbellekleyip cihaza hic gitmeden eski
+  // yaniti (orn. eski firmware'den kalma "Guncelleniyor: X" metnini) tekrar
+  // tekrar gosterebiliyordu.
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
   server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
   if (basarili) { delay(200); ESP.restart(); }
 }
