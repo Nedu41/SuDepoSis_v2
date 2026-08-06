@@ -45,206 +45,6 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
   savedPass = pass;
 }
 
-// RS485 uzerinden esp8266_slave'e komut gonderir (tanimi asagida) -
-// yagmurTahminiKontrolEt() bunu kullanir, bu yuzden ileri bildirim gerekir.
-bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
-
-// ============ Hava Durumu / Yagmur Tahmini - Konum (NVS'de kalici) ============
-String savedIl = "";
-String savedIlce = "";
-double savedLat = 0.0;
-double savedLon = 0.0;
-bool rainSkipEnabled = false;
-bool rainForecastTomorrow = false;
-bool rainLocationValid = false;
-unsigned long lastRainCheckMs = 0;
-String lastRainCheckStr = "-";
-// FIX: yagmurTahminiKontrolEt() basarisiz oldugunda tek gorunur iz sadece
-// Serial'e (DEBUG_PRINTLN) yaziliyordu - USB baglantisi olmadan (sahada)
-// NEDEN calismadigini gormenin hicbir yolu yoktu. Artik son deneme sonucu
-// (basarili/hangi asamada basarisiz) burada tutulup /api/location'dan
-// web arayuzune de gonderiliyor.
-String lastRainCheckDurum = "Henuz denenmedi";
-#define RAIN_FORECAST_DAYS 7
-String rainForecastDates[RAIN_FORECAST_DAYS];
-float rainForecastMm[RAIN_FORECAST_DAYS];
-int rainForecastCount = 0;
-
-// NOT: Bu ayarlar onceden ESP32 Preferences (NVS) ile saklaniyordu, ama
-// kullanicida tekrar tekrar kaydedilmeme sorunu yasandi (sebebi netlesmedi -
-// muhtemelen bu boarddaki NVS partisyonuyla ilgili). Bu oturumda kayit
-// yedekleme ve firmware deposu icin zaten guvenilir calistigini kanitladigimiz
-// SPIFFS dosyasina tasindi.
-#define LOC_AYAR_DOSYASI "/hava_ayarlari.json"
-
-void locPrefsYukle() {
-  File f = SPIFFS.open(LOC_AYAR_DOSYASI, "r");
-  if (f) {
-    DynamicJsonDocument doc(512);
-    if (deserializeJson(doc, f) == DeserializationError::Ok) {
-      savedIl = doc["il"] | "";
-      savedIlce = doc["ilce"] | "";
-      savedLat = doc["lat"] | 0.0;
-      savedLon = doc["lon"] | 0.0;
-      rainSkipEnabled = doc["skipOn"] | false;
-    }
-    f.close();
-  }
-  rainLocationValid = (savedLat != 0.0 || savedLon != 0.0);
-  DEBUG_PRINTLN(String("[HAVA] Yuklendi: il=") + savedIl + " ilce=" + savedIlce + " gecerli=" + String(rainLocationValid ? "1" : "0"));
-}
-
-void locPrefsKaydet() {
-  DynamicJsonDocument doc(512);
-  doc["il"] = savedIl;
-  doc["ilce"] = savedIlce;
-  doc["lat"] = savedLat;
-  doc["lon"] = savedLon;
-  doc["skipOn"] = rainSkipEnabled;
-  File f = SPIFFS.open(LOC_AYAR_DOSYASI, "w");
-  if (f) {
-    serializeJson(doc, f);
-    f.close();
-    DEBUG_PRINTLN(String("[HAVA] Kaydedildi: il=") + savedIl + " ilce=" + savedIlce);
-  } else {
-    DEBUG_PRINTLN("[HAVA] KAYIT HATASI - SPIFFS dosyasi acilamadi");
-  }
-}
-
-// RFC3986 percent-encode - Turkce karakterler ve bosluklar icin gerekli
-// (HTTPClient/WiFiClientSecure otomatik encode etmez).
-String urlEncode(const String& s) {
-  String out;
-  const char* hex = "0123456789ABCDEF";
-  for (size_t i = 0; i < s.length(); i++) {
-    uint8_t c = (uint8_t)s[i];
-    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      out += (char)c;
-    } else {
-      out += '%';
-      out += hex[(c >> 4) & 0xF];
-      out += hex[c & 0xF];
-    }
-  }
-  return out;
-}
-
-// Il/ilce adindan enlem/boylam cozer (Open-Meteo ucretsiz geocoding API).
-// Basarili olursa lat/lon'u doldurur ve true doner.
-bool geocodeIlIlce(const String& il, const String& ilce, double& lat, double& lon) {
-  if (WiFi.status() != WL_CONNECTED) { lastRainCheckDurum = "Geocode: WiFi STA bagli degil"; return false; }
-  String query = ilce.length() > 0 ? (ilce + ", " + il + ", Turkiye") : (il + ", Turkiye");
-  String url = String(RAIN_GEOCODE_API) + "?name=" + urlEncode(query) + "&count=1&language=tr&format=json";
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.begin(client, url);
-  int code = http.GET();
-  bool ok = false;
-  if (code == HTTP_CODE_OK) {
-    String payload = http.getString();
-    DynamicJsonDocument doc(2048);
-    if (deserializeJson(doc, payload) == DeserializationError::Ok) {
-      JsonArray results = doc["results"].as<JsonArray>();
-      if (!results.isNull() && results.size() > 0) {
-        lat = results[0]["latitude"].as<double>();
-        lon = results[0]["longitude"].as<double>();
-        ok = true;
-      } else {
-        lastRainCheckDurum = "Geocode: il/ilce icin sonuc bulunamadi";
-      }
-    } else {
-      lastRainCheckDurum = "Geocode: JSON parse hatasi";
-    }
-  } else {
-    lastRainCheckDurum = "Geocode HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
-    DEBUG_PRINTLN(String("[GEOCODE] HTTP hata: ") + String(code));
-  }
-  http.end();
-  return ok;
-}
-
-// Il/ilce kaydedildi ama internet olmadigi icin koordinat cozulemediyse,
-// internet geldiginde (en fazla 60sn'de bir) otomatik tekrar dener.
-void konumCozumKontrolEt() {
-  if (rainLocationValid) return;
-  if (savedIl.length() == 0) return;
-  if (WiFi.status() != WL_CONNECTED) return;
-  static unsigned long sonDenemeMs = 0;
-  if (sonDenemeMs != 0 && millis() - sonDenemeMs < 60000UL) return;
-  sonDenemeMs = millis();
-  double lat, lon;
-  if (geocodeIlIlce(savedIl, savedIlce, lat, lon)) {
-    savedLat = lat; savedLon = lon; rainLocationValid = true;
-    locPrefsKaydet();
-    DEBUG_PRINTLN("[RAIN] Konum internet gelince cozuldu");
-  }
-}
-
-// Yarinki yagmur tahminini sorgular ve haftalik tahmini gunceller. Internet
-// yoksa veya konum cozulmemisse sessizce cikar - bir sonraki loop'ta tekrar
-// denenir.
-// FIX: Bu fonksiyon eskiden en basta "if (!rainSkipEnabled) return;" ile
-// baslıyordu - yani "Yarin yagmur beklenirse sulamayi atla" otomasyonu
-// KAPALIYKEN tahmin hic cekilmiyordu, haftalik tahmin kutusu da "son
-// kontrol: -" ile sonsuza kadar bos kaliyordu ("hava durumu kayit
-// tutmuyor" sikayeti). Tahmini GORMEK ile onu sulamayi atlamak icin
-// KULLANMAK birbirinden bagimsiz olmali - simdi tahmin konum gecerliyken
-// otomasyon ayarindan bagimsiz cekiliyor, rainSkipEnabled sadece asagida
-// ESP8266'ya SET_RAIN_SKIP komutu gonderilip gonderilmeyecegini belirliyor.
-void yagmurTahminiKontrolEt(bool zorla = false) {
-  if (!rainLocationValid) { lastRainCheckDurum = "Konum henuz cozulmedi"; return; }
-  if (WiFi.status() != WL_CONNECTED) { lastRainCheckDurum = "WiFi STA bagli degil"; return; }
-  if (!zorla && lastRainCheckMs != 0 && millis() - lastRainCheckMs < RAIN_CHECK_INTERVAL_MS) return;
-
-  String url = String(RAIN_FORECAST_API) + "?latitude=" + String(savedLat, 4) + "&longitude=" + String(savedLon, 4) +
-               "&daily=precipitation_sum&forecast_days=" + String(RAIN_FORECAST_DAYS) + "&timezone=auto";
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.begin(client, url);
-  int code = http.GET();
-  if (code == HTTP_CODE_OK) {
-    String payload = http.getString();
-    DynamicJsonDocument doc(3072);
-    DeserializationError parseErr = deserializeJson(doc, payload);
-    if (parseErr == DeserializationError::Ok) {
-      JsonArray dates = doc["daily"]["time"].as<JsonArray>();
-      JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
-      rainForecastCount = min((int)precip.size(), RAIN_FORECAST_DAYS);
-      for (int i = 0; i < rainForecastCount; i++) {
-        rainForecastDates[i] = dates[i].as<String>();
-        rainForecastMm[i] = precip[i].as<float>();
-      }
-      if (rainForecastCount >= 2) {
-        float yarinMm = rainForecastMm[1];
-        rainForecastTomorrow = (yarinMm >= RAIN_THRESHOLD_MM);
-        lastRainCheckMs = millis();
-        lastRainCheckStr = String(yarinMm, 1) + "mm";
-        lastRainCheckDurum = "OK";
-        // Sulamayi FIILEN atlamak icin kullanici bu otomasyonu actiysa
-        // ESP8266'ya bildir - tahminin kendisi (yukarida) buna bagli degil.
-        if (rainSkipEnabled) {
-          String reply;
-          rs485_send_wait_ack(rainForecastTomorrow ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
-        }
-        DEBUG_PRINTLN(String("[RAIN] Yarin: ") + yarinMm + "mm -> skip=" + (rainForecastTomorrow ? "1" : "0"));
-      } else {
-        lastRainCheckDurum = "API yanitinda gun verisi eksik (" + String(rainForecastCount) + " gun)";
-      }
-    } else {
-      lastRainCheckDurum = String("JSON parse hatasi: ") + parseErr.c_str();
-      DEBUG_PRINTLN(String("[RAIN] JSON hata: ") + parseErr.c_str());
-    }
-  } else {
-    lastRainCheckDurum = "HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
-    DEBUG_PRINTLN(String("[RAIN] HTTP hata: ") + String(code));
-  }
-  http.end();
-}
-
 // ============================================================
 // VERI YAPILARI
 // ============================================================
@@ -778,17 +578,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <h3>Lamba</h3>
       <div class="row">
         <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Aç</button>
-        <button class="btn btn-warn" id="role-test-btn" onclick="roleTest()">Röle Test (2sn)</button>
       </div>
       <div id="lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
-    <div class="card">
-      <h3>Test 1 - Nano D13 LED</h3>
-      <div class="row">
-        <button class="btn btn-primary" id="test1-btn" onclick="test1Toggle()">Aç</button>
-      </div>
-      <div id="test1-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -855,47 +646,6 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-warn" onclick="kayitGeriYukle()">ESP8266'ya Geri Yukle</button>
       </div>
       <div id="yedek-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
-    <div class="card">
-      <h3>Hava Durumu / Yağmur Tahmini</h3>
-      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="rain-durum-kutu">Yükleniyor...</div>
-      <div class="row">
-        <select class="input" id="rainIl">
-          <option value="">İl seç...</option>
-          <option>Adana</option><option>Adıyaman</option><option>Afyonkarahisar</option><option>Ağrı</option>
-          <option>Aksaray</option><option>Amasya</option><option>Ankara</option><option>Antalya</option>
-          <option>Ardahan</option><option>Artvin</option><option>Aydın</option><option>Balıkesir</option>
-          <option>Bartın</option><option>Batman</option><option>Bayburt</option><option>Bilecik</option>
-          <option>Bingöl</option><option>Bitlis</option><option>Bolu</option><option>Burdur</option>
-          <option>Bursa</option><option>Çanakkale</option><option>Çankırı</option><option>Çorum</option>
-          <option>Denizli</option><option>Diyarbakır</option><option>Düzce</option><option>Edirne</option>
-          <option>Elazığ</option><option>Erzincan</option><option>Erzurum</option><option>Eskişehir</option>
-          <option>Gaziantep</option><option>Giresun</option><option>Gümüşhane</option><option>Hakkari</option>
-          <option>Hatay</option><option>Iğdır</option><option>Isparta</option><option>İstanbul</option>
-          <option>İzmir</option><option>Kahramanmaraş</option><option>Karabük</option><option>Karaman</option>
-          <option>Kars</option><option>Kastamonu</option><option>Kayseri</option><option>Kırıkkale</option>
-          <option>Kırklareli</option><option>Kırşehir</option><option>Kilis</option><option>Kocaeli</option>
-          <option>Konya</option><option>Kütahya</option><option>Malatya</option><option>Manisa</option>
-          <option>Mardin</option><option>Mersin</option><option>Muğla</option><option>Muş</option>
-          <option>Nevşehir</option><option>Niğde</option><option>Ordu</option><option>Osmaniye</option>
-          <option>Rize</option><option>Sakarya</option><option>Samsun</option><option>Siirt</option>
-          <option>Sinop</option><option>Sivas</option><option>Şanlıurfa</option><option>Şırnak</option>
-          <option>Tekirdağ</option><option>Tokat</option><option>Trabzon</option><option>Tunceli</option>
-          <option>Uşak</option><option>Van</option><option>Yalova</option><option>Yozgat</option>
-          <option>Zonguldak</option>
-        </select>
-        <input class="input" id="rainIlce" placeholder="İlçe (yazın)">
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn btn-primary" onclick="rainKonumKaydet()">Konumu Kaydet</button>
-        <button class="btn btn-warn" onclick="rainKontrolEt()">Şimdi Kontrol Et</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <label><input type="checkbox" id="rainSkipToggle" onchange="rainToggle()"> Yarın yağmur bekleniyorsa otomatik sulamayı atla</label>
-      </div>
-      <div id="rain-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-      <div id="rain-haftalik" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
 
     <div class="card">
@@ -1149,25 +899,6 @@ function renderUI(d){
       wdk.innerHTML='Ev WiFi tanımlı değil (AP: '+(d.ap_ip||'-')+')';
     }
   }
-  // Hava durumu / yagmur - dropdown/input sadece ilk yuklemede doldurulur,
-  // kullanici yazarken periyodik yenileme onu ezmesin diye.
-  const rain=d.rain||{};
-  const rdk=$('#rain-durum-kutu');
-  if(rdk){
-    if(!rain.gecerli && !rain.il){
-      rdk.innerHTML='Konum kaydedilmedi';
-    } else if(!rain.gecerli && rain.il){
-      rdk.innerHTML='Konum kaydedildi: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Koordinat henuz cozulemedi - internet gelince otomatik denenecek.<br><span style="font-size:11px;color:var(--muted)">Durum: '+(rain.lastCheckDurum||'-')+'</span>';
-    } else {
-      rdk.innerHTML='Konum: <b>'+(rain.ilce?rain.ilce+', ':'')+rain.il+'</b><br>Yarın yağmur: <b>'+(rain.tomorrow?'Evet, sulama atlanacak':'Hayır')+'</b> (son kontrol: '+(rain.lastCheck||'-')+')<br><span style="font-size:11px;color:var(--muted)">Durum: '+(rain.lastCheckDurum||'-')+'</span>';
-    }
-  }
-  if(!window.rainUIInitialized){
-    window.rainUIInitialized=true;
-    if(rain.il) $('#rainIl').value=rain.il;
-    if(rain.ilce) $('#rainIlce').value=rain.ilce;
-    $('#rainSkipToggle').checked=!!rain.skipEnabled;
-  }
   // Cihaz durumları
   const esp8266Ok = d.esp8266_online !== false;
   const nanoOk    = d.nano_online !== false;
@@ -1189,7 +920,6 @@ function renderUI(d){
   // Her buton sadece KENDI komutu surerken (busySet'te ise) atlanir; digerleri
   // her zaman taze veriyle guncellenir (bkz. busySet aciklamasi yukarida).
   if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = d.nano.lamp ? 'Kapat' : 'Aç';
-  if(!busySet.has('#test1-btn')){ const t1=$('#test1-btn'); if(t1) t1.textContent = d.nano.lamp ? 'Kapat' : 'Aç'; }
   if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç';
   if(!busySet.has('#panic-btn')){ const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
   if(!busySet.has('#alarm-mod-sel')){ const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
@@ -1311,13 +1041,6 @@ function toggleAlarm(){
   const aktif = $('#alarm-btn').textContent.trim() === 'Alarmı Kapat';
   sendCommand('#alarm-btn', '/api/alarm?aktif='+(aktif?0:1), '#alarm-sonuc');
 }
-function test1Toggle(){
-  const acik = $('#test1-btn') && $('#test1-btn').textContent.trim() === 'Kapat';
-  sendCommand('#test1-btn', '/api/test1?durum='+(acik?0:1), '#test1-sonuc');
-}
-function roleTest(){
-  sendCommand('#role-test-btn', '/api/role-test', '#lamba-sonuc');
-}
 function kapiKontrol(v){
   sendCommand(null, '/api/kapi?durum='+v, '#lamba-sonuc');
 }
@@ -1341,37 +1064,6 @@ function otaGuncelle(){
   if(!confirm('GitHub\'daki en son firmware indirilip yazılacak, cihaz yeniden başlayacak. Emin misin?'))return;
   $('#ota-sonuc').textContent='Güncelleniyor...';
   api('/api/ota').then(d=>{$('#ota-sonuc').textContent=d.mesaj||'';});
-}
-function rainKonumKaydet(){
-  const il=$('#rainIl').value, ilce=$('#rainIlce').value;
-  if(!il){$('#rain-sonuc').textContent='Il secin';return;}
-  $('#rain-sonuc').textContent='Konum cozuluyor...';
-  fetch('/api/location',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'il='+encodeURIComponent(il)+'&ilce='+encodeURIComponent(ilce)})
-    .then(r=>r.json()).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();guncelle();})
-    .catch(()=>{$('#rain-sonuc').textContent='Hata!';});
-}
-function rainKontrolEt(){
-  $('#rain-sonuc').textContent='Kontrol ediliyor...';
-  api('/api/rain/check').then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();});
-}
-function rainToggle(){
-  const aktif=$('#rainSkipToggle').checked?1:0;
-  api('/api/rain/toggle?aktif='+aktif).then(d=>{$('#rain-sonuc').textContent=d.mesaj||'';rainHaftalikYukle();});
-}
-function rainHaftalikYukle(){
-  const kutu=$('#rain-haftalik'); if(!kutu) return;
-  fetch('/api/location').then(r=>r.json()).then(d=>{
-    const gunler=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
-    const liste=d.haftalik||[];
-    if(liste.length===0){kutu.innerHTML='';return;}
-    kutu.innerHTML=liste.map((g,i)=>{
-      const tarih=new Date(g.tarih+'T12:00:00');
-      const gunAdi=i===0?'Bugün':(i===1?'Yarın':gunler[tarih.getDay()]);
-      const yagmurVar=g.mm>=1.0;
-      const stil=yagmurVar?'background:rgba(37,99,235,.15);border-color:var(--primary)':'';
-      return '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;'+stil+'">'+gunAdi+'<br><b>'+g.mm.toFixed(1)+'mm</b>'+(yagmurVar?' 🌧':'')+'</div>';
-    }).join('');
-  }).catch(()=>{});
 }
 function firmwareDurumYukle(){
   fetch('/api/firmware/durum').then(r=>r.json()).then(d=>{
@@ -1444,7 +1136,6 @@ function restartSistem(){
 }
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
-rainHaftalikYukle();
 yedekDurumYukle();
 </script>
 </body>
@@ -1504,14 +1195,6 @@ String durumJson() {
   doc["wifi_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
   doc["mdns"] = String(MDNS_NAME) + ".local";
 
-  doc["rain"]["il"] = savedIl;
-  doc["rain"]["ilce"] = savedIlce;
-  doc["rain"]["gecerli"] = rainLocationValid;
-  doc["rain"]["skipEnabled"] = rainSkipEnabled;
-  doc["rain"]["tomorrow"] = rainForecastTomorrow;
-  doc["rain"]["lastCheck"] = lastRainCheckStr;
-  doc["rain"]["lastCheckDurum"] = lastRainCheckDurum;
-  
   String jsonStr;
   serializeJson(doc, jsonStr);
   return jsonStr;
@@ -1686,84 +1369,6 @@ void handleFirmwareDurum() {
 }
 
 // ============ HAVA DURUMU / YAGMUR TAHMINI API'LERI ============
-void handleAPI_LocationGet() {
-  String j = "{";
-  j += "\"il\":\"" + savedIl + "\",";
-  j += "\"ilce\":\"" + savedIlce + "\",";
-  j += "\"lat\":" + String(savedLat, 4) + ",";
-  j += "\"lon\":" + String(savedLon, 4) + ",";
-  j += "\"gecerli\":" + String(rainLocationValid ? "true" : "false") + ",";
-  j += "\"rainSkipEnabled\":" + String(rainSkipEnabled ? "true" : "false") + ",";
-  j += "\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + ",";
-  j += "\"lastCheck\":\"" + lastRainCheckStr + "\",";
-  j += "\"lastCheckDurum\":\"" + lastRainCheckDurum + "\",";
-  j += "\"wifiBagli\":" + String(WiFi.isConnected() ? "true" : "false") + ",";
-  j += "\"wifiSSID\":\"" + (WiFi.isConnected() ? WiFi.SSID() : "-") + "\",";
-  j += "\"haftalik\":[";
-  for (int i = 0; i < rainForecastCount; i++) {
-    if (i > 0) j += ",";
-    j += "{\"tarih\":\"" + rainForecastDates[i] + "\",\"mm\":" + String(rainForecastMm[i], 1) + "}";
-  }
-  j += "]}";
-  server.send(200, "application/json", j);
-}
-
-void handleAPI_LocationSet() {
-  if (!server.hasArg("il")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"il eksik\"}"); return; }
-  String il = server.arg("il");
-  String ilce = server.hasArg("ilce") ? server.arg("ilce") : "";
-  // FIX: Il/ilce secimini kaydetmek ile koordinat cozmek (internet gerektirir,
-  // HTTPS/TLS istegi asilabilir/uzun surebilir) ayni islemdeymis gibi
-  // yapiliyordu - geocode adimi tamamlanmadan/basarisiz olursa kaydetme hic
-  // gerceklesmiyordu, sayfa yenilenince secim sifirlaniyordu. Simdi il/ilce
-  // ONCE, geocode denemeden HEMEN kaydedilir; boylece o adim ne olursa olsun
-  // secim guvende. Koordinat cozulemezse konumCozumKontrolEt() internet
-  // gelince tekrar dener.
-  savedIl = il; savedIlce = ilce;
-  locPrefsKaydet();
-  double lat = 0, lon = 0;
-  bool geocodeOk = geocodeIlIlce(il, ilce, lat, lon);
-  if (geocodeOk) {
-    savedLat = lat; savedLon = lon;
-    rainLocationValid = true;
-    locPrefsKaydet();
-  } else if (savedLat == 0.0 && savedLon == 0.0) {
-    // FIX: rainLocationValid eskiden kosulsuz "= geocodeOk" yapiliyordu -
-    // daha once basariyla kaydedilmis gecerli bir koordinat varken kullanici
-    // (orn. test amacli) ayni il/ilceyi tekrar kaydedip bu seferki geocode
-    // istegi gecici bir ag hatasi yasarsa, onceki gecerli konum SESSIZCE
-    // gecersiz sayiliyordu ("Kontrol edildi" ile "Konum kaydedilmedi"
-    // arasinda tutarsiz gorunmenin sebebi buydu). Simdi sadece HIC gecerli
-    // koordinat yokken basarisizlik gecersiz birakiyor.
-    rainLocationValid = false;
-  }
-  if (geocodeOk) {
-    lastRainCheckMs = 0;  // konum degisti, hemen yeniden kontrol edilsin
-    yagmurTahminiKontrolEt(true);
-  }
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" +
-              String(geocodeOk ? "Konum kaydedildi ve bulundu" : "Il/ilce kaydedildi - internet gelince koordinat otomatik cozulecek") +
-              "\",\"lat\":" + String(lat, 4) + ",\"lon\":" + String(lon, 4) + "}");
-}
-
-void handleAPI_RainToggle() {
-  if (!server.hasArg("aktif")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"aktif eksik\"}"); return; }
-  rainSkipEnabled = server.arg("aktif").toInt() != 0;
-  locPrefsKaydet();
-  if (rainSkipEnabled) { lastRainCheckMs = 0; yagmurTahminiKontrolEt(true); }
-  else {
-    String reply;
-    rs485_send_wait_ack("MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
-  }
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(rainSkipEnabled ? "Etkin" : "Kapali") + "\"}");
-}
-
-void handleAPI_RainCheckNow() {
-  yagmurTahminiKontrolEt(true);
-  server.send(200, "application/json", "{\"basarili\":" + String(rainLocationValid ? "true" : "false") + ",\"mesaj\":\"" +
-              String(rainLocationValid ? "Kontrol edildi" : "Once konum kaydet") + "\",\"rainForecastTomorrow\":" + String(rainForecastTomorrow ? "true" : "false") + "}");
-}
-
 // ============ KAYIT YEDEKLEME (ESP8266'nin kayitlar.csv'si buraya yedeklenir) ============
 // AMAC: ESP8266'da "pio run -t uploadfs" tum LittleFS'i sifirlar, kayitlar.csv da
 // dahil olmak uzere calisma-zamani dosyalarini siler. Yedek burada (ESP32 SPIFFS)
@@ -1997,15 +1602,6 @@ void handleAPI_MoistureThreshold() {
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Esikler ayarlandi" : "Komut hatasi") + "\",\"replyLow\":\"" + replyLow + "\",\"replyHigh\":\"" + replyHigh + "\"}");
 }
 
-void handleAPI_RoleTest() {
-  String reply;
-  rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack("MASTER:ROLE_TEST\n", reply, 2000);
-  rs485_api_busy = false;
-  if (ok) last_rs485_update_ms = millis();
-  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Role testi gonderildi" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
-}
-
 void handleAPI_Kapi() {
   if (!server.hasArg("durum")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
@@ -2049,22 +1645,6 @@ void handleAPI_Panic() {
 
 // Test 1: Nano D13 LED kontrolü
 // ESP32 -> RS485 -> ESP8266 (MASTER:SET_LAMBA) -> Nano (LAMBA_ON) -> D13 HIGH
-void handleAPI_Test1() {
-  if (!server.hasArg("durum")) {
-    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
-    return;
-  }
-  int d = server.arg("durum").toInt();
-  Serial.printf("[TEST1] RS485 gonderiliyor: MASTER:SET_LAMBA=%d\n", d);
-  String reply;
-  rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_LAMBA=1\n" : "MASTER:SET_LAMBA=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
-  if (ok) { nanoStatus.lamp_on = (d == 1); last_rs485_update_ms = millis(); }
-  Serial.println("[TEST1] RS485 gonderildi");
-  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Test1 Acik" : "Test1 Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
-}
-
 void handleAPI_Wifi() {
   if (!server.hasArg("ssid")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"SSID eksik\"}");
@@ -2115,10 +1695,6 @@ void setupWebServer() {
   server.on("/events", handleSSE);
   server.on("/api/ota", handleOTA);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
-  server.on("/api/location", HTTP_GET, handleAPI_LocationGet);
-  server.on("/api/location", HTTP_POST, handleAPI_LocationSet);
-  server.on("/api/rain/toggle", handleAPI_RainToggle);
-  server.on("/api/rain/check", handleAPI_RainCheckNow);
   server.on("/api/kayit/yedekle", handleAPI_KayitYedekle);
   server.on("/api/kayit/geri_yukle", handleAPI_KayitGeriYukle);
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
@@ -2134,10 +1710,8 @@ void setupWebServer() {
   server.on("/api/alarm/mute", handleAPI_AlarmMute);
   server.on("/api/alarm/onayla", handleAPI_AlarmOnayla);
   server.on("/api/alarm/onayla_lamba", handleAPI_AlarmOnaylaLamba);
-  server.on("/api/role-test", handleAPI_RoleTest);
   server.on("/api/kapi", handleAPI_Kapi);
   server.on("/api/panic", handleAPI_Panic);
-  server.on("/api/test1", handleAPI_Test1);
   server.on("/api/wifi", handleAPI_Wifi);
   server.on("/api/wifi/scan", handleAPI_WifiScan);
   server.on("/api/restart", handleAPI_Restart);
@@ -2249,9 +1823,6 @@ void setup() {
   wifi_connect();
   setup_ota();
 
-  // Hava durumu / yagmur tahmini - kayitli konumu yukle
-  locPrefsYukle();
-  
   // MQTT Setup
   if (ENABLE_MQTT) {
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
@@ -2293,12 +1864,6 @@ void loop() {
   // RS485 Polling
   rs485_poll();
 
-  // Il/ilce secilmis ama internet olmadigi icin koordinat cozulememisse tekrar dene
-  konumCozumKontrolEt();
-
-  // Hava durumu / yagmur tahmini - internet varken periyodik kontrol
-  yagmurTahminiKontrolEt();
-  
   // MQTT
   mqtt_connect();
   mqtt_publish();
