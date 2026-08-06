@@ -60,15 +60,6 @@
 #define NIGHT_START_HOUR 22
 #define NIGHT_END_HOUR 6
 
-// ===== Yagmur Tahmini (ESP32-S3 master'dan RS485 ile gelir) =====
-// Master, SET_RAIN_SKIP=1/0 komutuyla "yarin yagmur bekleniyor" bilgisini
-// bildirir. Bahcede sabit internet olmadigindan (sadece kullanici oradayken
-// mobil hat/hotspot ile) master bu bilgiyi seyrek guncelleyebilir. Bu yuzden
-// bayrak asiri bayatlarsa (master uzun sure guncelleme gonderemezse) sulama
-// engellenmeye devam etmesin diye bir gecerlilik suresi tanimlanir - bitkinin
-// susuz kalmasi, gereksiz sulamadan daha kotu bir risktir (fail-open).
-#define RAIN_SKIP_STALE_MS (48UL * 3600UL * 1000UL)  // 48 saat
-
 // ===== Depo Kalibrasyonu (Varsayılan) =====
 #define TANK_EMPTY_CM 90.0
 #define TANK_FULL_CM 10.0

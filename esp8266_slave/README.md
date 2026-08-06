@@ -48,7 +48,7 @@ Slave, master'a ~1 saniyede bir (veya `MASTER:REQUEST_ESP8266` isteğine yanıt 
 ESP8266:LEVEL=..,PCT=..,LITRE=..,TEMP=..,MODE=day|night,K1=..,K2=..,R=..,LAMBA=..,ALARM=..,
 ERR=..,RTC=..,LEAK=..,LEAK_DK=..,FILL=..,MOISTURE_RAW=..,MOISTURE_PCT=..,MOISTURE_OUTPUT=..,
 MOISTURE_AUTO=..,MOISTURE_LOW=..,MOISTURE_HIGH=..,ALARM_MOD=..,ALARM_MUTE=..,ALARM_PENDING=..,
-PANIC=..,TRIG_MASK=..,RAIN_SKIP=..
+PANIC=..,TRIG_MASK=..
 ```
 
 | Alan | Anlamı |
@@ -68,10 +68,9 @@ PANIC=..,TRIG_MASK=..,RAIN_SKIP=..
 | `ALARM_MOD`/`ALARM_MUTE`/`ALARM_PENDING` | Alarm modu (sesli/sessiz/onaylı), susturma, onay bekliyor |
 | `PANIC` | Panik modu aktif mi |
 | `TRIG_MASK` | O an alarmı tetikleyen sensör(ler) bitmask'i |
-| `RAIN_SKIP` | Master'ın bildirdiği "yarın yağmur var, sulama atla" bayrağı (48 saat bayatlarsa otomatik geçersiz) |
 
 Master'dan gelen komutlar (`MASTER:<KOMUT>`) için `src/main.cpp` içindeki `rs485KomutDinle()`'ye bak
-— `SET_MOISTURE_AUTO=`, `SET_RAIN_SKIP=`, `SET_ALARM_MOD=`, `PANIC`, `ALARM_MUTE` vb.
+— `SET_MOISTURE_AUTO=`, `SET_ALARM_MOD=`, `PANIC`, `ALARM_MUTE` vb.
 
 ## Gece Enerji Politikası
 

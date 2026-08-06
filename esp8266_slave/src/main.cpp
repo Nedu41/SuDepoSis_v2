@@ -205,13 +205,6 @@ unsigned long lambaFlashSonDegisimMs = 0;
 bool panicAktif = false;  // Manuel panik override - anahtar gibi, acik/kapali kalir
 bool panicRoleAktif = false;  // Panik modunda rolenin aktif olup olmadigi
 
-// ============ YAGMUR TAHMINI (ESP32-S3 master'dan) ============
-// Kalici EEPROM alani degil - bilincli tercih: master zaten periyodik olarak
-// tazeler, ESP8266 resetlenirse varsayilan "sulama normal calissin" (false)
-// guvenli taraftir. Bkz. config.h RAIN_SKIP_STALE_MS.
-bool yagmurSulamaAtla = false;
-unsigned long yagmurSonGuncellemeMs = 0;
-
 // ============ SSE ============
 WiFiClient sseClient;
 bool sseAktif = false;
@@ -229,8 +222,6 @@ uint8_t pirDarbeSayisiPencerede = 0; // debug/UI icin: su an pencere icinde kala
 unsigned long pirSonAktifMs = 0; // PIR ham en son ne zaman aktif goruldu (iletisim toleransi icin)
 bool roleFizikselDurum = false;
 bool rolePolariteHigh = true;  // Nano GET_STATUS'tan gelir - dropdown gercek durumu yansitsin diye
-bool roleTestAktif = false;
-unsigned long roleTestBitisMs = 0;
 bool nanoBaglantiVar = false;
 bool lambaAcik = false;
 bool moistureOutputActive = false;
@@ -474,15 +465,10 @@ void moistureOku() {
   if (moisturePercent > 100) moisturePercent = 100;
 }
 
-bool yagmurSulamaAtlaGecerli() {
-  return yagmurSulamaAtla && (millis() - yagmurSonGuncellemeMs < RAIN_SKIP_STALE_MS);
-}
-
 void applyMoistureControl() {
   if (!ayar.moistureAutomatic) return;
   if (sensorHatasi) return;
   if (moisturePercent <= ayar.moistureThresholdLow && !moistureOutputActive) {
-    if (yagmurSulamaAtlaGecerli()) return;  // Yarin yagmur bekleniyor, yeni sulama baslatma
     nanoMoistureKontrol(true);
   } else if (moisturePercent >= ayar.moistureThresholdHigh && moistureOutputActive) {
     nanoMoistureKontrol(false);
@@ -536,7 +522,7 @@ void masterGonder() {
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,RAIN_SKIP=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     kapi1Acik ? 1 : 0,
@@ -559,8 +545,7 @@ void masterGonder() {
     alarmSusturuldu ? 1 : 0,
     alarmOnayBekliyor ? 1 : 0,
     panicRoleAktif ? 1 : 0,
-    alarmTetikleyenMask,
-    yagmurSulamaAtlaGecerli() ? 1 : 0
+    alarmTetikleyenMask
   );
   rs485Gonder(buf);
 }
@@ -581,12 +566,6 @@ void rs485KomutDinle() {
         String komut = buffer.substring(7);
         if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
           masterGonder();
-          response = "ACK:" + komut;
-        } else if (komut == "ROLE_TEST") {
-          nanoRoleKontrol(true);
-          delay(2000);
-          nanoRoleKontrol(false);
-          DEBUG_PRINTLN("[RS485] Role test OK");
           response = "ACK:" + komut;
         } else if (komut.startsWith("SET_LAMBA=")) {
           int durum = komut.substring(10).toInt();
@@ -623,10 +602,6 @@ void rs485KomutDinle() {
           if (value > 100) value = 100;
           ayar.moistureThresholdHigh = value;
           ayarlariKaydet();
-          response = "ACK:" + komut;
-        } else if (komut.startsWith("SET_RAIN_SKIP=")) {
-          yagmurSulamaAtla = komut.substring(14).toInt() ? true : false;
-          yagmurSonGuncellemeMs = millis();
           response = "ACK:" + komut;
         } else if (komut == "GET_KAYITLAR") {
           // Kayit yedekleme: ESP32'ye tum kayitlari tek satirda ('~' ile ayrilmis) gonder.
@@ -709,11 +684,6 @@ void rs485KomutDinle() {
         } else if (komut == "RELAY_OFF") {
           nanoRoleKontrol(false);
           response = "ACK:" + komut;
-        } else if (komut == "ROLE_TEST") {
-          bool ok1 = nanoRoleKontrol(true);
-          delay(2000);
-          bool ok2 = nanoRoleKontrol(false);
-          response = ((ok1 && ok2) ? "ACK:" : "NACK:") + komut;
         }
       }
 
@@ -1031,8 +1001,7 @@ String durumJson() {
    j += "\"alarmOnayBekliyor\":" + String(alarmOnayBekliyor ? "true" : "false") + ",";
    j += "\"alarmOnaylandi\":" + String(alarmOnaylandi ? "true" : "false") + ",";
    j += "\"alarmOnaySadeceLamba\":" + String(alarmOnaySadeceLamba ? "true" : "false") + ",";
-   j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false") + ",";
-   j += "\"yagmurSulamaAtla\":" + String(yagmurSulamaAtlaGecerli() ? "true" : "false");
+   j += "\"rolePolariteHigh\":" + String(rolePolariteHigh ? "true" : "false");
    j += "}";
   return j;
 }
@@ -1234,7 +1203,6 @@ void handleKayitTemizle() {
   LittleFS.remove(KAYIT_DOSYASI); File f = LittleFS.open(KAYIT_DOSYASI, "w"); if (f) f.close();
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Tumunu silindi\"}");
 }
-void handleRoleTest() { nanoRoleKontrol(true); delay(2000); nanoRoleKontrol(false); server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Role testi OK\"}"); }
 void handleRoleAyarla() {
   if (!server.hasArg("aktif")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; }
   ayar.alarmRoleAktif = server.arg("aktif").toInt()?1:0; ayarlariKaydet();
@@ -1554,7 +1522,7 @@ void setup() {
   server.on("/olc", handleMeasure); server.on("/durum", handleStatus); server.on("/zaman", handleTime); server.on("/ayarla", handleSetTime);
   server.on("/ayarlar", HTTP_GET, handleGetSettings); server.on("/ayarlar/kaydet", handleSaveSettings);
   server.on("/kayit/liste", handleKayitListesi); server.on("/kayit/ekle", handleKayitEkle); server.on("/kayit/guncelle", handleKayitGuncelle); server.on("/kayit/sil", handleKayitSil); server.on("/kayit/csv", handleKayitCSV); server.on("/kc", handleKayitCSV); server.on("/kayit/temizle", handleKayitTemizle);
-  server.on("/role/test", handleRoleTest); server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
+  server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
   server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
