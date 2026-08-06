@@ -274,6 +274,99 @@ String nano_id = "UNKNOWN";
 unsigned long last_rs485_update_ms = 0;
 unsigned long last_mqtt_publish_ms = 0;
 
+// ============ TELEGRAM ALARM BILDIRIMLERI ============
+// Alarm YENI basladiginda (surekli degil, sadece "yok -> var" gecisinde)
+// kullanicinin zaten sahip oldugu Telegram bota (ev kapisi/ruzgar alarmlariyla
+// ayni bot - onek ile ayirt edilir) HTTPS ile mesaj gonderir. Bahcede kalici
+// internet olmadigindan bu sadece kullanici hotspot'uyla bagliyken calisir -
+// bilerek kabul edilen bir kisitlama (bkz kullanici talebi: "zaten ben
+// oradayken almak istiyorum").
+bool telegramOncekiAlarmVar = false;
+bool telegramBekleyenVar = false;
+String telegramBekleyenMetin = "";
+unsigned long telegramIlkDenemeMs = 0;
+#define TELEGRAM_RETRY_SURESI_MS (2UL * 60UL * 1000UL) // basarisizsa bu kadar sure tekrar denenir, sonra vazgecilir
+
+const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
+
+String alarmTetikleyenMetni(uint8_t mask, bool panik) {
+  if (panik) return "Panik (elle acildi)";
+  String s = "";
+  for (int i = 0; i < 6; i++) {
+    if (mask & (1 << i)) {
+      if (s.length() > 0) s += ", ";
+      s += alarmTetikleyiciAdlari[i];
+    }
+  }
+  return s.length() > 0 ? s : "Bilinmiyor";
+}
+
+// RFC3986 percent-encode - Telegram mesaj metni (Turkce karakter, bosluk,
+// emoji) icin gerekli.
+String telegramUrlEncode(const String& s) {
+  String out;
+  const char* hex = "0123456789ABCDEF";
+  for (size_t i = 0; i < s.length(); i++) {
+    uint8_t c = (uint8_t)s[i];
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += (char)c;
+    } else {
+      out += '%';
+      out += hex[(c >> 4) & 0xF];
+      out += hex[c & 0xF];
+    }
+  }
+  return out;
+}
+
+// Telegram Bot API'ye mesaj gonderir. Basarisiz olursa false doner (WiFi
+// yok, token/chat ID bos, HTTP hatasi vb.) - cagiran taraf yeniden deneme
+// mantigina sahip.
+bool telegramMesajGonder(const String& metin) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (String(TELEGRAM_BOT_TOKEN).length() == 0) return false;
+
+  String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage";
+  String body = "chat_id=" + String(TELEGRAM_CHAT_ID) + "&text=" + telegramUrlEncode(metin);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  int code = http.POST(body);
+  http.end();
+  return (code == HTTP_CODE_OK);
+}
+
+// Alarm durumunu (ESP8266'dan RS485 ile zaten cekilen alarmStatus) izler;
+// "yok -> var" gecisinde bir kez mesaj gonderir. Gonderim o an basarisiz
+// olursa (internet henuz yoksa) TELEGRAM_RETRY_SURESI_MS boyunca her loop'ta
+// tekrar denenir, sonra vazgecilir.
+void telegramAlarmKontrolEt() {
+  uint8_t mask = alarmStatus.trigger_mask;
+  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode;
+  bool alarmVar = anyAlarm || alarmStatus.pending;
+
+  if (alarmVar && !telegramOncekiAlarmVar) {
+    // Yeni alarm basladi - mesaj hazirla, ilk denemeyi hemen yap.
+    String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" :
+                     (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
+    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode);
+    telegramBekleyenVar = true;
+    telegramIlkDenemeMs = millis();
+  }
+  telegramOncekiAlarmVar = alarmVar;
+
+  if (telegramBekleyenVar) {
+    if (telegramMesajGonder(telegramBekleyenMetin)) {
+      telegramBekleyenVar = false;
+    } else if (millis() - telegramIlkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
+      telegramBekleyenVar = false; // vazgecildi - internet gelmedi
+    }
+  }
+}
+
 // ============================================================
 // RS485 UART1 AYARLARI
 // ============================================================
@@ -838,6 +931,15 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>Telegram Bildirimleri</h3>
+      <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb.) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
+      <div class="row">
+        <button class="btn btn-primary" onclick="telegramTest()">Test Mesajı Gönder</button>
+      </div>
+      <div id="telegram-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
       <h3>WiFi</h3>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -1309,6 +1411,10 @@ function weatherKontrolEt(){
   $('#weather-sonuc').textContent='Kontrol ediliyor...';
   api('/api/weather/check').then(d=>{$('#weather-sonuc').textContent=d.mesaj||'';weatherYukleUI();});
 }
+function telegramTest(){
+  $('#telegram-sonuc').textContent='Gönderiliyor...';
+  api('/api/telegram/test').then(d=>{$('#telegram-sonuc').textContent=d.mesaj||'';});
+}
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -1708,6 +1814,16 @@ void handleAPI_WeatherCheck() {
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + weatherDurum + "\"}");
 }
 
+void handleAPI_TelegramTest() {
+  bool ok = telegramMesajGonder("🌱 SuDepo: Test mesaji - bildirimler calisiyor.");
+  String mesaj;
+  if (ok) mesaj = "Gonderildi - Telegram'i kontrol edin";
+  else if (WiFi.status() != WL_CONNECTED) mesaj = "WiFi bagli degil";
+  else if (String(TELEGRAM_BOT_TOKEN).length() == 0) mesaj = "TELEGRAM_BOT_TOKEN bos (secrets.h)";
+  else mesaj = "Gonderilemedi - token/chat ID'yi kontrol edin";
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
+}
+
 // ============ RS485 KOMUT API'LERI ============
 // FIX: Nano'nun anladığı komut formatına uygun:
 //   LAMBA_ON / LAMBA_OFF / RELAY_ON / RELAY_OFF / GET_STATUS
@@ -1941,6 +2057,7 @@ void setupWebServer() {
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
   server.on("/api/weather", handleAPI_WeatherGet);
   server.on("/api/weather/check", handleAPI_WeatherCheck);
+  server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
@@ -2110,6 +2227,9 @@ void loop() {
 
   // Hava durumu / yagmur tahmini - WiFi baglandiginda veya periyodik
   weatherKontrolEt();
+
+  // Alarm baslarsa Telegram'a bildirim gonder
+  telegramAlarmKontrolEt();
 
   // MQTT
   mqtt_connect();
