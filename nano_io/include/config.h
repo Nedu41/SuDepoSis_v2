@@ -68,12 +68,12 @@
 #define RELAY_ACTIVE    LOW
 #define RELAY_INACTIVE  HIGH
 
-// Lamba: HIGH = Açık, LOW = Kapalı
-#define LAMBA_ON_STATE  HIGH
-#define LAMBA_OFF_STATE LOW
+// Lamba: LOW = Açık, HIGH = Kapalı (role donanimi aktif-LOW - RELAY_PIN ile ayni kural)
+#define LAMBA_ON_STATE  LOW
+#define LAMBA_OFF_STATE HIGH
 
-// Nem kontrol rölesi: HIGH = Açık, LOW = Kapalı
-#define MOISTURE_ON_STATE   HIGH
-#define MOISTURE_OFF_STATE  LOW
+// Nem kontrol rölesi: LOW = Açık, HIGH = Kapalı (ayni donanim kurali)
+#define MOISTURE_ON_STATE   LOW
+#define MOISTURE_OFF_STATE  HIGH
 
 #endif // CONFIG_H
