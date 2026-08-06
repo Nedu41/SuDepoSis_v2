@@ -15,9 +15,9 @@
 #include <ArduinoOTA.h>
 #include <ESP8266httpUpdate.h>
 #include <Updater.h>
-#include <flash_hal.h>
 #include <SoftwareSerial.h>
 #include "config.h"
+#include "web_content.h" // OTOMATIK URETILIR - bkz scripts/gen_web_content.py
 
 // ============ WiFi AYARLARI (config.h) ============
 // AP: SuDepo3T / 18811881 (her zaman acik)
@@ -63,7 +63,14 @@ struct Ayarlar {
   uint8_t moistureAutomatic;
   uint8_t moistureThresholdLow;
   uint8_t moistureThresholdHigh;
-  uint8_t pirOnaySaniye;  // PIR bu kadar saniye KESINTISIZ aktif kalirsa tetiklenir (dal sallanmasi vb. filtrelenir)
+  // SR501 her tetiklenmede ~3sn HIGH kalip ~5sn LOW'a duser (kendi kilitlenme
+  // suresi), hareket surdukce bu dongu tekrarlar. Tek darbenin suresi
+  // guvenilmez bir sinyal (Time potuna gore degisir), ama tek seferlik
+  // gurultunun bir kez, gercek surekli hareketin ise ardarda birden fazla
+  // darbe uretmesi guvenilir - bu yuzden pencere icindeki darbe SAYISINA
+  // bakiyoruz (bkz. nanoStatusAyristir).
+  uint8_t pirPencereSaniye;  // Bu sn'lik pencere icinde darbeler sayilir (0 = filtre yok, ham deger aninda gecerli)
+  uint8_t pirMinTetiklenme;  // Pencere icinde PIR tetiklenmis sayilmasi icin gereken minimum ayri darbe sayisi
 };
 Ayarlar ayar;
 
@@ -123,7 +130,8 @@ void varsayilanAyarlar() {
   ayar.moistureAutomatic = 0;
   ayar.moistureThresholdLow = 40;
   ayar.moistureThresholdHigh = 70;
-  ayar.pirOnaySaniye = 2;
+  ayar.pirPencereSaniye = 10;
+  ayar.pirMinTetiklenme = 2;
 }
 
 void ayarlariKaydet() {
@@ -148,6 +156,9 @@ void ayarlariYukle() {
     DEBUG_PRINTLN("[EEPROM] Magic uyusmazligi - varsayilan ayarlar yukleniyor");
     varsayilanAyarlar();
     ayarlariKaydet();
+  } else {
+    if (ayar.pirPencereSaniye > 120) ayar.pirPencereSaniye = 10; // eski firmware'den kalma gecersiz/bozuk deger
+    if (ayar.pirMinTetiklenme == 0 || ayar.pirMinTetiklenme > 10) ayar.pirMinTetiklenme = 2;
   }
 }
 
@@ -207,13 +218,14 @@ bool sseAktif = false;
 // ============ NANO VERISI ============
 bool kapi1Acik = false, kapi2Acik = false;
 bool pirAcik = false;           // PIR sensörü hareket algısı (ham deger)
-// PIR "onay suresi": ham deger kesintisiz en az ayar.pirOnaySaniye kadar
-// aktif kalirsa pirTetikleyici true olur. Kisa/ani sinyalleri (ruzgarda dal
-// sallanmasi, kus vb.) filtreler; gercek bir kisi/hayvan hareketi genelde
-// PIR'i saniyelerce (modulun kendi hold-time'i kadar) aktif tutar.
+// pirTetikleyici, pencere icinde en az ayar.pirMinTetiklenme kez ayri darbe
+// olursa true olur (bkz nanoStatusAyristir).
 bool pirTetikleyici = false;
-unsigned long pirYukselmeMs = 0;
-unsigned long pirSonAktifMs = 0; // PIR ham en son ne zaman aktif goruldu (kisa kesinti toleransi icin)
+#define PIR_DARBE_GECMISI_BOYUTU 8
+unsigned long pirDarbeGecmisi[PIR_DARBE_GECMISI_BOYUTU]; // en son darbelerin baslangic zamanlari (dairesel tampon)
+uint8_t pirDarbeGecmisiIndex = 0; // pirDarbeGecmisi'nde bir sonraki yazilacak slot
+uint8_t pirDarbeSayisiPencerede = 0; // debug/UI icin: su an pencere icinde kalan darbe sayisi
+unsigned long pirSonAktifMs = 0; // PIR ham en son ne zaman aktif goruldu (iletisim toleransi icin)
 bool roleFizikselDurum = false;
 bool rolePolariteHigh = true;  // Nano GET_STATUS'tan gelir - dropdown gercek durumu yansitsin diye
 bool roleTestAktif = false;
@@ -320,29 +332,41 @@ void nanoStatusAyristir(const String& yanit) {
       // kendisinden okunuyor - iki ayri komutu ayni pencerede art arda
       // gondermenin yol actigi zamanlama/kesilme sorunlari ortadan kalkti.
       {
-        // FIX: Onay suresi uzatildiginda (orn 3sn) tetiklenmenin dengesiz
-        // olmasi - PIR modulunun/RS485-UART hattinin ara sira TEK bir
-        // okumada "0" donmesi (gercek hareket kesilmeden), eskiden
-        // pirYukselmeMs'i aninda sifirlayip onay sayacini bastan
-        // baslatiyordu. Ne kadar uzun onay suresi istenirse, tek bir
-        // kacirilan okumanin sayaci sifirlama ihtimali o kadar artiyordu.
-        // Simdi ham deger 1sn'den kisa sure "0" gorunse bile hareket hala
-        // "devam ediyor" sayilir - gercekten 1sn+ kesilirse sayac sifirlanir.
+        // SR501 her tetiklenmede ~3sn HIGH / ~5sn LOW dongusunde calisiyor
+        // (kendi kilitlenme suresi), o yuzden tek darbenin suresi degil,
+        // pencere icindeki AYRI DARBE SAYISI degerlendiriliyor. Her yeni
+        // darbenin (pirAcik false->true gecisi) baslangic zamani dairesel
+        // tampona yazilir, sonra pencere icinde kalan kayitlar sayilir.
+        // Tolerans: RS485/Nano hattinda tek bir okumanin "0" donup darbeyi
+        // ikiye bolmesi gibi saf iletisim hatalarina karsi kucuk bir pay -
+        // gercek darbeler arasi bosluk (min ~5sn kilitlenme) bundan cok
+        // daha buyuk oldugu icin yanlislikla birlesme riski yok.
         bool pirHam = (yanit.indexOf("PIR=1") >= 0);
         unsigned long simdiPir = millis();
+        const unsigned long PIR_ILETISIM_TOLERANSI_MS = (unsigned long)NANO_POLL_INTERVAL * 2UL;
         if (pirHam) {
-          if (!pirAcik) pirYukselmeMs = simdiPir; // yeni hareket dongusu basliyor
+          if (!pirAcik) {
+            pirDarbeGecmisi[pirDarbeGecmisiIndex] = simdiPir; // yeni darbe basliyor
+            pirDarbeGecmisiIndex = (pirDarbeGecmisiIndex + 1) % PIR_DARBE_GECMISI_BOYUTU;
+          }
           pirSonAktifMs = simdiPir;
           pirAcik = true;
-        } else if (pirAcik && simdiPir - pirSonAktifMs > 1000UL) {
+        } else if (pirAcik && simdiPir - pirSonAktifMs > PIR_ILETISIM_TOLERANSI_MS) {
           pirAcik = false;
         }
-        if (!pirAcik) {
-          pirTetikleyici = false;
-        } else if (ayar.pirOnaySaniye == 0) {
-          pirTetikleyici = true;
-        } else if (simdiPir - pirYukselmeMs >= (unsigned long)ayar.pirOnaySaniye * 1000UL) {
-          pirTetikleyici = true;
+
+        if (ayar.pirPencereSaniye == 0) {
+          pirDarbeSayisiPencerede = pirAcik ? 1 : 0;
+          pirTetikleyici = pirAcik; // filtre yok - ham deger aninda gecerli
+        } else {
+          unsigned long pencereMs = (unsigned long)ayar.pirPencereSaniye * 1000UL;
+          uint8_t sayac = 0;
+          for (uint8_t i = 0; i < PIR_DARBE_GECMISI_BOYUTU; i++) {
+            unsigned long t = pirDarbeGecmisi[i];
+            if (t != 0 && simdiPir - t <= pencereMs) sayac++;
+          }
+          pirDarbeSayisiPencerede = sayac;
+          pirTetikleyici = (sayac >= ayar.pirMinTetiklenme);
         }
       }
       roleFizikselDurum  = (yanit.indexOf("RELE=1") >= 0);
@@ -605,8 +629,8 @@ void rs485KomutDinle() {
           response = "ACK:" + komut;
         } else if (komut == "GET_KAYITLAR") {
           // Kayit yedekleme: ESP32'ye tum kayitlari tek satirda ('~' ile ayrilmis) gonder.
-          // uploadfs, LittleFS'i tamamen sifirladigi icin bu kayitlar ESP8266 tarafinda
-          // kaybolabiliyor - yedek ESP32'nin kendi SPIFFS'inde tutulur.
+          // Yedek ESP32'nin kendi SPIFFS'inde tutulur - ESP8266'nin LittleFS'i
+          // bozulur/sifirlanirsa (donanim arizasi, factory reset vb.) kurtarma icin.
           String joined = "";
           File f = LittleFS.open(KAYIT_DOSYASI, "r");
           if (f) {
@@ -996,6 +1020,7 @@ String durumJson() {
    j += "\"pirAcik\":" + String(pirAcik ? "true" : "false") + ",";
    j += "\"panicAktif\":" + String(panicRoleAktif ? "true" : "false") + ",";
    j += "\"pirTetikleyici\":" + String(pirTetikleyici ? "true" : "false") + ",";
+   j += "\"pirDarbeSayisiPencerede\":" + String(pirDarbeSayisiPencerede) + ",";
    j += "\"alarmTetikleyenMask\":" + String(alarmTetikleyenMask) + ",";
    j += "\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",";
    j += "\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",";
@@ -1067,27 +1092,15 @@ void handleCSS() {
   server.send(200, "text/css", css);
 }
 
-// ============ JS (LittleFS'ten servis edilir) ============
-// JS artik RAM'de String olarak kurulmuyor; LittleFS'teki /app.js
-// dosyasindan serveStatic ile dogrudan istemciye gonderilir.
-// Dinamik deger (const K=...) /config.js endpoint'inden gelir.
-
-// ============ HTML (LittleFS'ten streamFile ile gonderilir) ============
-// HTML artik RAM'de String olarak kurulmuyor; LittleFS'teki /index.html
-// dosyasindan streamFile() ile dogrudan istemciye gonderilir.
-// Dinamik degerler JS tarafinda /olc, /durum, /ayarlar API'lerinden cekilir.
-// LittleFS'e yuklemek icin: pio run -t uploadfs
+// ============ HTML/JS (firmware'e gomulu - bkz web_content.h) ============
+// index.html ve app.js artik LittleFS'te ayri dosyalar degil, derleme
+// sirasinda scripts/gen_web_content.py tarafindan uretilen web_content.h
+// icinde PROGMEM sabiti olarak firmware'in kendi icinde. Dinamik degerler
+// JS tarafinda /olc, /durum, /ayarlar API'lerinden cekilir.
 void handleRoot() {
-  File f = LittleFS.open("/index.html", "r");
-  if (f) {
-    // FIX: tarayici bu sayfayi/JS'i cache'leyip guncellemeleri gostermeyebiliyordu
-    // (uploadfs ile yeni ozellik eklense bile eski surum gorunuyordu).
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.streamFile(f, "text/html");
-    f.close();
-  } else {
-    server.send(404, "text/plain", "index.html yok! pio run -t uploadfs");
-  }
+  // FIX: tarayici bu sayfayi/JS'i cache'leyip guncellemeleri gostermeyebiliyordu.
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.send_P(200, "text/html", INDEX_HTML);
 }
 
 
@@ -1140,7 +1153,7 @@ void handleSetTime() {
 }
 void handleGetSettings() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirOnaySaniye\":" + String(ayar.pirOnaySaniye) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + "}";
   server.send(200, "application/json", j);
 }
 void handleSaveSettings() {
@@ -1171,8 +1184,11 @@ void handleSaveSettings() {
   if (server.hasArg("alarmMaskOnayli")) ayar.alarmMaskOnayli = server.arg("alarmMaskOnayli").toInt();
   if (server.hasArg("alarmOutputSesli")) ayar.alarmOutputSesli = server.arg("alarmOutputSesli").toInt();
   if (server.hasArg("alarmOutputSessiz")) ayar.alarmOutputSessiz = server.arg("alarmOutputSessiz").toInt();
-  if (server.hasArg("pirOnaySaniye")) {
-    int v = server.arg("pirOnaySaniye").toInt(); if (v < 0) v = 0; if (v > 30) v = 30; ayar.pirOnaySaniye = v;
+  if (server.hasArg("pirPencereSaniye")) {
+    int v = server.arg("pirPencereSaniye").toInt(); if (v < 0) v = 0; if (v > 120) v = 120; ayar.pirPencereSaniye = v;
+  }
+  if (server.hasArg("pirMinTetiklenme")) {
+    int v = server.arg("pirMinTetiklenme").toInt(); if (v < 1) v = 1; if (v > 10) v = 10; ayar.pirMinTetiklenme = v;
   }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
@@ -1325,27 +1341,6 @@ void handleOTAUpdate() {
   }
 }
 
-// ============ DOSYA SISTEMI (LittleFS) OTA - URL'den ============
-// AMAC: /ota (yukarisi) sadece PROGRAMI (sketch) gunceller - data/ klasoru
-// (index.html/app.js) LittleFS'te ayri bir flash bolgesi, normalde "pio run
-// -t uploadfs" ile USB uzerinden yazilir. Bahcede USB yokken bunu da OTA
-// ile yapabilmek icin: ESP32'nin firmware deposuna (bkz esp32_master
-// ESP8266_FS_DOSYASI) yuklenen littlefs.bin'i buradan cekip U_FS hedefine
-// yazar.
-void handleOTAFSUpdate() {
-  if (!server.hasArg("url")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"URL eksik\"}"); return; }
-  String url = server.arg("url");
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Dosya sistemi guncelleniyor: "+url+"\"}");
-  delay(100);
-  WiFiClient client;
-  t_httpUpdate_return ret = ESPhttpUpdate.updateFS(client, url);
-  if (ret == HTTP_UPDATE_OK) {
-    DEBUG_PRINTLN("OTA-FS OK");
-  } else {
-    DEBUG_PRINTLN(String("OTA-FS Hata: ") + String(ESPhttpUpdate.getLastErrorString()));
-  }
-}
-
 // ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
 void handleFileUploadUpdate() {
   server.sendHeader("Connection", "close");
@@ -1371,41 +1366,10 @@ void handleFileUploadProgress() {
   }
 }
 
-// ============ DOSYA SISTEMINDEN (littlefs.bin web'den yuklenir) ============
-void handleFileUploadFSUpdate() {
-  server.sendHeader("Connection", "close");
-  server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
-  delay(100);
-  ESP.restart();
-}
-
-void handleFileUploadFSProgress() {
-  HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START) {
-    DEBUG_PRINTF("[OTA-FS-FILE] Basliyor: %s\n", upload.filename.c_str());
-    size_t fsSize = ((size_t)FS_end - (size_t)FS_start);
-    if (!Update.begin(fsSize, U_FS)) { Update.printError(Serial); }
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) { Update.printError(Serial); }
-  } else if (upload.status == UPLOAD_FILE_END) {
-    if (Update.end(true)) {
-      DEBUG_PRINTF("[OTA-FS-FILE] Basarili: %u byte\n", upload.totalSize);
-    } else {
-      Update.printError(Serial);
-    }
-  }
-}
-
-// /app.js LittleFS'ten servis edilir (statik dosya)
+// /app.js firmware'e gomulu (bkz web_content.h)
 void handleJS() {
-  File f = LittleFS.open("/app.js", "r");
-  if (f) {
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.streamFile(f, "application/javascript");
-    f.close();
-  } else {
-    server.send(404, "text/plain", "app.js yok! pio run -t uploadfs");
-  }
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.send_P(200, "application/javascript", APP_JS);
 }
 
 // /config.js dinamik - sadece const K=... degerini icerir
@@ -1580,10 +1544,8 @@ void setup() {
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
   server.on("/ota", handleOTAUpdate);
-  server.on("/otafs", handleOTAFSUpdate);
   server.on("/restart", handleRestart);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
-  server.on("/updatefs", HTTP_POST, handleFileUploadFSUpdate, handleFileUploadFSProgress);
   server.begin();
   sonOtomatikOlcumMs = millis();
   
@@ -1752,8 +1714,17 @@ void loop() {
       nanoLambaKontrol(!lambaAcik);
     }
   } else if (lambaFlashAktif) {
-    lambaFlashAktif = false;
-    if (!nanoMesgul) nanoLambaKontrol(lambaFlashOncekiManuel);
+    // FIX: lambaFlashAktif eskiden burada kosulsuz false yapiliyordu - alarm
+    // tam bu anda role kapatma komutuyla (yukarida) ayni donguye denk gelip
+    // nanoMesgul mesgul ciktiginda geri donus komutu hic gonderilmiyor ve bir
+    // daha da denenmiyordu (lambaFlashAktif zaten false, bu blok tekrar
+    // calismiyordu) - lamba flaşin son anindaki (rastgele acik/kapali)
+    // durumunda kilitli kaliyordu. Simdi nanoMesgul bosalana kadar her
+    // dongude tekrar denenir, basarili gonderilince flag temizlenir.
+    if (!nanoMesgul) {
+      nanoLambaKontrol(lambaFlashOncekiManuel);
+      lambaFlashAktif = false;
+    }
   }
   server.handleClient();  // FIX: Röle kontrol sonrası web isteklerini işle
   unsigned long s = millis();
