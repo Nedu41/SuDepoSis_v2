@@ -71,16 +71,29 @@ void setup() {
   // GPIO Setup
   pinMode(DOOR1_PIN, INPUT_PULLUP);    // Açıkken HIGH
   pinMode(DOOR2_PIN, INPUT_PULLUP);
+
+  // FIX: Röle kartları açılışta kısa süreli "click" yapıyordu - pinMode(OUTPUT)
+  // çağrıldığı anda pin, henüz doğru seviye yazılmadan AVR'in reset sonrası
+  // varsayılan PORT değerini (LOW) sürmeye başlıyordu; aktif-LOW bir röle için
+  // bu, doğru (pasif) seviye yazılana kadar geçen birkaç ms boyunca röleyi
+  // gerçekten enerjilendiriyordu. Çözüm: digitalWrite pin hâlâ INPUT'ken
+  // (sadece PORT bitini ayarlar, elektriksel etkisi olmaz) ÖNCE çağrılıp,
+  // pinMode(OUTPUT) ONDAN SONRA yapılıyor - pin OUTPUT'a geçtiği anda zaten
+  // doğru seviyeyi sürüyor, araya yanlış seviye girmiyor. Üç röle pini de
+  // (RELAY/LAMBA/MOISTURE) aynı kuralla, tek tek değil topluca düzeltildi.
+  relayPolariteYukle();
+  digitalWrite(RELAY_PIN, relayPasifSeviye());
   pinMode(RELAY_PIN, OUTPUT);
+
+  digitalWrite(LAMBA_PIN, LAMBA_OFF_STATE);
   pinMode(LAMBA_PIN, OUTPUT);
+
+  digitalWrite(MOISTURE_PIN, MOISTURE_OFF_STATE);
   pinMode(MOISTURE_PIN, OUTPUT);
+
   pinMode(MOISTURE_ADC_PIN, INPUT);    // A0 - nem sensörü
   pinMode(PIR_PIN, INPUT);             // D6 - PIR hareket sensörü
 
-  relayPolariteYukle();
-  digitalWrite(RELAY_PIN, relayPasifSeviye());  // Basta pasif
-  digitalWrite(LAMBA_PIN, LAMBA_OFF_STATE); // Lamba başta kapalı
-  digitalWrite(MOISTURE_PIN, LOW);         // Nem kontrolu kapali
   moisture_output = false;
 
   delay(1000);
