@@ -1340,8 +1340,15 @@ void performOTA(const String& url) {
   if (url.startsWith("https://")) {
     // https:// (orn. raw.githubusercontent.com) icin BearSSL gerekir - sertifika
     // zincirini dogrulamadan kabul eder (ESP8266'da tam zincir dogrulama pahali).
+    // FIX: BearSSL varsayilan TLS tampon boyutlari (~16KB+) ESP8266'nin
+    // toplam ~80KB RAM'inde WebServer/LittleFS/RS485/EEPROM zaten dolu bir
+    // heap'te bulunamayip "connection failed" ile sessizce basarisiz
+    // oluyordu (Kalburum'da (ESP32, 320KB RAM) bu sorun yok, o yuzden orada
+    // ayni kod calisiyordu). GitHub'un CDN'i (Fastly) kucuk TLS kayit
+    // boyutunu (MFLN) destekledigi icin 512 bayta indirmek yeterli.
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
+    client.setBufferSizes(512, 512);
     client.setTimeout(15000);
     ret = ESPhttpUpdate.update(client, url);
   } else {
