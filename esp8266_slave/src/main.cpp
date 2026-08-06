@@ -993,6 +993,7 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 // ============ DURUM JSON ============
 String durumJson() {
   String j = "{";
+  j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
@@ -1099,8 +1100,12 @@ void handleCSS() {
 // icinde PROGMEM sabiti olarak firmware'in kendi icinde. Dinamik degerler
 // JS tarafinda /olc, /durum, /ayarlar API'lerinden cekilir.
 void handleRoot() {
-  // FIX: tarayici bu sayfayi/JS'i cache'leyip guncellemeleri gostermeyebiliyordu.
+  // FIX: tarayici (ozellikle mobil) bu sayfayi/JS'i cache'leyip guncellemeleri
+  // gostermeyebiliyordu - Cache-Control tek basina yetersiz kalabiliyordu,
+  // Pragma/Expires de eklendi (eski/agresif mobil cache'ler icin).
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "0");
   server.send_P(200, "text/html", INDEX_HTML);
 }
 
@@ -1363,7 +1368,12 @@ void performOTA(const String& url) {
   } else if (ret == HTTP_UPDATE_NO_UPDATES) {
     mesaj = "Guncelleme yok";
   } else {
-    mesaj = "Hata: " + ESPhttpUpdate.getLastErrorString();
+    // Teshis icin: "connection failed" hem dusuk heap (BearSSL) hem de STA'nin
+    // gercekte internete cikamamasi (sadece yerel ag/AP) yuzunden olabilir -
+    // ikisini ayirt etmek icin heap + WiFi durumu hataya ekleniyor.
+    mesaj = "Hata: " + ESPhttpUpdate.getLastErrorString() +
+            " [heap:" + String(ESP.getFreeHeap()) +
+            " wifi:" + (WiFi.isConnected() ? (WiFi.SSID() + "/" + WiFi.localIP().toString()) : "baglanti-yok") + "]";
   }
   server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
   if (basarili) { delay(200); ESP.restart(); }
@@ -1409,6 +1419,8 @@ void handleFileUploadProgress() {
 // /app.js firmware'e gomulu (bkz web_content.h)
 void handleJS() {
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "0");
   server.send_P(200, "application/javascript", APP_JS);
 }
 
