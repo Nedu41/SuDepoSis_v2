@@ -807,25 +807,18 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
     <div class="card">
       <h3>ESP8266 Firmware Deposu</h3>
-      <p style="font-size:12px;color:var(--muted)">Bahcede internet olmadigindan, ESP8266'nin "URL'den Guncelle" kutusuna GitHub yerine buradaki adresi yaz - ikisi ayni WiFi agindayken calisir.</p>
+      <p style="font-size:12px;color:var(--muted)">Bahcede internet olmadigindan, ESP8266'nin "URL'den Guncelle" kutusuna GitHub yerine buradaki adresi yaz - ikisi ayni WiFi agindayken calisir. ESP8266'nin web arayuzu artik firmware'in icine gomulu oldugu icin tek dosya (esp8266.bin) yeterli.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="fw-durum-kutu">Yukleniyor...</div>
       <div class="row">
         <input type="file" id="fwDosya" accept=".bin">
         <button class="btn btn-primary" onclick="firmwareYukle()">Yukle</button>
       </div>
       <div id="fw-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:14px">Dosya sistemi (LittleFS - index.html/app.js, "uploadfs"): PlatformIO'da <code>pio run -t buildfs</code> ile <code>.pio/build/esp8266-12e/littlefs.bin</code> uret, buraya yukle, sonra ESP8266'nin OTA kutusuna asagidaki URL'yi yaz.</p>
-      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="fwfs-durum-kutu">Yukleniyor...</div>
-      <div class="row">
-        <input type="file" id="fwfsDosya" accept=".bin">
-        <button class="btn btn-primary" onclick="firmwareFSYukle()">Yukle</button>
-      </div>
-      <div id="fwfs-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
       <h3>Kayit Yedekleme</h3>
-      <p style="font-size:12px;color:var(--muted)">ESP8266'da "uploadfs" yapilinca kayitlar.csv silinir. Buradan yedek alip geri yukleyebilirsin.</p>
+      <p style="font-size:12px;color:var(--muted)">ESP8266'nin kayitlar.csv dosyasinin yedegi - donanim arizasi/factory reset gibi durumlarda buradan geri yukleyebilirsin.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="yedek-durum-kutu">Yukleniyor...</div>
       <div class="row">
         <button class="btn btn-primary" onclick="kayitYedekle()">Simdi Yedekle</button>
@@ -1061,7 +1054,11 @@ function renderUI(d){
   // mod+zaman senaryosuna gore filtreledigi otoriter kaynak - artik o
   // kullaniliyor. Panik de ayrica eklendi (eskiden hic banner tetiklemiyordu).
   const alarmMask = (d.alarm && d.alarm.trigger_mask) || 0;
-  const anyAlarm = d.alarm && d.alarm.enabled !== false && (alarmMask !== 0 || d.alarm.panic);
+  // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
+  // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
+  // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
+  // kapatilmisken panik basilinca banner hic gorunmuyordu.
+  const anyAlarm = !!(d.alarm && ((d.alarm.enabled !== false && alarmMask !== 0) || d.alarm.panic));
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
@@ -1080,13 +1077,22 @@ function renderUI(d){
     const alarmSimdiVar = !!(anyAlarm || bekliyor);
     if(alarmSimdiVar && !alarmOncekiDurum) bipSesi();
     alarmOncekiDurum = alarmSimdiVar;
+    const panikAktif = !!(d.alarm && d.alarm.panic);
     if(anyAlarm || bekliyor){
-      let msg = bekliyor ? ('ONAY BEKLIYOR - '+at) : at;
-      if(d.alarm && d.alarm.muted) msg += ' (Susturuldu)';
-      const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, d.alarm&&d.alarm.panic);
-      msg += ' | Tetikleyen: '+tk;
+      // Panik: susturma/tetikleyen bilgisi anlamsiz (esp8266 tarafinda panik
+      // susturmayi hic hesaba katmiyor, tetikleyici de yok - elle acildi) -
+      // sadece "Panik Kapat" gosterilir. Bkz esp8266_slave data/app.js (ayni
+      // duzeltme orada da yapildi, iki panel tutarli olsun diye).
+      let msg = panikAktif ? at : (bekliyor ? ('ONAY BEKLIYOR - '+at) : at);
+      if(!panikAktif){
+        if(d.alarm && d.alarm.muted) msg += ' (Susturuldu)';
+        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false);
+        msg += ' | Tetikleyen: '+tk;
+      }
       let html = '⚠ '+msg;
-      if(bekliyor){
+      if(panikAktif){
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="togglePanic()">Panik Kapat</button></div>';
+      } else if(bekliyor){
         html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="alarmOnayla()">Sesli</button><button class="btn btn-warn" onclick="alarmOnaylaLamba()">Sessiz (Lamba)</button></div>';
       } else if(anyAlarm){
         const susLabel = (d.alarm && d.alarm.muted) ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
@@ -1342,9 +1348,6 @@ function firmwareDurumYukle(){
     $('#fw-durum-kutu').innerHTML = d.varMi
       ? ('Yuklu: <b>'+(d.boyut/1024).toFixed(0)+' KB</b> (yukleme: '+d.yuklemeZamani+')<br>URL: <code>'+d.url+'</code>')
       : 'Henuz firmware yuklenmedi';
-    $('#fwfs-durum-kutu').innerHTML = d.varMiFS
-      ? ('Yuklu: <b>'+(d.boyutFS/1024).toFixed(0)+' KB</b> (yukleme: '+d.yuklemeZamaniFS+')<br>URL: <code>'+d.urlFS+'</code>')
-      : 'Henuz dosya sistemi imaji yuklenmedi';
   }).catch(()=>{});
 }
 function firmwareYukle(){
@@ -1355,15 +1358,6 @@ function firmwareYukle(){
   fetch('/firmware/upload',{method:'POST',body:fd})
     .then(r=>r.json()).then(d=>{$('#fw-sonuc').textContent='Yuklendi'; firmwareDurumYukle();})
     .catch(()=>{$('#fw-sonuc').textContent='Hata!';});
-}
-function firmwareFSYukle(){
-  const f=$('#fwfsDosya').files[0];
-  if(!f){$('#fwfs-sonuc').textContent='Dosya secin';return;}
-  $('#fwfs-sonuc').textContent='Yukleniyor...';
-  const fd=new FormData(); fd.append('firmware',f);
-  fetch('/firmware/upload_fs',{method:'POST',body:fd})
-    .then(r=>r.json()).then(d=>{$('#fwfs-sonuc').textContent='Yuklendi'; firmwareDurumYukle();})
-    .catch(()=>{$('#fwfs-sonuc').textContent='Hata!';});
 }
 function yedekDurumYukle(){
   fetch('/api/kayit/yedek_durum').then(r=>r.json()).then(d=>{
@@ -1539,40 +1533,57 @@ void handleSSE() {
 
 void handleOTA() {
   // Sabit GitHub linkinden ("son surum") indirir - bkz config.h GITHUB_FIRMWARE_URL.
+  // FIX: Eskiden yanit indirme/yazma BASLAMADAN ONCE "Guncelleniyor" diye
+  // gonderiliyordu - web arayuzu bu tek (ve hep ayni) mesaji gosterip
+  // bekliyordu, gercek sonuc (basarili/hatali, hata nedeni) hicbir zaman
+  // kullaniciya ulasmiyordu; buton metni fiilen sonsuza kadar "Guncelleniyor"
+  // yazili kaliyordu. Simdi yanit, indirme/yazma tamamlandiktan SONRA ve
+  // gercek sonucu tasiyarak gonderiliyor - sadece basarili olursa restart.
   String url = GITHUB_FIRMWARE_URL;
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Guncelleniyor\"}");
-  delay(100);
 
   WiFiClientSecure client;
   client.setInsecure();  // raw.githubusercontent.com sertifika zincirini dogrulamadan kabul et
   HTTPClient http;
+  http.setTimeout(15000); // FIX: sinirsiz beklemek yerine agda takilirsa 15sn'de vazgec
   http.begin(client, url);
   int httpCode = http.GET();
-  
+
+  String mesaj;
+  bool basarili = false;
+
   if (httpCode == HTTP_CODE_OK) {
     int contentLength = http.getSize();
     if (contentLength > 0) {
-      bool canBegin = Update.begin(contentLength);
-      if (canBegin) {
+      if (Update.begin(contentLength)) {
         WiFiClient* stream = http.getStreamPtr();
         size_t written = Update.writeStream(*stream);
-        if (written == contentLength && Update.end()) {
+        if (written == (size_t)contentLength && Update.end()) {
+          basarili = true;
+          mesaj = "Basarili - yeniden baslatiliyor";
           DEBUG_PRINTLN("[OTA] Update OK. Rebooting...");
-          ESP.restart();
         } else {
+          mesaj = "Yazma hatasi (" + String(written) + "/" + String(contentLength) + " bayt)";
           DEBUG_PRINTLN("[OTA] Write failed");
           Update.abort();
         }
       } else {
+        mesaj = "Yetersiz flash alani";
         DEBUG_PRINTLN("[OTA] Not enough space");
       }
+    } else {
+      mesaj = "Icerik boyutu okunamadi (GitHub'daki dosya eksik/erisilemez olabilir)";
     }
   } else {
-    DEBUG_PRINT("[OTA] HTTP failed: ");
-    DEBUG_PRINTLN(httpCode);
-    DEBUG_PRINTLN(http.errorToString(httpCode).c_str());
+    mesaj = "HTTP hata: " + String(httpCode) + " (" + http.errorToString(httpCode) + ")";
+    DEBUG_PRINTLN("[OTA] HTTP failed: " + String(httpCode) + " " + http.errorToString(httpCode));
   }
   http.end();
+
+  server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
+  if (basarili) {
+    delay(200);
+    ESP.restart();
+  }
 }
 
 // ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
@@ -1605,10 +1616,6 @@ void handleFileUploadProgress() {
 // Ikisi ayni WiFi agina (orn. telefon hotspot'u) bagliyken calisir.
 #define ESP8266_FIRMWARE_DOSYASI "/esp8266_firmware.bin"
 String esp8266FirmwareYuklemeZamani = "-";
-// LittleFS (data/ - index.html/app.js) imaji icin ayri depo slotu - bkz
-// asagida "ESP8266 DOSYA SISTEMI (LittleFS) DEPOSU" bolumu.
-#define ESP8266_FS_DOSYASI "/esp8266_littlefs.bin"
-String esp8266FSYuklemeZamani = "-";
 
 void handleFirmwareUpload() {
   server.send(200, "application/json", "{\"basarili\":true}");
@@ -1643,49 +1650,8 @@ void handleFirmwareDurum() {
   bool varMi = SPIFFS.exists(ESP8266_FIRMWARE_DOSYASI);
   size_t boyut = 0;
   if (varMi) { File f = SPIFFS.open(ESP8266_FIRMWARE_DOSYASI, "r"); boyut = f.size(); f.close(); }
-  bool varMiFS = SPIFFS.exists(ESP8266_FS_DOSYASI);
-  size_t boyutFS = 0;
-  if (varMiFS) { File f = SPIFFS.open(ESP8266_FS_DOSYASI, "r"); boyutFS = f.size(); f.close(); }
   server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"boyut\":" + String(boyut) +
-              ",\"yuklemeZamani\":\"" + esp8266FirmwareYuklemeZamani + "\",\"url\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266.bin\"" +
-              ",\"varMiFS\":" + String(varMiFS ? "true" : "false") + ",\"boyutFS\":" + String(boyutFS) +
-              ",\"yuklemeZamaniFS\":\"" + esp8266FSYuklemeZamani + "\",\"urlFS\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266fs.bin\"}");
-}
-
-// ============ ESP8266 DOSYA SISTEMI (LittleFS) DEPOSU ============
-// AMAC: OTA sadece programı (sketch/.bin) gunceller, LittleFS icindeki
-// index.html/app.js DEGISMEZ - "uploadfs" ayri bir islemdir ve normalde
-// USB gerektirir. Bahcede internet/USB yokken data/ klasoru degisince
-// (ornegin bu oturumda alarm banner/cikis ayarlari eklendiginde) ESP8266'yi
-// guncellemenin tek yolu buydu. Program deposuyla ayni mantik: dosya
-// buraya (ESP32 SPIFFS) yuklenir, ESP8266 buradan ceker.
-void handleFirmwareFSUpload() {
-  server.send(200, "application/json", "{\"basarili\":true}");
-}
-
-File esp8266FSYazFile;
-void handleFirmwareFSUploadProgress() {
-  HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START) {
-    DEBUG_PRINTLN(String("[FS-DEPO] Basliyor: ") + upload.filename);
-    esp8266FSYazFile = SPIFFS.open(ESP8266_FS_DOSYASI, "w");
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (esp8266FSYazFile) esp8266FSYazFile.write(upload.buf, upload.currentSize);
-  } else if (upload.status == UPLOAD_FILE_END) {
-    if (esp8266FSYazFile) {
-      esp8266FSYazFile.close();
-      esp8266FSYuklemeZamani = String(millis() / 1000) + "sn (uptime)";
-      DEBUG_PRINTLN(String("[FS-DEPO] Kaydedildi: ") + String(upload.totalSize) + " byte");
-    }
-  }
-}
-
-void handleFirmwareFSServe() {
-  File f = SPIFFS.open(ESP8266_FS_DOSYASI, "r");
-  if (!f) { server.send(404, "text/plain", "Henuz dosya sistemi imaji yuklenmedi"); return; }
-  server.sendHeader("Cache-Control", "no-cache");
-  server.streamFile(f, "application/octet-stream");
-  f.close();
+              ",\"yuklemeZamani\":\"" + esp8266FirmwareYuklemeZamani + "\",\"url\":\"http://" + String(MDNS_NAME) + ".local/firmware/esp8266.bin\"}");
 }
 
 // ============ HAVA DURUMU / YAGMUR TAHMINI API'LERI ============
@@ -2112,8 +2078,6 @@ void setupWebServer() {
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
-  server.on("/firmware/upload_fs", HTTP_POST, handleFirmwareFSUpload, handleFirmwareFSUploadProgress);
-  server.on("/firmware/esp8266fs.bin", HTTP_GET, handleFirmwareFSServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);

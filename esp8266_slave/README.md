@@ -10,12 +10,16 @@ yönetir. Genel mimari için [../README.md](../README.md) içine bak.
 cp include/secrets.h.example include/secrets.h
 # secrets.h icine gercek WIFI_AP_PASSWORD / OTA_PASSWORD gir
 pio run -t upload
-pio run -t uploadfs   # LittleFS web arayuzunu (data/) yukler - unutma!
 ```
 
-- Board: ESP8266 12E (NodeMCU v2), LittleFS dosya sistemi
+Tek komut yeterli — web arayüzü (`web/index.html` + `web/app.js`) her derlemede otomatik olarak
+firmware'in içine gömülür (`scripts/gen_web_content.py` → `include/web_content.h`), ayrı bir
+`uploadfs` adımı yok. LittleFS artık yalnızca çalışma zamanı verisi (kayıtlar, tüketim geçmişi,
+WiFi bilgisi) için kullanılıyor, bu yüzden firmware güncellemeleri onu hiç etkilemiyor.
+
+- Board: ESP8266 12E (NodeMCU v2), LittleFS dosya sistemi (yalnızca çalışma zamanı verisi için)
 - Varsayılan AP: SSID `SuDepo` (şifre `secrets.h`'da), her zaman açık
-- Web portu: 80 (LittleFS'ten servis edilen `data/index.html` + `data/app.js`)
+- Web portu: 80 (firmware'e gömülü `web/index.html` + `web/app.js`)
 - mDNS: `sudepo.local`
 
 ## Pin Haritası
