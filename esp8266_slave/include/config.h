@@ -119,6 +119,13 @@
 #define DAY_MEASURE_INTERVAL 60
 #define NIGHT_MEASURE_INTERVAL 900
 
+// ===== GitHub OTA (dogrudan, internet varsa - orn. telefon hotspot'u) =====
+// Kalburum'daki (esp32_master) ayni ozellikle eslesir - bkz oradaki
+// GITHUB_FIRMWARE_URL. Bahcede internet yoksa bunun yerine hala Kalburum'un
+// yerel firmware deposu (http://kalburum.local/firmware/esp8266.bin)
+// kullanilabilir; Ayarlar sayfasindaki "Firmware URL" alani ile secilir.
+#define GITHUB_FIRMWARE_URL "https://raw.githubusercontent.com/Nedu41/SuDepoSis_v2/main/esp8266_slave/firmware/esp8266.bin"
+
 // ===== Debug =====
 #define DEBUG_SERIAL 0
 

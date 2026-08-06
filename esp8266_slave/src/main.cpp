@@ -14,6 +14,7 @@
 #include <LittleFS.h>
 #include <ArduinoOTA.h>
 #include <ESP8266httpUpdate.h>
+#include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
 #include <SoftwareSerial.h>
 #include "config.h"
@@ -1327,18 +1328,50 @@ void handleWifiScan() {
 }
 
 // ============ JS ENDPOINT ============
+// FIX: Eskiden yanit indirme/yazma BASLAMADAN ONCE "Guncelleniyor" diye
+// gonderiliyordu - basarili da olsa (kutuphane ESP.restart() ile yanit asla
+// gonderilemeden yeniden baslatiyordu) basarisiz da olsa (hata sadece
+// Serial'e yaziliyordu) buton metni sonsuza kadar "Guncelleniyor" yazili
+// kaliyordu. Simdi rebootOnUpdate(false) ile otomatik restart kapatilip
+// yanit GERCEK sonucla gonderiliyor, restart ondan SONRA yapiliyor.
+void performOTA(const String& url) {
+  ESPhttpUpdate.rebootOnUpdate(false);
+  t_httpUpdate_return ret;
+  if (url.startsWith("https://")) {
+    // https:// (orn. raw.githubusercontent.com) icin BearSSL gerekir - sertifika
+    // zincirini dogrulamadan kabul eder (ESP8266'da tam zincir dogrulama pahali).
+    BearSSL::WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(15000);
+    ret = ESPhttpUpdate.update(client, url);
+  } else {
+    WiFiClient client;
+    ret = ESPhttpUpdate.update(client, url);
+  }
+
+  String mesaj;
+  bool basarili = (ret == HTTP_UPDATE_OK);
+  if (basarili) {
+    mesaj = "Basarili - yeniden baslatiliyor";
+  } else if (ret == HTTP_UPDATE_NO_UPDATES) {
+    mesaj = "Guncelleme yok";
+  } else {
+    mesaj = "Hata: " + ESPhttpUpdate.getLastErrorString();
+  }
+  server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
+  if (basarili) { delay(200); ESP.restart(); }
+}
+
 void handleOTAUpdate() {
   if (!server.hasArg("url")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"URL eksik\"}"); return; }
-  String url = server.arg("url");
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Guncelleniyor: "+url+"\"}");
-  delay(100);
-  WiFiClient client;
-  t_httpUpdate_return ret = ESPhttpUpdate.update(client, url);
-  if (ret == HTTP_UPDATE_OK) {
-    DEBUG_PRINTLN("OTA OK");
-  } else {
-    DEBUG_PRINTLN(String("OTA Hata: ") + String(ESPhttpUpdate.getLastErrorString()));
-  }
+  performOTA(server.arg("url"));
+}
+
+// Kalburum'daki "GitHub'dan Guncelle" tek-tikla butonunun aynisi - internet
+// varsa (orn. telefon hotspot'u) dogrudan GitHub'dan ceker, Kalburum'un
+// yerel deposuna ihtiyac duymaz.
+void handleOTAGithub() {
+  performOTA(GITHUB_FIRMWARE_URL);
 }
 
 // ============ DOSYADAN OTA (bin dosyasi web'den yuklenir) ============
@@ -1544,6 +1577,7 @@ void setup() {
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
   server.on("/ota", handleOTAUpdate);
+  server.on("/ota/github", handleOTAGithub);
   server.on("/restart", handleRestart);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
   server.begin();
