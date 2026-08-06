@@ -70,7 +70,7 @@
 #define TANK_EMPTY_CM 90.0
 #define TANK_FULL_CM 10.0
 #define TANK_CAPACITY_LITERS 3000.0
-#define TANK_HORIZONTAL 1  // 1=Yatay Silindirik, 0=Dikey/Dikdörtgen
+#define TANK_HORIZONTAL 1  // 1=Yatay Silindirik, 0=Dikey/Dikdörtgenn
 
 // ===== EEPROM =====
 // DİKKAT: Ayarlar struct'ı ~100 byte. 128 byte sınırda;
