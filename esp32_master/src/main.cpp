@@ -45,6 +45,184 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
   savedPass = pass;
 }
 
+// RS485 uzerinden esp8266_slave'e komut gonderir (tanimi asagida) -
+// hava durumu fonksiyonlari bunu kullanir, bu yuzden ileri bildirim gerekir.
+bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
+
+// ============ Hava Durumu / Yagmur Tahmini (sabit konum) ============
+// Konum GARDEN_LATITUDE/GARDEN_LONGITUDE (config.h) - secim/geocode yok,
+// bahce sabit. Kalburum'un kendi RTC'si olmadigi ve reboot'larda millis()
+// sifirlandigi icin "ne zaman cekildi" gercek takvim gunu olarak
+// ESP8266'nin RTC'sinden (mevcut GET_ZAMAN RS485 komutu) okunup gun-sayisina
+// cevrilir (bkz gunSayisi()) ve SPIFFS'e yazilir - "N gunden eski" kontrolu
+// boylece reboot'lara dayanikli olur, NTP/epoch senkronizasyonuna gerek kalmaz.
+#define WEATHER_DOSYASI "/hava_tahmini.json"
+String weatherForecastDates[WEATHER_FORECAST_DAYS];
+float weatherForecastMm[WEATHER_FORECAST_DAYS];
+int weatherForecastCount = 0;
+long weatherFetchGunSayisi = 0;      // son basarili cekimin gun-sayisi degeri (0 = hic yok)
+String weatherFetchTarihStr = "-";   // ayni bilgi, insan-okunur (UI icin, YYYY-MM-DD)
+bool weatherSkipOneri = false;       // guncel tahmine gore "bugun sulamayi atla" onerisi
+String weatherDurum = "Henuz denenmedi";
+unsigned long lastWeatherCheckMs = 0;
+bool weatherWifiOncekiDurum = false; // WiFi baglanti gecisini (rising edge) yakalamak icin
+
+// Howard Hinnant'in bilinen "days_from_civil" algoritmasi - takvim tarihini
+// (yil/ay/gun) sabit bir baslangica gore tek bir tamsayiya cevirir, boylece
+// iki tarih arasindaki gun farki basit bir cikarma ile bulunur (ay/yil
+// tasmalarini elle hesaplamaya gerek kalmaz).
+long gunSayisi(int y, int m, int d) {
+  y -= m <= 2;
+  long era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + (long)doe - 719468;
+}
+
+// "DD/MM/YYYY HH:MM:SS" formatindan (ESP8266'nin simdikiZamanStr() ciktisi)
+// gun/ay/yil ayiklar.
+bool zamanTarihAyristir(const String& zaman, int& gun, int& ay, int& yil) {
+  if (zaman.length() < 10) return false;
+  gun = zaman.substring(0, 2).toInt();
+  ay = zaman.substring(3, 5).toInt();
+  yil = zaman.substring(6, 10).toInt();
+  return (gun >= 1 && gun <= 31 && ay >= 1 && ay <= 12 && yil > 2000);
+}
+
+// ESP8266'nin RTC'sinden guncel gun-sayisini okur (RS485 uzerinden).
+// Basarisiz olursa false doner - cagiran taraf temkinli davranmali.
+bool simdikiGunSayisi(long& out) {
+  String zamanReply;
+  if (!rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 1000, 3)) return false;
+  int eq = zamanReply.indexOf("GET_ZAMAN=");
+  if (eq < 0) return false;
+  int g, a, y;
+  if (!zamanTarihAyristir(zamanReply.substring(eq + 10), g, a, y)) return false;
+  out = gunSayisi(y, a, g);
+  return true;
+}
+
+void weatherYukle() {
+  File f = SPIFFS.open(WEATHER_DOSYASI, "r");
+  if (!f) return;
+  DynamicJsonDocument doc(1536);
+  if (deserializeJson(doc, f) == DeserializationError::Ok) {
+    weatherFetchGunSayisi = doc["gunSayisi"] | 0L;
+    weatherFetchTarihStr = doc["tarih"] | "-";
+    weatherForecastCount = doc["sayi"] | 0;
+    JsonArray arr = doc["gunler"].as<JsonArray>();
+    int i = 0;
+    for (JsonObject g : arr) {
+      if (i >= WEATHER_FORECAST_DAYS) break;
+      weatherForecastDates[i] = g["t"].as<String>();
+      weatherForecastMm[i] = g["mm"].as<float>();
+      i++;
+    }
+  }
+  f.close();
+}
+
+void weatherKaydet() {
+  DynamicJsonDocument doc(1536);
+  doc["gunSayisi"] = weatherFetchGunSayisi;
+  doc["tarih"] = weatherFetchTarihStr;
+  doc["sayi"] = weatherForecastCount;
+  JsonArray arr = doc.createNestedArray("gunler");
+  for (int i = 0; i < weatherForecastCount; i++) {
+    JsonObject g = arr.createNestedObject();
+    g["t"] = weatherForecastDates[i];
+    g["mm"] = weatherForecastMm[i];
+  }
+  File f = SPIFFS.open(WEATHER_DOSYASI, "w");
+  if (f) { serializeJson(doc, f); f.close(); }
+}
+
+// Open-Meteo'dan 7 gunluk yagmur tahminini ceker (sabit konum). Basarili
+// olursa gercek cekim gununu ESP8266'nin RTC'sinden alip SPIFFS'e kaydeder.
+bool weatherTahminCek() {
+  if (WiFi.status() != WL_CONNECTED) { weatherDurum = "WiFi bagli degil"; return false; }
+
+  String url = String(WEATHER_FORECAST_API) + "?latitude=" + String(GARDEN_LATITUDE, 6) +
+               "&longitude=" + String(GARDEN_LONGITUDE, 6) +
+               "&daily=precipitation_sum&forecast_days=" + String(WEATHER_FORECAST_DAYS) + "&timezone=auto";
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    weatherDurum = "HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
+    http.end();
+    return false;
+  }
+  String payload = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(3072);
+  if (deserializeJson(doc, payload) != DeserializationError::Ok) {
+    weatherDurum = "JSON parse hatasi";
+    return false;
+  }
+  JsonArray dates = doc["daily"]["time"].as<JsonArray>();
+  JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
+  int n = min((int)precip.size(), WEATHER_FORECAST_DAYS);
+  if (n < 2) { weatherDurum = "API yanitinda gun verisi eksik"; return false; }
+
+  for (int i = 0; i < n; i++) {
+    weatherForecastDates[i] = dates[i].as<String>();
+    weatherForecastMm[i] = precip[i].as<float>();
+  }
+  weatherForecastCount = n;
+
+  long gs;
+  if (simdikiGunSayisi(gs)) {
+    weatherFetchGunSayisi = gs;
+    weatherFetchTarihStr = weatherForecastDates[0]; // Open-Meteo'nun ilk gunu = bugun, ayni YYYY-MM-DD formati
+  }
+  // RTC'ye ulasilamadiysa onceki bilinen gun-sayisi/tarih degeri korunur -
+  // yeni cekilen tahmin verisi yine de kullanilabilir durumda kalir.
+  weatherKaydet();
+  weatherDurum = "OK";
+  return true;
+}
+
+// Tahmin su an gecerli/guncel mi (WEATHER_STALE_DAYS icinde mi)? RTC'ye
+// ulasilamazsa temkinli davranip false doner (fail-open: sulama engellenmez).
+bool weatherGuncelMi() {
+  if (weatherForecastCount == 0 || weatherFetchGunSayisi == 0) return false;
+  long gs;
+  if (!simdikiGunSayisi(gs)) return false;
+  long fark = gs - weatherFetchGunSayisi;
+  return (fark >= 0 && fark <= WEATHER_STALE_DAYS);
+}
+
+// WiFi yeni baglandiginda veya WEATHER_CHECK_INTERVAL_MS'de bir calisir:
+// gerekirse tahmini tazeler, "bugun sulamayi atla" onerisini hesaplayip
+// ESP8266'ya RS485 ile bildirir (periyodik yeniden gonderim ayni zamanda
+// ESP8266'nin kendi guvenlik-agi bayatlama suresine karsi tazeleme gorevi
+// gorur - bkz esp8266_slave rs485KomutDinle() SET_RAIN_SKIP).
+void weatherKontrolEt() {
+  bool wifiVar = (WiFi.status() == WL_CONNECTED);
+  bool yeniBaglandi = wifiVar && !weatherWifiOncekiDurum;
+  weatherWifiOncekiDurum = wifiVar;
+
+  unsigned long simdi = millis();
+  bool zamanGeldi = (lastWeatherCheckMs == 0) || (simdi - lastWeatherCheckMs >= WEATHER_CHECK_INTERVAL_MS);
+  if (!yeniBaglandi && !zamanGeldi) return;
+  lastWeatherCheckMs = simdi;
+
+  if (wifiVar && (yeniBaglandi || weatherForecastCount == 0 || zamanGeldi)) {
+    weatherTahminCek();
+  }
+
+  bool guncel = weatherGuncelMi();
+  weatherSkipOneri = guncel && weatherForecastCount >= 2 && (weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM);
+
+  String reply;
+  rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+}
+
 // ============================================================
 // VERI YAPILARI
 // ============================================================
@@ -649,6 +827,17 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>Hava Durumu / Yağmur Tahmini</h3>
+      <p style="font-size:12px;color:var(--muted)">Sabit konum (bahçe) - internet varken (örn. telefon hotspot'u) otomatik çekilir. 7 günden eski tahmin dikkate alınmaz, o durumda sulama normal devam eder.</p>
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="weather-durum-kutu">Yükleniyor...</div>
+      <div class="row">
+        <button class="btn btn-warn" onclick="weatherKontrolEt()">Şimdi Kontrol Et</button>
+      </div>
+      <div id="weather-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div id="weather-haftalik" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+
+    <div class="card">
       <h3>WiFi</h3>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -1095,6 +1284,31 @@ function kayitGeriYukle(){
   $('#yedek-sonuc').textContent='Geri yukleniyor...';
   api('/api/kayit/geri_yukle').then(d=>{$('#yedek-sonuc').textContent=d.mesaj||'';});
 }
+function weatherYukleUI(){
+  const kutu=$('#weather-haftalik'); if(!kutu) return;
+  fetch('/api/weather').then(r=>r.json()).then(d=>{
+    const wdk=$('#weather-durum-kutu');
+    if(wdk){
+      wdk.innerHTML = d.sayi>0
+        ? ('Son çekim: <b>'+(d.tarih||'-')+'</b> ('+(d.guncel?'güncel':'ESKİ - dikkate alınmıyor')+')<br>Yarın yağmur: <b>'+(d.oneri?'Evet, sulama atlanacak':'Hayır')+'</b><br><span style="font-size:11px;color:var(--muted)">Durum: '+(d.durum||'-')+'</span>')
+        : ('Henüz tahmin çekilmedi<br><span style="font-size:11px;color:var(--muted)">Durum: '+(d.durum||'-')+'</span>');
+    }
+    const gunler=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+    const liste=d.haftalik||[];
+    if(liste.length===0){kutu.innerHTML='';return;}
+    kutu.innerHTML=liste.map((g,i)=>{
+      const tarih=new Date(g.tarih+'T12:00:00');
+      const gunAdi=i===0?'Bugün':(i===1?'Yarın':gunler[tarih.getDay()]);
+      const yagmurVar=g.mm>=1.0;
+      const stil=yagmurVar?'background:rgba(37,99,235,.15);border-color:var(--primary)':'';
+      return '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;'+stil+'">'+gunAdi+'<br><b>'+g.mm.toFixed(1)+'mm</b>'+(yagmurVar?' 🌧':'')+'</div>';
+    }).join('');
+  }).catch(()=>{});
+}
+function weatherKontrolEt(){
+  $('#weather-sonuc').textContent='Kontrol ediliyor...';
+  api('/api/weather/check').then(d=>{$('#weather-sonuc').textContent=d.mesaj||'';weatherYukleUI();});
+}
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -1137,6 +1351,7 @@ function restartSistem(){
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
 yedekDurumYukle();
+setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 </script>
 </body>
 </html>
@@ -1467,6 +1682,32 @@ void handleAPI_KayitYedekDurum() {
   server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"dosya\":\"" + String(KAYIT_BACKUP_DOSYASI) + "\",\"sonYedek\":\"" + sonYedekZamanStr + "\"}");
 }
 
+// ============ HAVA DURUMU API'LERI ============
+void handleAPI_WeatherGet() {
+  String j = "{";
+  j += "\"tarih\":\"" + weatherFetchTarihStr + "\",";
+  j += "\"sayi\":" + String(weatherForecastCount) + ",";
+  j += "\"guncel\":" + String(weatherGuncelMi() ? "true" : "false") + ",";
+  j += "\"oneri\":" + String(weatherSkipOneri ? "true" : "false") + ",";
+  j += "\"durum\":\"" + weatherDurum + "\",";
+  j += "\"haftalik\":[";
+  for (int i = 0; i < weatherForecastCount; i++) {
+    if (i > 0) j += ",";
+    j += "{\"tarih\":\"" + weatherForecastDates[i] + "\",\"mm\":" + String(weatherForecastMm[i], 1) + "}";
+  }
+  j += "]}";
+  server.send(200, "application/json", j);
+}
+
+void handleAPI_WeatherCheck() {
+  bool ok = weatherTahminCek();
+  bool guncel = weatherGuncelMi();
+  weatherSkipOneri = guncel && weatherForecastCount >= 2 && (weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM);
+  String reply;
+  rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + weatherDurum + "\"}");
+}
+
 // ============ RS485 KOMUT API'LERI ============
 // FIX: Nano'nun anladığı komut formatına uygun:
 //   LAMBA_ON / LAMBA_OFF / RELAY_ON / RELAY_OFF / GET_STATUS
@@ -1698,6 +1939,8 @@ void setupWebServer() {
   server.on("/api/kayit/yedekle", handleAPI_KayitYedekle);
   server.on("/api/kayit/geri_yukle", handleAPI_KayitGeriYukle);
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
+  server.on("/api/weather", handleAPI_WeatherGet);
+  server.on("/api/weather/check", handleAPI_WeatherCheck);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
@@ -1818,6 +2061,7 @@ void setup() {
   if (!SPIFFS.begin(true)) {
     DEBUG_PRINTLN("[SPIFFS] Baslatilamadi");
   }
+  weatherYukle();
 
   // WiFi Connect
   wifi_connect();
@@ -1863,6 +2107,9 @@ void loop() {
   
   // RS485 Polling
   rs485_poll();
+
+  // Hava durumu / yagmur tahmini - WiFi baglandiginda veya periyodik
+  weatherKontrolEt();
 
   // MQTT
   mqtt_connect();

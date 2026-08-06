@@ -60,6 +60,12 @@
 #define NIGHT_START_HOUR 22
 #define NIGHT_END_HOUR 6
 
+// ===== Yagmur Tahmini (Kalburum'dan RS485 ile gelir) =====
+// Bkz. applyMoistureControl()/yagmurSulamaAtlaGecerli() - Kalburum RS485
+// uzerinden periyodik tazeler (kablo baglantisi surdukce internetten
+// bagimsiz calisir), bu yuzden kisa bir guvenlik penceresi yeterli.
+#define RAIN_SKIP_STALE_MS (24UL * 3600UL * 1000UL)  // 24 saat
+
 // ===== Depo Kalibrasyonu (Varsayılan) =====
 #define TANK_EMPTY_CM 90.0
 #define TANK_FULL_CM 10.0
