@@ -171,11 +171,18 @@ void konumCozumKontrolEt() {
   }
 }
 
-// Yarinki yagmur tahminini sorgular ve degistiyse/gecerliyse esp8266_slave'e
-// RS485 ile SET_RAIN_SKIP bildirir. Internet yoksa veya konum cozulmemisse
-// sessizce cikar - bir sonraki loop'ta tekrar denenir.
+// Yarinki yagmur tahminini sorgular ve haftalik tahmini gunceller. Internet
+// yoksa veya konum cozulmemisse sessizce cikar - bir sonraki loop'ta tekrar
+// denenir.
+// FIX: Bu fonksiyon eskiden en basta "if (!rainSkipEnabled) return;" ile
+// baslıyordu - yani "Yarin yagmur beklenirse sulamayi atla" otomasyonu
+// KAPALIYKEN tahmin hic cekilmiyordu, haftalik tahmin kutusu da "son
+// kontrol: -" ile sonsuza kadar bos kaliyordu ("hava durumu kayit
+// tutmuyor" sikayeti). Tahmini GORMEK ile onu sulamayi atlamak icin
+// KULLANMAK birbirinden bagimsiz olmali - simdi tahmin konum gecerliyken
+// otomasyon ayarindan bagimsiz cekiliyor, rainSkipEnabled sadece asagida
+// ESP8266'ya SET_RAIN_SKIP komutu gonderilip gonderilmeyecegini belirliyor.
 void yagmurTahminiKontrolEt(bool zorla = false) {
-  if (!rainSkipEnabled) return;
   if (!rainLocationValid) return;
   if (WiFi.status() != WL_CONNECTED) return;
   if (!zorla && lastRainCheckMs != 0 && millis() - lastRainCheckMs < RAIN_CHECK_INTERVAL_MS) return;
@@ -204,8 +211,12 @@ void yagmurTahminiKontrolEt(bool zorla = false) {
         rainForecastTomorrow = (yarinMm >= RAIN_THRESHOLD_MM);
         lastRainCheckMs = millis();
         lastRainCheckStr = String(yarinMm, 1) + "mm";
-        String reply;
-        rs485_send_wait_ack(rainForecastTomorrow ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+        // Sulamayi FIILEN atlamak icin kullanici bu otomasyonu actiysa
+        // ESP8266'ya bildir - tahminin kendisi (yukarida) buna bagli degil.
+        if (rainSkipEnabled) {
+          String reply;
+          rs485_send_wait_ack(rainForecastTomorrow ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+        }
         DEBUG_PRINTLN(String("[RAIN] Yarin: ") + yarinMm + "mm -> skip=" + (rainForecastTomorrow ? "1" : "0"));
       }
     }
