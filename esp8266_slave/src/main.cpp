@@ -1506,7 +1506,16 @@ void setup() {
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
   }
+  // FIX: HC-SR04 boot aninda (guc rayi henuz tam oturmamisken, WiFi radyosu
+  // daha baslamadan) ilk olcumde bazen gecerli yaniti vermiyor, "sensor
+  // hatasi" alarmini gereksiz yere tetikliyordu ("her ac/kapatta" sikayeti).
+  // Ilk olcum basarisiz olursa donanim gercekten arizali degilse birkac
+  // deneme icinde duzelir - kisa aralarla birkac kez daha denenir.
   olcumYap();
+  for (int deneme = 0; deneme < 3 && sensorHatasi; deneme++) {
+    delay(200);
+    olcumYap();
+  }
   setupWiFi();
 
   // FIX: STA baglantisini bekle - mDNS icin gecerli IP gerekli.
