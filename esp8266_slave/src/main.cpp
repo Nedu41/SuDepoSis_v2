@@ -1332,6 +1332,18 @@ void handleWifiScan() {
   server.send(200, "application/json", j);
 }
 
+// https://host[:port]/path formatindan host/port ayiklar (probeMaxFragmentLength icin).
+static bool parseHttpsHost(const String& url, String& host, uint16_t& port) {
+  if (!url.startsWith("https://")) return false;
+  int hostStart = 8; // strlen("https://")
+  int pathStart = url.indexOf('/', hostStart);
+  String hostPort = (pathStart == -1) ? url.substring(hostStart) : url.substring(hostStart, pathStart);
+  int colon = hostPort.indexOf(':');
+  if (colon == -1) { host = hostPort; port = 443; }
+  else { host = hostPort.substring(0, colon); port = (uint16_t)hostPort.substring(colon + 1).toInt(); }
+  return host.length() > 0;
+}
+
 // ============ JS ENDPOINT ============
 // FIX: Eskiden yanit indirme/yazma BASLAMADAN ONCE "Guncelleniyor" diye
 // gonderiliyordu - basarili da olsa (kutuphane ESP.restart() ile yanit asla
@@ -1345,16 +1357,23 @@ void performOTA(const String& url) {
   if (url.startsWith("https://")) {
     // https:// (orn. raw.githubusercontent.com) icin BearSSL gerekir - sertifika
     // zincirini dogrulamadan kabul eder (ESP8266'da tam zincir dogrulama pahali).
-    // FIX: BearSSL varsayilan TLS tampon boyutlari (~16KB+) ESP8266'nin
-    // toplam ~80KB RAM'inde WebServer/LittleFS/RS485/EEPROM zaten dolu bir
-    // heap'te bulunamayip "connection failed" ile sessizce basarisiz
-    // oluyordu (Kalburum'da (ESP32, 320KB RAM) bu sorun yok, o yuzden orada
-    // ayni kod calisiyordu). GitHub'un CDN'i (Fastly) kucuk TLS kayit
-    // boyutunu (MFLN) destekledigi icin 512 bayta indirmek yeterli.
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
-    client.setBufferSizes(512, 512);
     client.setTimeout(15000);
+    // FIX: BearSSL'in varsayilan TLS tampon boyutlari (~16KB+) ESP8266'nin
+    // ~80KB RAM'inde (WebServer/LittleFS/RS485/EEPROM zaten kullanimda)
+    // ayrilamiyordu - ("connection failed"). Once sabit 512 bayta
+    // zorlandi, ama bu da YANLIS: sunucu o boyutu gercekte kabul etmeyip
+    // daha buyuk bir kayit gonderdiginde BearSSL'in tampona sigdiramayip
+    // baglantiyi ortadan kesmesine yol acti ("connection lost"). Dogrusu:
+    // once probeMaxFragmentLength ile sunucunun GERCEKTEN destekledigi en
+    // kucuk boyutu sormak, sadece o boyutu kullanmak - sunucu desteklemezse
+    // varsayilan (buyuk) tampona geri donulur.
+    String host; uint16_t port;
+    if (parseHttpsHost(url, host, port)) {
+      int mfln = client.probeMaxFragmentLength(host.c_str(), port, 512);
+      if (mfln > 0) client.setBufferSizes(mfln, mfln);
+    }
     ret = ESPhttpUpdate.update(client, url);
   } else {
     WiFiClient client;
