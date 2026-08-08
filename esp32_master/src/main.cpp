@@ -2087,13 +2087,20 @@ void handleAPI_Panic() {
 // "kirli" kopmalardan sonra GATT'i bazen dogru temizlemiyor - uygulama
 // "bagli"/"tekrar baglaniyor" sanip kilitleniyor, tek cikis BT'yi (ve
 // genelde uygulamayi da) tamamen kapatip acmak oluyor. Bu, cihazin kendi
-// hatasi degil, telefon tarafinin bilinen bir zayifligi; ama biz BLE
-// baglantisini bu radyo rekabetine karsi daha toleranli hale getirerek
-// (asagida onConnect'te updateConnParams - daha yuksek slave latency +
-// supervision timeout) ve agir TLS isteklerini heap/CPU acisindan daha
-// güvenli hale getirerek (weatherKontrolEt/telegramMesajGonder heap
-// guard'i, asagida) kopma SIKLIGINI azaltiyoruz - bu, Espressif'in kendi
-// WiFi+BLE coexistence dokumantasyonunda onerilen standart yaklasim.
+// hatasi degil, telefon tarafinin bilinen bir zayifligi.
+//
+// DENENDI VE GERI ALINDI: onConnect'te slave latency+supervision timeout
+// yukselten bir updateConnParams cagrisi eklenmisti (Espressif'in WiFi+BLE
+// coexistence onerisi). Kopma sikligini degistirmedi, ustune LAMBA_AC gibi
+// komutlarin yanit suresini gozle gorulur yavaslatti (slave latency ESP32'nin
+// gelen yaziyi ne zaman isleyecegini geciktiriyor) - net kazanc negatifti,
+// kaldirildi (bkz BleSunucuCallback::onConnect). Su an elde kalan tek somut
+// onlem: agir TLS isteklerini heap acisindan guvenli hale getirmek
+// (weatherKontrolEt/telegramMesajGonder heap guard'i, asagida) ve boot/heap
+// loglama - kopma tekrarlarsa Serial Monitor'den gercek kanit (crash mi, RF
+// timeout mu) toplanip ona gore hedefli bir duzeltme yapilmali; radyo
+// parametreleriyle korme denemeye devam etmek (yukaridaki gibi) yan etkisiz
+// degil.
 NimBLEServer* bleServer = nullptr;
 NimBLECharacteristic* bleCharacteristic = nullptr;
 bool bleDeviceConnected = false;
@@ -2158,25 +2165,18 @@ class BleKomutCallback: public NimBLECharacteristicCallbacks {
 };
 
 class BleSunucuCallback: public NimBLEServerCallbacks {
-  // desc'li asiri yuklemeyi kullaniyoruz - conn_handle burada, WiFi ile
-  // radyo paylasimina toleransli baglanti parametreleri istemek icin lazim.
+  // NOT: Burada daha once slave latency=4 + uzun supervision timeout isteyen
+  // bir updateConnParams cagrisi vardi ("coexistence toleransi" denemesi).
+  // Gercekte kopma sikligini degistirmedi ama LAMBA_AC gibi komutlarin
+  // yanit suresini gozle gorulur sekilde yavaslatti (slave latency, ESP32'nin
+  // gelen yazmayi/geri bildirimi ne zaman isleyecegini geciktiriyor) - net
+  // sonuc kazançsiz bir yavaslamaydi, geri alindi. Baglanti parametreleri
+  // artik telefonun (Android) varsayilanina birakiliyor - degisiklik oncesi
+  // davranisin ayni si.
   void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) override {
     bleDeviceConnected = true;
     DEBUG_PRINT("[BLE] Telefon baglandi, heap=");
     DEBUG_PRINTLN(ESP.getFreeHeap());
-    // WiFi (AP+STA+HTTPS+MQTT) ayni radyoyu paylastigindan, kisa bir
-    // WiFi/BLE cakismasi (orn. TLS handshake sirasinda) birkac baglanti
-    // olayini kacirabilir. Varsayilan (dusuk latency/timeout) parametrelerle
-    // bu tek basina supervision timeout'a (temiz kapanmayan, telefonu
-    // "zombi" baglantida kilitleyen kopma) yol aciyordu. Slave latency +
-    // supervision timeout'u yukselterek birden fazla ardisik olayin
-    // kacmasina izin veriyoruz - Espressif'in WiFi+BLE coexistence
-    // onerisiyle ayni yaklasim.
-    pServer->updateConnParams(desc->conn_handle,
-      24,   // min interval: 24*1.25ms = 30ms
-      40,   // max interval: 40*1.25ms = 50ms
-      4,    // slave latency: 4 baglanti olayina kadar cevapsiz kalabilir
-      800); // supervision timeout: 800*10ms = 8000ms
   }
   void onDisconnect(NimBLEServer* pServer) override {
     bleDeviceConnected = false;
