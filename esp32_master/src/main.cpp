@@ -14,7 +14,12 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <Preferences.h>
+#include <esp_system.h>
 #include "../include/config.h"
+
+#if ENABLE_BLE
+#include <NimBLEDevice.h>
+#endif
 
 // ============================================================
 // GLOBAL NESNELER
@@ -212,8 +217,17 @@ void weatherKontrolEt() {
   if (!yeniBaglandi && !zamanGeldi) return;
   lastWeatherCheckMs = simdi;
 
+  // TLS (HTTPS) istegi ~35-45KB heap tuketebiliyor; BLE+WebServer+MQTT+SPIFFS
+  // ile ayni anda dusuk heap'te tetiklenirse cokme/reset riskini artirir -
+  // bu da BLE baglantisini telefon tarafinda "kirli" (temiz kapanmayan) bir
+  // sekilde koparir. Heap yetersizse bu turu atla, bir sonraki dongude tekrar
+  // dene (guncellik zaten WEATHER_CHECK_INTERVAL_MS ile toleransli).
   if (wifiVar && (yeniBaglandi || weatherForecastCount == 0 || zamanGeldi)) {
-    weatherTahminCek();
+    if (ESP.getFreeHeap() < BLE_SAFE_MIN_HEAP) {
+      DEBUG_PRINTLN("[Weather] Heap dusuk, bu dongu atlaniyor");
+    } else {
+      weatherTahminCek();
+    }
   }
 
   bool guncel = weatherGuncelMi();
@@ -325,6 +339,11 @@ String telegramUrlEncode(const String& s) {
 bool telegramMesajGonder(const String& metin) {
   if (WiFi.status() != WL_CONNECTED) return false;
   if (String(TELEGRAM_BOT_TOKEN).length() == 0) return false;
+  // bkz weatherKontrolEt yanindaki heap notu - ayni sebep.
+  if (ESP.getFreeHeap() < BLE_SAFE_MIN_HEAP) {
+    DEBUG_PRINTLN("[Telegram] Heap dusuk, gonderim atlandi (tekrar denenecek)");
+    return false;
+  }
 
   String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage";
   String body = "chat_id=" + String(TELEGRAM_CHAT_ID) + "&text=" + telegramUrlEncode(metin);
@@ -1829,6 +1848,21 @@ void handleAPI_TelegramTest() {
 // ============ RS485 KOMUT API'LERI ============
 // FIX: Nano'nun anladığı komut formatına uygun:
 //   LAMBA_ON / LAMBA_OFF / RELAY_ON / RELAY_OFF / GET_STATUS
+//
+// Asagidaki *Ayarla/*Tetikle fonksiyonlari HTTP (handleAPI_*) ve BLE
+// (bleKomutIsle, asagida) tarafindan ortak kullanilir - ikisi de ayni RS485
+// komutunu gonderip ayni global durumu guncellemeli.
+bool lambaAyarla(bool acik, String& reply) {
+  rs485_api_busy = true; // poll'u durdur
+  bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_LAMBA=1\n" : "MASTER:SET_LAMBA=0\n", reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) {
+    nanoStatus.lamp_on = acik;
+    last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
+  }
+  return ok;
+}
+
 void handleAPI_Lamba() {
   if (!server.hasArg("durum")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
@@ -1836,14 +1870,16 @@ void handleAPI_Lamba() {
   }
   int d = server.arg("durum").toInt();
   String reply;
-  rs485_api_busy = true; // poll'u durdur
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_LAMBA=1\n" : "MASTER:SET_LAMBA=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
-  if (ok) {
-    nanoStatus.lamp_on = (d == 1);
-    last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
-  }
+  bool ok = lambaAyarla(d == 1, reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Lamba Acik" : "Lamba Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
+}
+
+bool alarmAyarla(bool aktif, String& reply) {
+  rs485_api_busy = true;
+  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) { alarmStatus.enabled = aktif; last_rs485_update_ms = millis(); }
+  return ok;
 }
 
 void handleAPI_Alarm() {
@@ -1853,11 +1889,16 @@ void handleAPI_Alarm() {
   }
   int d = server.arg("aktif").toInt();
   String reply;
-  rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
-  if (ok) { alarmStatus.enabled = (d == 1); last_rs485_update_ms = millis(); }
+  bool ok = alarmAyarla(d == 1, reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Alarm Aktif" : "Alarm Pasif") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
+}
+
+bool alarmModAyarla(uint8_t mod, String& reply) {
+  rs485_api_busy = true;
+  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) { alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  return ok;
 }
 
 void handleAPI_AlarmMod() {
@@ -1871,28 +1912,35 @@ void handleAPI_AlarmMod() {
     return;
   }
   String reply;
-  rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + m + "\n").c_str(), reply, 1000, 3);
-  rs485_api_busy = false;
-  if (ok) { alarmStatus.mode = (uint8_t)m; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  bool ok = alarmModAyarla((uint8_t)m, reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? ("Mod " + String(m)) : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
-void handleAPI_AlarmMute() {
-  String reply;
+bool alarmSustur(String& reply) {
   rs485_api_busy = true;
   bool ok = rs485_send_wait_ack("MASTER:ALARM_MUTE\n", reply, 1000, 3);
   rs485_api_busy = false;
   if (ok) { alarmStatus.muted = !alarmStatus.muted; last_rs485_update_ms = millis(); }
+  return ok;
+}
+
+void handleAPI_AlarmMute() {
+  String reply;
+  bool ok = alarmSustur(reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"muted\":" + String(alarmStatus.muted ? "true" : "false") + ",\"reply\":\"" + reply + "\"}");
 }
 
-void handleAPI_AlarmOnayla() {
-  String reply;
+bool alarmOnayla(String& reply) {
   rs485_api_busy = true;
   bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
   rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  return ok;
+}
+
+void handleAPI_AlarmOnayla() {
+  String reply;
+  bool ok = alarmOnayla(reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Onaylandi" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
@@ -1961,6 +2009,14 @@ void handleAPI_MoistureThreshold() {
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Esikler ayarlandi" : "Komut hatasi") + "\",\"replyLow\":\"" + replyLow + "\",\"replyHigh\":\"" + replyHigh + "\"}");
 }
 
+bool kapiAyarla(bool acik, String& reply) {
+  rs485_api_busy = true;
+  bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_KAPI=1\n" : "MASTER:SET_KAPI=0\n", reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) last_rs485_update_ms = millis();
+  return ok;
+}
+
 void handleAPI_Kapi() {
   if (!server.hasArg("durum")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
@@ -1968,10 +2024,7 @@ void handleAPI_Kapi() {
   }
   int d = server.arg("durum").toInt();
   String reply;
-  rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_KAPI=1\n" : "MASTER:SET_KAPI=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
-  if (ok) last_rs485_update_ms = millis();
+  bool ok = kapiAyarla(d == 1, reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Kapi Acik" : "Kapi Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
@@ -1979,14 +2032,13 @@ void handleAPI_Kapi() {
 // ESP8266'daki /role/panic ile aynı toggle davranışı.
 // RS485 üzerinden MASTER:PANIC gönderir, ESP8266 toggle yapar ve
 // ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
-void handleAPI_Panic() {
-  String reply;
+bool panikTetikle(bool& panicActive, String& reply) {
   rs485_api_busy = true;
   bool ok = rs485_send_wait_ack("MASTER:PANIC\n", reply, 1000, 3);
   rs485_api_busy = false;
 
   // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
-  bool panicActive = false;
+  panicActive = false;
   if (ok) {
     int eqIdx = reply.indexOf("PANIC=");
     if (eqIdx >= 0) {
@@ -1995,12 +2047,192 @@ void handleAPI_Panic() {
     alarmStatus.panic_mode = panicActive;
     last_rs485_update_ms = millis();
   }
+  return ok;
+}
+
+void handleAPI_Panic() {
+  String reply;
+  bool panicActive = false;
+  bool ok = panikTetikle(panicActive, reply);
 
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") +
     ",\"mesaj\":\"" + String(ok ? (panicActive ? "Panik Acik" : "Panik Kapali") : "Komut hatasi") +
     "\",\"panic\":" + String(panicActive ? "true" : "false") +
     ",\"reply\":\"" + reply + "\"}");
 }
+
+// ============================================================
+// BLE - TELEFON UYGULAMASI (Kontrol sekmesiyle ayni komutlar)
+// ============================================================
+// WiFi agina hic girmeden, dogrudan telefonla eslesip Kontrol
+// sekmesindeki ayni aksiyonlari (lamba/alarm/kapi/panik) calistirabilsin
+// diye eklendi. Ayni RS485 komutlarini gonderen yukaridaki *Ayarla/*Tetikle
+// fonksiyonlarini kullanir, boylece web ve BLE her zaman ayni davranir.
+#if ENABLE_BLE
+
+// NOT: Onceki BLEDevice.h (Bluedroid) birkac baglan/kopar dongusunden sonra
+// yeni baglantilari sessizce reddediyordu (telefonda "status=4 connection
+// timeout" - bilinen Bluedroid zayifligi, tekrar tekrar gozlemlendi). NimBLE
+// bu senaryoda cok daha kararli oldugu icin gecildi (bkz platformio.ini).
+//
+// GERCEK KOK NEDEN (asil bulunmasi gereken buydu): NimBLE'ye gecince de
+// "koptu diyor ama zorla baglanmaya calisiyor, telefonda BT+APK'yi zorla
+// kapatip actiktan sonra duzeliyor" sikayeti surdu. Sebep kutuphane degil -
+// bu cihaz WiFi'yi AP+STA modunda surekli acik tutuyor, ustune MQTT, SSE,
+// OTA dinleme, ve (en agirlari) hava durumu/telegram icin TLS (HTTPS)
+// istekleri hep ayni tek 2.4GHz radyoyu BLE ile paylasiyor. TLS handshake
+// birkac saniye surebilen yogun bir radyo/CPU patlamasi - o pencerede BLE
+// baglanti olaylari art arda kacirilirsa telefonun supervision timeout'u
+// dolup baglanti "temiz kapanmadan" (sessizce) kopuyor. Android boyle
+// "kirli" kopmalardan sonra GATT'i bazen dogru temizlemiyor - uygulama
+// "bagli"/"tekrar baglaniyor" sanip kilitleniyor, tek cikis BT'yi (ve
+// genelde uygulamayi da) tamamen kapatip acmak oluyor. Bu, cihazin kendi
+// hatasi degil, telefon tarafinin bilinen bir zayifligi; ama biz BLE
+// baglantisini bu radyo rekabetine karsi daha toleranli hale getirerek
+// (asagida onConnect'te updateConnParams - daha yuksek slave latency +
+// supervision timeout) ve agir TLS isteklerini heap/CPU acisindan daha
+// güvenli hale getirerek (weatherKontrolEt/telegramMesajGonder heap
+// guard'i, asagida) kopma SIKLIGINI azaltiyoruz - bu, Espressif'in kendi
+// WiFi+BLE coexistence dokumantasyonunda onerilen standart yaklasim.
+NimBLEServer* bleServer = nullptr;
+NimBLECharacteristic* bleCharacteristic = nullptr;
+bool bleDeviceConnected = false;
+unsigned long last_ble_notify_ms = 0;
+
+// Telefondan gelen metin komutunu isler, sonucu ayni karakteristik
+// uzerinden "ACK:..."/"ERR:..." olarak geri bildirir (RS485 ACK deseniyle
+// tutarli). Desteklenen komutlar Kontrol sekmesindeki butonlarla birebir
+// eslesir: LAMBA_AC/LAMBA_KAPAT, ALARM_AC/ALARM_KAPAT, ALARM_MOD=1|2|3,
+// ALARM_SUSTUR, ALARM_ONAYLA, KAPI_AC/KAPI_KAPAT, PANIK.
+void bleKomutIsle(NimBLECharacteristic* pChar, const String& komut) {
+  DEBUG_PRINT("[BLE] Komut alindi: ");
+  DEBUG_PRINTLN(komut);
+
+  String reply;
+  bool ok = false;
+  String mesaj;
+
+  if (komut == "LAMBA_AC" || komut == "LAMBA_KAPAT") {
+    ok = lambaAyarla(komut == "LAMBA_AC", reply);
+    mesaj = ok ? (komut == "LAMBA_AC" ? "LAMBA=1" : "LAMBA=0") : "LAMBA";
+  } else if (komut == "ALARM_AC" || komut == "ALARM_KAPAT") {
+    ok = alarmAyarla(komut == "ALARM_AC", reply);
+    mesaj = ok ? (komut == "ALARM_AC" ? "ALARM=1" : "ALARM=0") : "ALARM";
+  } else if (komut.startsWith("ALARM_MOD=")) {
+    int mod = komut.substring(10).toInt();
+    if (mod >= 1 && mod <= 3) {
+      ok = alarmModAyarla((uint8_t)mod, reply);
+      mesaj = ok ? ("MOD=" + String(mod)) : "ALARM_MOD";
+    } else {
+      mesaj = "ALARM_MOD_GECERSIZ";
+    }
+  } else if (komut == "ALARM_SUSTUR") {
+    ok = alarmSustur(reply);
+    mesaj = ok ? ("MUTE=" + String(alarmStatus.muted ? "1" : "0")) : "ALARM_SUSTUR";
+  } else if (komut == "ALARM_ONAYLA") {
+    ok = alarmOnayla(reply);
+    mesaj = ok ? "ONAYLANDI" : "ALARM_ONAYLA";
+  } else if (komut == "KAPI_AC" || komut == "KAPI_KAPAT") {
+    ok = kapiAyarla(komut == "KAPI_AC", reply);
+    mesaj = ok ? (komut == "KAPI_AC" ? "KAPI=1" : "KAPI=0") : "KAPI";
+  } else if (komut == "PANIK") {
+    bool panicActive = false;
+    ok = panikTetikle(panicActive, reply);
+    mesaj = ok ? ("PANIC=" + String(panicActive ? "1" : "0")) : "PANIK";
+  } else {
+    mesaj = "BILINMEYEN_KOMUT";
+  }
+
+  String durum = (ok ? "ACK:" : "ERR:") + mesaj;
+  pChar->setValue(durum.c_str());
+  if (bleDeviceConnected) pChar->notify();
+}
+
+class BleKomutCallback: public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pChar) override {
+    String komut = String(pChar->getValue().c_str());
+    komut.trim();
+    if (komut.length() == 0) return;
+    bleKomutIsle(pChar, komut);
+  }
+};
+
+class BleSunucuCallback: public NimBLEServerCallbacks {
+  // desc'li asiri yuklemeyi kullaniyoruz - conn_handle burada, WiFi ile
+  // radyo paylasimina toleransli baglanti parametreleri istemek icin lazim.
+  void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) override {
+    bleDeviceConnected = true;
+    DEBUG_PRINT("[BLE] Telefon baglandi, heap=");
+    DEBUG_PRINTLN(ESP.getFreeHeap());
+    // WiFi (AP+STA+HTTPS+MQTT) ayni radyoyu paylastigindan, kisa bir
+    // WiFi/BLE cakismasi (orn. TLS handshake sirasinda) birkac baglanti
+    // olayini kacirabilir. Varsayilan (dusuk latency/timeout) parametrelerle
+    // bu tek basina supervision timeout'a (temiz kapanmayan, telefonu
+    // "zombi" baglantida kilitleyen kopma) yol aciyordu. Slave latency +
+    // supervision timeout'u yukselterek birden fazla ardisik olayin
+    // kacmasina izin veriyoruz - Espressif'in WiFi+BLE coexistence
+    // onerisiyle ayni yaklasim.
+    pServer->updateConnParams(desc->conn_handle,
+      24,   // min interval: 24*1.25ms = 30ms
+      40,   // max interval: 40*1.25ms = 50ms
+      4,    // slave latency: 4 baglanti olayina kadar cevapsiz kalabilir
+      800); // supervision timeout: 800*10ms = 8000ms
+  }
+  void onDisconnect(NimBLEServer* pServer) override {
+    bleDeviceConnected = false;
+    DEBUG_PRINT("[BLE] Baglanti koptu, heap=");
+    DEBUG_PRINTLN(ESP.getFreeHeap());
+    // NOT: Yeniden yayina baslama artik burada elle yapilmiyor - NimBLEServer
+    // her disconnect'te bunu zaten otomatik yapiyor (m_advertiseOnDisconnect,
+    // varsayilan acik). Elle ikinci bir startAdvertising() cagrisi sadece
+    // "already active" uyarisi birakan gereksiz bir tekrardi.
+  }
+};
+
+void ble_init() {
+  NimBLEDevice::init(BLE_DEVICE_NAME);
+  NimBLEDevice::setMTU(247); // telefon MTU istegi yaparsa tam durum satiri tek pakette gitsin
+
+  bleServer = NimBLEDevice::createServer();
+  bleServer->setCallbacks(new BleSunucuCallback());
+
+  NimBLEService* bleService = bleServer->createService(BLE_SERVICE_UUID);
+  bleCharacteristic = bleService->createCharacteristic(
+    BLE_CHARACTERISTIC_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+  );
+  bleCharacteristic->setCallbacks(new BleKomutCallback());
+  bleService->start();
+
+  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+  advertising->addServiceUUID(BLE_SERVICE_UUID);
+  NimBLEDevice::startAdvertising();
+
+  DEBUG_PRINTLN("[BLE] Aktif, telefon baglantisi bekleniyor...");
+}
+
+// Bagliyken BLE_NOTIFY_INTERVAL_MS'de bir gercek anlik veriyi (RS485'ten
+// gelen ayni sensorData/nanoStatus/alarmStatus) kompakt bir satir olarak
+// pushlar - ornek koddaki rastgele T:/H: simulasyonunun yerini alir.
+void bleDurumBildir() {
+  if (!bleDeviceConnected) return;
+  unsigned long simdi = millis();
+  if (simdi - last_ble_notify_ms < BLE_NOTIFY_INTERVAL_MS) return;
+  last_ble_notify_ms = simdi;
+
+  char buf[160];
+  snprintf(buf, sizeof(buf),
+    "LEVEL=%.1f,PCT=%.1f,TEMP=%.1f,LAMP=%d,D1=%d,D2=%d,ALARM=%d,PANIC=%d,MOD=%d,MUTE=%d,PEND=%d,TRIG=%d",
+    sensorData.level_cm, sensorData.level_percent, sensorData.temperature,
+    nanoStatus.lamp_on ? 1 : 0, nanoStatus.door1_open ? 1 : 0, nanoStatus.door2_open ? 1 : 0,
+    alarmStatus.enabled ? 1 : 0, alarmStatus.panic_mode ? 1 : 0, alarmStatus.mode,
+    alarmStatus.muted ? 1 : 0, alarmStatus.pending ? 1 : 0, alarmStatus.trigger_mask);
+
+  bleCharacteristic->setValue((uint8_t*)buf, strlen(buf));
+  bleCharacteristic->notify();
+}
+
+#endif // ENABLE_BLE
 
 // Test 1: Nano D13 LED kontrolü
 // ESP32 -> RS485 -> ESP8266 (MASTER:SET_LAMBA) -> Nano (LAMBA_ON) -> D13 HIGH
@@ -2161,6 +2393,31 @@ void wifi_connect() {
   DEBUG_PRINTLN(WiFi.softAPIP());
 }
 
+// Beklenmedik reset (crash/brownout/watchdog) BLE baglantisini telefona hic
+// "disconnect" bildirmeden koparir - "koptu ama zorla baglanmaya calisiyor"
+// sikayetinin bir kaynagi da bu olabilir. Her boot'ta sebep loglanir; eger
+// tekrar ederse (PANIC/WDT/BROWNOUT) asil sorun BLE degil, cihazin
+// coktugu/resetlendigi olur.
+void resetSebebiYazdir() {
+  esp_reset_reason_t sebep = esp_reset_reason();
+  const char* metin;
+  switch (sebep) {
+    case ESP_RST_POWERON:   metin = "Power-on"; break;
+    case ESP_RST_EXT:       metin = "Harici reset"; break;
+    case ESP_RST_SW:        metin = "Yazilim (ESP.restart)"; break;
+    case ESP_RST_PANIC:     metin = "PANIC/Crash"; break;
+    case ESP_RST_INT_WDT:   metin = "Interrupt Watchdog"; break;
+    case ESP_RST_TASK_WDT:  metin = "Task Watchdog"; break;
+    case ESP_RST_WDT:       metin = "Diger Watchdog"; break;
+    case ESP_RST_DEEPSLEEP: metin = "Deep sleep uyanma"; break;
+    case ESP_RST_BROWNOUT:  metin = "Brownout (guc dususu)"; break;
+    case ESP_RST_SDIO:      metin = "SDIO"; break;
+    default:                metin = "Bilinmeyen"; break;
+  }
+  DEBUG_PRINT("[BOOT] Reset sebebi: ");
+  DEBUG_PRINTLN(metin);
+}
+
 // ============================================================
 // SETUP
 // ============================================================
@@ -2168,7 +2425,8 @@ void wifi_connect() {
 void setup() {
   Serial.begin(9600);
   delay(1000);
-  
+  resetSebebiYazdir();
+
   DEBUG_PRINTLN("\n========================================");
   DEBUG_PRINTLN("🟢 SuDepoSis v2 - ESP32-S3 Master");
   DEBUG_PRINTLN("========================================");
@@ -2195,7 +2453,12 @@ void setup() {
   
   // Web Server
   setupWebServer();
-  
+
+  // BLE - telefon uygulamasi (WiFi'siz de calisir)
+#if ENABLE_BLE
+  ble_init();
+#endif
+
   // ===== BILGILER =====
   DEBUG_PRINTLN("\n========================================");
   DEBUG_PRINTLN("✅ SISTEM BILGILERI");
@@ -2220,10 +2483,21 @@ void setup() {
 // ============================================================
 
 void loop() {
+  // Duzenli heap izleme - dusuk/dususte heap, BLE'nin "kirli" kopmasina
+  // (crash/coexistence) yol acan asil sebebi teshis etmek icin (bkz BLE
+  // bolumundeki not). Sorun tekrarlarsa Serial Monitor'de bu satirlar
+  // dususu/cokmeyi gosterir.
+  static unsigned long sonHeapLogMs = 0;
+  if (millis() - sonHeapLogMs >= 30000UL) {
+    sonHeapLogMs = millis();
+    DEBUG_PRINT("[HEAP] free=");
+    DEBUG_PRINTLN(ESP.getFreeHeap());
+  }
+
   // Web Server handle
   server.handleClient();
   ArduinoOTA.handle();
-  
+
   // RS485 Polling
   rs485_poll();
 
@@ -2232,6 +2506,11 @@ void loop() {
 
   // Alarm baslarsa Telegram'a bildirim gonder
   telegramAlarmKontrolEt();
+
+  // BLE - bagli telefona periyodik anlik veri
+#if ENABLE_BLE
+  bleDurumBildir();
+#endif
 
   // MQTT
   mqtt_connect();

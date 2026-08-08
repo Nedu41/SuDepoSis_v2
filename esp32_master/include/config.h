@@ -130,6 +130,22 @@
 //   3) main dalina push et - link otomatik guncel halini gosterir (raw.githubusercontent.com HEAD'i takip eder)
 #define GITHUB_FIRMWARE_URL "https://raw.githubusercontent.com/Nedu41/SuDepoSis_v2/main/esp32_master/firmware/esp32.bin"
 
+// ===== BLE (Telefon Uygulamasi) =====
+// Telefondaki eslesmis uygulama, WiFi agina hic girmeden dogrudan BLE ile
+// Kontrol sekmesindeki komutlari (lamba/alarm/kapi/panik) gonderip anlik
+// durumu okuyabilsin diye. UUID'ler ve cihaz adi test edilen ornek koddan
+// (zaten calisiyordu) aynen tasindi - telefon tarafi degismemeli.
+#define ENABLE_BLE 1
+#define BLE_DEVICE_NAME "ESP32S3_Yonetici"
+#define BLE_SERVICE_UUID        "4faac001-82ab-4dc1-9106-97217895d03a"
+#define BLE_CHARACTERISTIC_UUID "3a200001-526b-4e01-9fa6-07217895d03a"
+#define BLE_NOTIFY_INTERVAL_MS 2000
+// Agir TLS (HTTPS - hava durumu/Telegram) istekleri bu esigin altinda heap
+// varken atlanir; dusuk heap'te BLE/WiFi coexistence altinda cokme/reset
+// (ve bunun sonucu "kirli" BLE kopmasi) riskini azaltir - bkz bleKomutIsle
+// yanindaki BLE bolumu notu.
+#define BLE_SAFE_MIN_HEAP 40000
+
 // ===== Özellikler =====
 #define ENABLE_MQTT 1
 #define ENABLE_OTA 1
