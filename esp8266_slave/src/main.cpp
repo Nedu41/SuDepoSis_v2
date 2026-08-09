@@ -1809,11 +1809,16 @@ void loop() {
   // SSE periyodik durum guncelleme (1500ms) - sensör olcumu yapmadan sadece durum iter
   static unsigned long sseGonderMs = 0;
   if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; moistureOku(); ssePush(); }
-  // Periyodik RS485 gonderimi (1000ms) - ESP32 poll'u kacirsa bile veri akisi devam eder
-  static unsigned long sonMasterGonderMs = 0;
-  if (s - sonMasterGonderMs >= RS485_SEND_INTERVAL) {
-    sonMasterGonderMs = s;
-    masterGonder();
-    server.handleClient();  // FIX: RS485 gönderim sonrası web isteklerini işle
-  }
+  // KALDIRILDI: Periyodik (1000ms) istem-disi masterGonder() gonderimi.
+  // ESP32 zaten kendi 600ms'lik dongusunde GET_STATUS ile surekli soruyor
+  // (bkz esp32_master rs485_poll) - bu "yedek" gonderim aslinda ESP32'nin
+  // istegiyle SENKRONIZE OLMADAN, paylasilan yari-cift-yonlu RS485 hattina
+  // ikinci, kontrolsuz bir vericiydi. ESP32 tarafinda [RS485_TIMING] tani
+  // loguyla dogrulandi: SET_LAMBA gibi komutlar bazen tek denemede 40ms'de
+  // basariyorken, bazen 1-3 saniyeye (2-3 yeniden deneme) uzuyordu - suresi
+  // rastgele degisen bu orunun, iki bagimsiz zamanlayicinin hatta cakismasiyla
+  // (bu gonderim + ESP32'nin sorgusu/komutu ayni ana denk gelince) uyustugu
+  // gorulmustu. ESP32'nin poll'u zaten 600ms'de bir taze veri getirdigi icin
+  // bu "yedek" gereksizdi - kaldirilmasi hem cakismayi hem gecikmeyi azaltmali.
+  server.handleClient();
 }

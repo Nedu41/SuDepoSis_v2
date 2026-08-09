@@ -390,17 +390,36 @@ void telegramAlarmKontrolEt() {
 // RS485 UART1 AYARLARI
 // ============================================================
 
+// BLE (NimBLE, "nimble_host" adinda AYRI bir FreeRTOS gorevinde calisir) ve
+// Arduino loop() gorevi (rs485_poll) ayni RS485 hattina (Serial1 + DE pini)
+// ES ZAMANLI erisebiliyordu. rs485_api_busy sadece kooperatif bir bayrakti -
+// loop() zaten rs485_read_line() icinde (~400ms'e kadar) bloke olmus haldeyken
+// BLE tarafi bu bayragi henuz gormeden kendi gonderimini baslatabiliyordu.
+// Sonuc: iki gorev ayni anda Serial1'e yazip/okuyordu - bu oturum boyunca
+// gorulen "ESP8266 no response"/"Partial message"/bozuk "NACK" satirlarinin
+// VE BLE komutlarinin (LAMBA_AC vb.) sik sik 3-4 saniyeye uzayan gecikmesinin
+// (3 deneme x 1sn timeout'un neredeyse tamamina carpmasi) kok nedeni buydu.
+// Gercek bir mutex ile iki gorevin RS485 hattina asla ayni anda dokunmamasi
+// garanti ediliyor.
+SemaphoreHandle_t rs485Mutex = nullptr;
+struct RS485Kilit {
+  RS485Kilit() { xSemaphoreTake(rs485Mutex, portMAX_DELAY); }
+  ~RS485Kilit() { xSemaphoreGive(rs485Mutex); }
+};
+
 void rs485_init() {
   DEBUG_PRINTLN("[RS485] Initializing UART1...");
-  
+
+  rs485Mutex = xSemaphoreCreateMutex();
+
   // Varsayilan RX tamponu (256 byte) ~270 byte'lik status mesaji icin
   // sinirdaydi; begin()'den once buyutulmesi gerekiyor.
   Serial1.setRxBufferSize(1024);
   Serial1.begin(RS485_BAUDRATE, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
-  
+
   pinMode(RS485_DE_PIN, OUTPUT);
   digitalWrite(RS485_DE_PIN, LOW);  // Başta Receiver mode
-  
+
   DEBUG_PRINT("[RS485] UART1 ready at ");
   DEBUG_PRINTLN(RS485_BAUDRATE);
 }
@@ -417,6 +436,11 @@ void rs485_send(const char* data) {
 }
 
 bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms = 1000, uint8_t max_attempts = 2) {
+  RS485Kilit kilit; // bkz RS485Kilit tanimi - loop() ile BLE gorevinin hatta ayni anda dokunmasini engeller
+  // GECICI TANI LOGU: genel (BLE'ye ozel olmayan - web dahil) komut gecikmesi
+  // sikayeti icin - her komutun kacinci denemede/ne kadar surede basardigini
+  // gorup gercek darbogazi (retry mi, tek seferlik yavaslik mi) bulmak icin.
+  unsigned long fonksiyon_baslangic_ms = millis();
   for (uint8_t attempt = 0; attempt < max_attempts; attempt++) {
     // Drop any stale data before sending, to avoid reading older lines as the ACK.
     while (Serial1.available()) {
@@ -440,6 +464,19 @@ bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeo
             DEBUG_PRINT("[RS485] ACK reply: ");
             DEBUG_PRINTLN(response);
             if (response.startsWith("ACK:")) {
+              // Sadece yeniden deneme gerektiyse logla - normal (ilk denemede
+              // basarili) durumda gereksiz log gurultusu yaratmasin. ESP8266'nin
+              // istem disi otomatik gonderiminin kaldirilmasindan sonra bu artik
+              // neredeyse hic tetiklenmiyor - tekrar sik gorulmeye baslarsa
+              // RS485 hattinda yeni bir catisma kaynagi olustugunun isaretidir.
+              if (attempt > 0) {
+                DEBUG_PRINT("[RS485_TIMING] yeniden denemeyle basarili, deneme=");
+                DEBUG_PRINT(String(attempt + 1));
+                DEBUG_PRINT("/");
+                DEBUG_PRINT(String(max_attempts));
+                DEBUG_PRINT(", sure_ms=");
+                DEBUG_PRINTLN(String(millis() - fonksiyon_baslangic_ms));
+              }
               return true;
             }
             response = "";
@@ -649,25 +686,32 @@ void rs485_poll() {
     case RS485_IDLE:
       if (now - last_rs485_update_ms >= RS485_UPDATE_INTERVAL) {
         last_rs485_update_ms = now;
-        // KRITIK: ESP8266 kendi periyodik durumunu da bagimsiz bir zamanlayicida
-        // (RS485_SEND_INTERVAL) istem disi gonderiyor. Bu eski/bekleyen mesaj
-        // burada temizlenmezse, az sonra gonderecegimiz GET_STATUS'un YANITI
-        // yerine bu BAYAT veriyi okuyabiliyorduk - ekranin "gec guncellenmesi"
-        // hissinin buyuk kismi buradan geliyordu.
-        while (Serial1.available()) Serial1.read();
-        rs485_send("GET_STATUS\n");
+        {
+          RS485Kilit kilit;
+          // KRITIK: ESP8266 kendi periyodik durumunu da bagimsiz bir zamanlayicida
+          // (RS485_SEND_INTERVAL) istem disi gonderiyor. Bu eski/bekleyen mesaj
+          // burada temizlenmezse, az sonra gonderecegimiz GET_STATUS'un YANITI
+          // yerine bu BAYAT veriyi okuyabiliyorduk - ekranin "gec guncellenmesi"
+          // hissinin buyuk kismi buradan geliyordu.
+          while (Serial1.available()) Serial1.read();
+          rs485_send("GET_STATUS\n");
+        }
         rs485_state = RS485_WAIT_ESP;
         rs485_state_start_ms = now;
       }
       break;
-      
+
     case RS485_WAIT_ESP:
       // Onceden sabit 200ms "kor bekleme" sonra okumaya baslardi - bu, buyuk
       // mesajlarda (~270 byte, 9600 baud'da ~280ms) okuma penceresini
       // gereksiz yere kisaltiyordu. Simdi hemen okumaya baslaniyor;
       // rs485_read_line zaten kendi ici RS485_TIMEOUT_MS kadar bekliyor.
       if (now - rs485_state_start_ms >= 10) {
-        String msg = rs485_read_line();
+        String msg;
+        {
+          RS485Kilit kilit;
+          msg = rs485_read_line();
+        }
         if (msg.length() > 0) {
           parse_rs485_message(msg);
         } else {
