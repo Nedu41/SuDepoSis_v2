@@ -15,6 +15,14 @@
 #include <Update.h>
 #include <Preferences.h>
 #include <esp_system.h>
+
+// NOT: IRremote.hpp kendi ic basliklarinda DEBUG_PRINT/DEBUG_PRINTLN adinda
+// makrolar tanimlayip config.h'daki (asagida include edilen) bizim
+// makrolarimizin UZERINE yaziyordu - butun dosyada bu makrolar tanimsiz hale
+// geliyordu. IRremote.hpp'yi config.h'dan ONCE include ederek bizim
+// tanimlarimizin (config.h) son/gecerli olanlar olmasini garantiliyoruz.
+#include <IRremote.hpp>
+
 #include "../include/config.h"
 
 #if ENABLE_BLE
@@ -287,6 +295,69 @@ String nano_id = "UNKNOWN";
 
 unsigned long last_rs485_update_ms = 0;
 unsigned long last_mqtt_publish_ms = 0;
+
+// ============================================================
+// KONTEYNER DONANIMI (IR kumanda, alarm LED, ikinci PIR, kapi reed)
+// ============================================================
+// BILEREK sadece OKUMA/yerel LED kontrolu yapiyor - mevcut alarm/RS485/BLE
+// mantigina henuz baglanmadi. Kullanici IR kumanda kodlarini bildirip PIR2/
+// reed'in alarm sistemine tam olarak nasil entegre olmasini istedigini
+// onaylayana kadar boyle kalacak - calisan mevcut sistemi bozma riskini
+// sifira indirmek icin.
+bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
+bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var
+
+void konteynerDonanimiInit() {
+  pinMode(ALARM_LED_PIN, OUTPUT);
+  digitalWrite(ALARM_LED_PIN, LOW);
+  pinMode(PIR2_PIN, INPUT);
+  // Reed switch: kablolamaya gore kapali/acik seviyesi degisebilir -
+  // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
+  // gozlemleyip gerekirse asagidaki karsilastirmayi (==HIGH) ters cevir.
+  pinMode(KAPI_REED_PIN, INPUT_PULLUP);
+  // ENABLE_LED_FEEDBACK KULLANMA: bu kartta gecerli bir varsayilan LED_BUILTIN
+  // tanimli degil, kutuphane bu durumda USE_DEFAULT_FEEDBACK_LED_PIN=0xFF
+  // (GECERSIZ bir GPIO numarasi) kullanmaya calisiyor - bu, cihazda tekrarlayan
+  // Brownout resetlerine (kararsizliga) yol acti, DISABLE ile duzeldi/dogrulandi.
+  IrReceiver.begin(IR_RECV_PIN, DISABLE_LED_FEEDBACK);
+  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed hazir");
+}
+
+// Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
+// mevcut alarm durumunu SADECE okur (banner'in gorunurlugüyle ayni mantik),
+// hicbir alarm degiskenine yazmaz. ESP8266 tarafindaki Sesli/Sessiz mod
+// ayrimindan BAGIMSIZ - kullanicinin talebiyle ("gercek her alarmda calissin")
+// konteynerdaki bu yerel uyari her zaman aktif, LED ile ayni ritimde (400ms) yanip soner/oter.
+void alarmLedGuncelle() {
+  static bool ledDurum = false;
+  static unsigned long sonDegisimMs = 0;
+  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending;
+  if (!alarmVar) {
+    if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
+    return;
+  }
+  unsigned long simdi = millis();
+  if (simdi - sonDegisimMs >= 400) {
+    sonDegisimMs = simdi;
+    ledDurum = !ledDurum;
+    digitalWrite(ALARM_LED_PIN, ledDurum ? HIGH : LOW);
+  }
+}
+
+void konteynerSensorleriOku() {
+  kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
+  pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
+}
+
+// IR kumanda - OGRENME MODU: gelen her kodu Serial'e yazdirir. Kullanici
+// kumandadaki tuslara basip kodlari Serial Monitor'den okuyup bildirecek,
+// sonra asagidaki (su an bos) tabloya kod->komut eslesmesi eklenecek.
+void irKumandaIsle() {
+  if (!IrReceiver.decode()) return;
+  DEBUG_PRINT("[IR] Kod alindi: 0x");
+  DEBUG_PRINTLN(String(IrReceiver.decodedIRData.decodedRawData, HEX));
+  IrReceiver.resume();
+}
 
 // ============ TELEGRAM ALARM BILDIRIMLERI ============
 // Alarm YENI basladiginda (surekli degil, sadece "yok -> var" gecisinde)
@@ -1554,6 +1625,9 @@ String durumJson() {
   doc["alarm"]["pending"] = alarmStatus.pending;
   doc["alarm"]["trigger_mask"] = alarmStatus.trigger_mask;
 
+  doc["konteyner"]["kapi_acik"] = kapi2Acik;
+  doc["konteyner"]["pir"] = pir2HareketVar;
+
   doc["moisture"]["raw"] = sensorData.moisture_raw;
   doc["moisture"]["percent"] = sensorData.moisture_percent;
   doc["moisture"]["output"] = sensorData.moisture_output;
@@ -2513,6 +2587,9 @@ void setup() {
   ble_init();
 #endif
 
+  // Konteyner donanimi (IR/LED/PIR2/Reed) - RS485/BLE/WiFi'den bagimsiz
+  konteynerDonanimiInit();
+
   // ===== BILGILER =====
   DEBUG_PRINTLN("\n========================================");
   DEBUG_PRINTLN("✅ SISTEM BILGILERI");
@@ -2554,6 +2631,11 @@ void loop() {
 
   // RS485 Polling
   rs485_poll();
+
+  // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
+  konteynerSensorleriOku();
+  alarmLedGuncelle();
+  irKumandaIsle();
 
   // Hava durumu / yagmur tahmini - WiFi baglandiginda veya periyodik
   weatherKontrolEt();
