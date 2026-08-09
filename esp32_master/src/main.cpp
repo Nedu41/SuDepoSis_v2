@@ -320,16 +320,26 @@ bool konteynerPirAlarmVar = false; // Debounce sonrasi "onaylanmis" hareket - LE
 // Tetiklenme ayarlarinin ayni mantigi: pencere suresi icinde en az N kez
 // tetiklenirse "gercek" hareket sayilir, tek seferlik gurultu/yanlis
 // pozitifleri eler.
-uint16_t konteynerPirPencereSaniye = 5;
-uint8_t konteynerPirMinTetiklenme = 2;
+// ONEMLI (HC-SR505 datasheet farki, HC-SR501'den FARKLI calisiyor - bkz
+// kullanici uyarisi): HC-SR505'te potansiyometre/jumper YOK, cikis suresi
+// SABIT ~6-12sn (datasheet: 8sn +-%30), tetiklenebilir modda hareket
+// surdukce HIGH'ta kalir. Yani TEK bir hareket olayi TEK bir yukselen
+// kenar uretir (uzun sure HIGH'ta kalsa bile) - HC-SR501'deki gibi ust
+// uste hizli kenarlar vermez. Varsayilan min=2 idi ama ilk tetiklenmeden
+// sonra sinyal zaten >=6sn HIGH kaldigi icin 5sn'lik pencere icinde ikinci
+// bir kenar gelmesi neredeyse imkansizdi - "calismiyor" sikayetinin sebebi
+// buydu. min=1 ile duzeltildi (sensorun kendi 6-12sn tutmasi zaten yeterli
+// filtreleme sagliyor, ek tetiklenme sayisi sartina gerek yok).
+uint16_t konteynerPirPencereSaniye = 10;
+uint8_t konteynerPirMinTetiklenme = 1;
 #define KONTEYNER_PIR_BUFFER 10
 unsigned long konteynerPirTetikZamanlari[KONTEYNER_PIR_BUFFER] = {0};
 uint8_t konteynerPirTetikSayisi = 0;
 
 void konteynerPirAyarYukle() {
   ayarPrefs.begin("ayarlar", true);
-  konteynerPirPencereSaniye = ayarPrefs.getUShort("k_pir_pen", 5);
-  konteynerPirMinTetiklenme = ayarPrefs.getUChar("k_pir_min", 2);
+  konteynerPirPencereSaniye = ayarPrefs.getUShort("k_pir_pen", 10);
+  konteynerPirMinTetiklenme = ayarPrefs.getUChar("k_pir_min", 1);
   ayarPrefs.end();
 }
 void konteynerPirAyarKaydet(uint16_t pencereSaniye, uint8_t minTetiklenme) {
@@ -1218,6 +1228,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     <div class="card">
       <h3>👁️ Konteyner Zonu - PIR Ayarları</h3>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505), kırmızı LED+buzzer'ı yerel olarak tetikler - RS485/ana alarm sistemine bağlı değil, sadece burası için. Pencere süresi içinde en az "Min. Tetiklenme" kadar hareket algılanırsa uyarı başlar.</p>
+      <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı) - yani tek bir hareket TEK tetiklenme üretir. Min. Tetiklenme'yi 1'de bırak, 2+ yaparsan pratikte hiç alarm tetiklenmez.</p>
       <div class="row" style="gap:16px">
         <div>Hareket: <b id="kz-pir">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
