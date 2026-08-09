@@ -982,7 +982,7 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 
 // ============ DURUM JSON ============
 String durumJson() {
-  String j = "{";
+  String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";

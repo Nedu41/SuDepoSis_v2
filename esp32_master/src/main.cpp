@@ -378,6 +378,22 @@ String telegramBekleyenMetin = "";
 unsigned long telegramIlkDenemeMs = 0;
 #define TELEGRAM_RETRY_SURESI_MS (2UL * 60UL * 1000UL) // basarisizsa bu kadar sure tekrar denenir, sonra vazgecilir
 
+// Kullanici talebiyle: Telegram alarm bildirimi ac/kapa ayari (Ayarlar
+// sekmesi) - NVS'de kalici, varsayilan acik (eski davranisla ayni).
+Preferences ayarPrefs;
+bool telegramBildirimAktif = true;
+void telegramAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  telegramBildirimAktif = ayarPrefs.getBool("tg_aktif", true);
+  ayarPrefs.end();
+}
+void telegramAyarKaydet(bool aktif) {
+  telegramBildirimAktif = aktif;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putBool("tg_aktif", aktif);
+  ayarPrefs.end();
+}
+
 const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
 
 String alarmTetikleyenMetni(uint8_t mask, bool panik) {
@@ -443,6 +459,12 @@ void telegramAlarmKontrolEt() {
   uint8_t mask = alarmStatus.trigger_mask;
   bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode;
   bool alarmVar = anyAlarm || alarmStatus.pending;
+
+  if (!telegramBildirimAktif) {
+    telegramOncekiAlarmVar = alarmVar; // kapaliyken de takip et ki acilinca eski alarm icin mesaj atmasin
+    telegramBekleyenVar = false;
+    return;
+  }
 
   if (alarmVar && !telegramOncekiAlarmVar) {
     // Yeni alarm basladi - mesaj hazirla, ilk denemeyi hemen yap.
@@ -1074,6 +1096,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <h3>Telegram Bildirimleri</h3>
       <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb.) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
       <div class="row">
+        <button class="btn" id="telegram-ac-kapa-btn" onclick="telegramAcKapa()">Yükleniyor...</button>
         <button class="btn btn-primary" onclick="telegramTest()">Test Mesajı Gönder</button>
       </div>
       <div id="telegram-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
@@ -1367,6 +1390,7 @@ function renderUI(d){
   if(!busySet.has('#alarm-mute-btn')){ const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
   if(!busySet.has('#moisture-settings-toggle-btn')){ const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   if(!busySet.has('#moisture-settings-auto-btn')){ const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
+  if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; }
   // Nem verileri
   const mkpi=$('#kpi-moisture'); if(mkpi) mkpi.textContent=(mo.percent||0).toFixed(1)+'%';
   const mraw=$('#moisture-raw'); if(mraw) mraw.textContent=mo.raw||0;
@@ -1565,6 +1589,13 @@ function telegramTest(){
   $('#telegram-sonuc').textContent='Gönderiliyor...';
   api('/api/telegram/test').then(d=>{$('#telegram-sonuc').textContent=d.mesaj||'';});
 }
+let telegramAktifBilinen=true;
+function telegramAcKapa(){
+  api('/api/telegram/ayar?aktif='+(telegramAktifBilinen?0:1)).then(d=>{
+    telegramAktifBilinen=d.aktif;
+    $('#telegram-ac-kapa-btn').textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı';
+  });
+}
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -1693,6 +1724,8 @@ String durumJson() {
 
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
   doc["konteyner"]["pir"] = pir2HareketVar;
+
+  doc["telegram_aktif"] = telegramBildirimAktif;
 
   doc["moisture"]["raw"] = sensorData.moisture_raw;
   doc["moisture"]["percent"] = sensorData.moisture_percent;
@@ -2027,6 +2060,13 @@ void handleAPI_TelegramTest() {
   else if (String(TELEGRAM_BOT_TOKEN).length() == 0) mesaj = "TELEGRAM_BOT_TOKEN bos (secrets.h)";
   else mesaj = "Gonderilemedi - token/chat ID'yi kontrol edin";
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
+}
+
+void handleAPI_TelegramAyar() {
+  if (server.hasArg("aktif")) {
+    telegramAyarKaydet(server.arg("aktif").toInt() != 0);
+  }
+  server.send(200, "application/json", "{\"basarili\":true,\"aktif\":" + String(telegramBildirimAktif ? "true" : "false") + "}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -2650,6 +2690,7 @@ void setupWebServer() {
   server.on("/api/weather", handleAPI_WeatherGet);
   server.on("/api/weather/check", handleAPI_WeatherCheck);
   server.on("/api/telegram/test", handleAPI_TelegramTest);
+  server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
@@ -2803,6 +2844,7 @@ void setup() {
   }
   weatherYukle();
   irEslesmeYukle();
+  telegramAyarYukle();
 
   // WiFi Connect
   wifi_connect();
