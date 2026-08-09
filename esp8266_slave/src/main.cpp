@@ -566,6 +566,20 @@ void masterGonder() {
   rs485Gonder(buf);
 }
 
+// "k1=v1,k2=v2,..." formatindan tek bir anahtarin degerini cikarir (bkz
+// SET_AYARLAR/GET_AYARLAR - Kalburum'un Ayarlar sekmesi icin toplu ayar
+// aktarimi). Anahtar bulunamazsa bos String doner (cagiran taraf o alani
+// degistirmeden birakir).
+String ayarDegerAl(const String& veri, const String& anahtar) {
+  String arananKey = anahtar + "=";
+  int idx = veri.indexOf(arananKey);
+  if (idx < 0) return "";
+  int start = idx + arananKey.length();
+  int end = veri.indexOf(',', start);
+  if (end < 0) end = veri.length();
+  return veri.substring(start, end);
+}
+
 // ============ RS485 ALICI (Master komutlarını dinle) ============
 void rs485KomutDinle() {
   static String buffer;
@@ -686,6 +700,50 @@ void rs485KomutDinle() {
           panicRoleAktif = !panicRoleAktif;
           bool ok = nanoRoleKontrol(panicRoleAktif);
           response = (ok ? "ACK:" : "NACK:") + String("PANIC=") + (panicRoleAktif ? "1" : "0");
+        } else if (komut == "GET_AYARLAR") {
+          // Kalburum (ESP32) Ayarlar sekmesinden bu Sudepo-zonu ayarlarini
+          // gorup degistirebilsin diye - ESP8266 hala tek dogru kaynak/
+          // yurutucu, ESP32 sadece okuyup RS485 ile geri yaziyor.
+          char buf[420];
+          snprintf(buf, sizeof(buf),
+            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d",
+            ayar.bosMesafe, ayar.doluMesafe, ayar.depoKapasiteLitre, ayar.alarmSeviyeYuzde,
+            ayar.geceBaslangicSaat, ayar.geceBitisSaat, ayar.minDolumLitre, ayar.kacakEsikDakika,
+            ayar.depoYatay, ayar.moistureAutomatic, ayar.moistureThresholdLow, ayar.moistureThresholdHigh,
+            ayar.alarmTriggerGunduz, ayar.alarmTriggerGece, ayar.alarmMod, ayar.alarmMaskSesli,
+            ayar.alarmMaskSessiz, ayar.alarmMaskOnayli, ayar.alarmOutputSesli, ayar.alarmOutputSessiz,
+            ayar.pirPencereSaniye, ayar.pirMinTetiklenme);
+          response = "ACK:AYARLAR=" + String(buf);
+        } else if (komut.startsWith("SET_AYARLAR=")) {
+          String veri = komut.substring(12);
+          String v;
+          v = ayarDegerAl(veri, "bosMesafe"); if (v.length()) ayar.bosMesafe = v.toFloat();
+          v = ayarDegerAl(veri, "doluMesafe"); if (v.length()) ayar.doluMesafe = v.toFloat();
+          v = ayarDegerAl(veri, "kapasite"); if (v.length()) ayar.depoKapasiteLitre = v.toFloat();
+          v = ayarDegerAl(veri, "alarmYuzde"); if (v.length()) ayar.alarmSeviyeYuzde = v.toFloat();
+          v = ayarDegerAl(veri, "geceBaslangic"); if (v.length()) ayar.geceBaslangicSaat = v.toInt();
+          v = ayarDegerAl(veri, "geceBitis"); if (v.length()) ayar.geceBitisSaat = v.toInt();
+          v = ayarDegerAl(veri, "minDolumLitre"); if (v.length()) ayar.minDolumLitre = v.toFloat();
+          v = ayarDegerAl(veri, "kacakEsikDakika"); if (v.length()) ayar.kacakEsikDakika = v.toInt();
+          v = ayarDegerAl(veri, "depoYatay"); if (v.length()) ayar.depoYatay = v.toInt();
+          v = ayarDegerAl(veri, "moistureAutomatic"); if (v.length()) ayar.moistureAutomatic = v.toInt() ? 1 : 0;
+          v = ayarDegerAl(veri, "moistureThresholdLow"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdLow = x; }
+          v = ayarDegerAl(veri, "moistureThresholdHigh"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdHigh = x; }
+          v = ayarDegerAl(veri, "triggerGunduz"); if (v.length()) ayar.alarmTriggerGunduz = v.toInt();
+          v = ayarDegerAl(veri, "triggerGece"); if (v.length()) ayar.alarmTriggerGece = v.toInt();
+          v = ayarDegerAl(veri, "alarmMod"); if (v.length()) {
+            int m = v.toInt();
+            if (m >= 1 && m <= 3) { ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false; alarmSusturuldu = false; }
+          }
+          v = ayarDegerAl(veri, "alarmMaskSesli"); if (v.length()) ayar.alarmMaskSesli = v.toInt();
+          v = ayarDegerAl(veri, "alarmMaskSessiz"); if (v.length()) ayar.alarmMaskSessiz = v.toInt();
+          v = ayarDegerAl(veri, "alarmMaskOnayli"); if (v.length()) ayar.alarmMaskOnayli = v.toInt();
+          v = ayarDegerAl(veri, "alarmOutputSesli"); if (v.length()) ayar.alarmOutputSesli = v.toInt();
+          v = ayarDegerAl(veri, "alarmOutputSessiz"); if (v.length()) ayar.alarmOutputSessiz = v.toInt();
+          v = ayarDegerAl(veri, "pirPencereSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.pirPencereSaniye = x; }
+          v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 10) x = 10; ayar.pirMinTetiklenme = x; }
+          ayarlariKaydet();
+          response = "ACK:SET_AYARLAR";
         }
       } else {
         String komut = buffer;
