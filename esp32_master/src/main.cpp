@@ -261,6 +261,8 @@ struct SensorData {
   bool moisture_auto = false;
   int moisture_low = 0;
   int moisture_high = 0;
+  bool rtc_ok = true;      // ESP8266'daki DS1307 RTC gecerli tarih/saat veriyor mu
+  bool sensor_err = false; // ESP8266'daki HC-SR04 mesafe sensoru hata veriyor mu
   unsigned long last_update_ms = 0;
 };
 
@@ -299,13 +301,45 @@ unsigned long last_mqtt_publish_ms = 0;
 // ============================================================
 // KONTEYNER DONANIMI (IR kumanda, alarm LED, ikinci PIR, kapi reed)
 // ============================================================
-// BILEREK sadece OKUMA/yerel LED kontrolu yapiyor - mevcut alarm/RS485/BLE
-// mantigina henuz baglanmadi. Kullanici IR kumanda kodlarini bildirip PIR2/
-// reed'in alarm sistemine tam olarak nasil entegre olmasini istedigini
-// onaylayana kadar boyle kalacak - calisan mevcut sistemi bozma riskini
-// sifira indirmek icin.
+// PIR2/kapi reed okumasi ESP8266/RS485/BLE'deki ana alarm karar mekanizmasina
+// (mod/onay/susturma) BAGLANMADI - bu bilincli bir tercih, oradaki state
+// machine'i RS485 gecikmesi/guvenlik riskiyle ugrastirmamak icin. Bunun
+// yerine PIR2 kendi basina, tamamen yerel bir debounce ile (Sudepo'daki PIR
+// pencere/min-tetiklenme ayarlarinin ayni mantigi) kirmizi LED+buzzer'i
+// tetikler - RS485/telefon/Telegram'a hicbir etkisi yok, sadece konteynerda
+// sesli/gorsel yerel uyari.
+// Ayarlarin (Telegram ac/kapa, Konteyner PIR pencere/min-tetiklenme) NVS'de
+// kalici saklanmasi icin - dosyada asagida (Telegram bolumu) de kullanilir.
+Preferences ayarPrefs;
+
 bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
-bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var
+bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham, debounce'suz)
+bool konteynerPirAlarmVar = false; // Debounce sonrasi "onaylanmis" hareket - LED/buzzer bunu kullanir
+
+// Konteyner PIR ayarlari (NVS'de kalici) - Sudepo'daki PIR Pencere/Min
+// Tetiklenme ayarlarinin ayni mantigi: pencere suresi icinde en az N kez
+// tetiklenirse "gercek" hareket sayilir, tek seferlik gurultu/yanlis
+// pozitifleri eler.
+uint16_t konteynerPirPencereSaniye = 5;
+uint8_t konteynerPirMinTetiklenme = 2;
+#define KONTEYNER_PIR_BUFFER 10
+unsigned long konteynerPirTetikZamanlari[KONTEYNER_PIR_BUFFER] = {0};
+uint8_t konteynerPirTetikSayisi = 0;
+
+void konteynerPirAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerPirPencereSaniye = ayarPrefs.getUShort("k_pir_pen", 5);
+  konteynerPirMinTetiklenme = ayarPrefs.getUChar("k_pir_min", 2);
+  ayarPrefs.end();
+}
+void konteynerPirAyarKaydet(uint16_t pencereSaniye, uint8_t minTetiklenme) {
+  konteynerPirPencereSaniye = pencereSaniye;
+  konteynerPirMinTetiklenme = minTetiklenme;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putUShort("k_pir_pen", pencereSaniye);
+  ayarPrefs.putUChar("k_pir_min", minTetiklenme);
+  ayarPrefs.end();
+}
 
 void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
@@ -324,14 +358,15 @@ void konteynerDonanimiInit() {
 }
 
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
-// mevcut alarm durumunu SADECE okur (banner'in gorunurlugüyle ayni mantik),
-// hicbir alarm degiskenine yazmaz. ESP8266 tarafindaki Sesli/Sessiz mod
-// ayrimindan BAGIMSIZ - kullanicinin talebiyle ("gercek her alarmda calissin")
-// konteynerdaki bu yerel uyari her zaman aktif, LED ile ayni ritimde (400ms) yanip soner/oter.
+// mevcut alarm durumunu okur (banner'in gorunurlugüyle ayni mantik) VE
+// konteynerPirAlarmVar'i (yerel, debounce'lu PIR2 tetiklenmesi) da hesaba
+// katar. ESP8266 tarafindaki Sesli/Sessiz mod ayrimindan BAGIMSIZ -
+// kullanicinin talebiyle ("gercek her alarmda calissin") konteynerdaki bu
+// yerel uyari her zaman aktif, LED ile ayni ritimde (400ms) yanip soner/oter.
 void alarmLedGuncelle() {
   static bool ledDurum = false;
   static unsigned long sonDegisimMs = 0;
-  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending;
+  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending || konteynerPirAlarmVar;
   if (!alarmVar) {
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
@@ -345,8 +380,25 @@ void alarmLedGuncelle() {
 }
 
 void konteynerSensorleriOku() {
+  bool oncekiPir = pir2HareketVar;
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
+
+  // Debounce: her YUKSELEN kenarda (hareketsizden harekete gecis) bir
+  // "tetiklenme" zamani kaydet - Sudepo'daki PIR Pencere/Min Tetiklenme
+  // ayarlariyla ayni mantik (bkz konteynerPirAyarYukle).
+  if (pir2HareketVar && !oncekiPir) {
+    konteynerPirTetikZamanlari[konteynerPirTetikSayisi % KONTEYNER_PIR_BUFFER] = millis();
+    konteynerPirTetikSayisi++;
+  }
+  unsigned long simdi = millis();
+  unsigned long pencereMs = (unsigned long)konteynerPirPencereSaniye * 1000UL;
+  uint8_t pencerdekiSayi = 0;
+  uint8_t bakilacak = min((uint8_t)KONTEYNER_PIR_BUFFER, konteynerPirTetikSayisi);
+  for (uint8_t i = 0; i < bakilacak; i++) {
+    if (simdi - konteynerPirTetikZamanlari[i] <= pencereMs) pencerdekiSayi++;
+  }
+  konteynerPirAlarmVar = (pencerdekiSayi >= konteynerPirMinTetiklenme);
 }
 
 // IR kumanda - HAM YAKALAMA. Gercek eslesme/ogrenme-modu isleme (asagidaki
@@ -380,7 +432,7 @@ unsigned long telegramIlkDenemeMs = 0;
 
 // Kullanici talebiyle: Telegram alarm bildirimi ac/kapa ayari (Ayarlar
 // sekmesi) - NVS'de kalici, varsayilan acik (eski davranisla ayni).
-Preferences ayarPrefs;
+// (ayarPrefs nesnesi Konteyner Donanimi bolumunde, dosyanin daha yukarisinda tanimli)
 bool telegramBildirimAktif = true;
 void telegramAyarYukle() {
   ayarPrefs.begin("ayarlar", true);
@@ -718,9 +770,9 @@ void parse_esp8266_data(String payload) {
       // gonderiyordu, sonraki cevrimde duzeliyordu. Bu "yanip-sonme" hatasiydi.
       alarmStatus.enabled = (value == "1");
     } else if (key == "ERR") {
-      // sensor hatasi - log
+      sensorData.sensor_err = (value == "1");
     } else if (key == "RTC") {
-      // RTC durumu - log
+      sensorData.rtc_ok = (value == "1");
     } else if (key == "LEAK") {
       alarmStatus.leak_alarm = (value == "1");
     } else if (key == "LEAK_DK") {
@@ -1164,6 +1216,24 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>👁️ Konteyner Zonu - PIR Ayarları</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505), kırmızı LED+buzzer'ı yerel olarak tetikler - RS485/ana alarm sistemine bağlı değil, sadece burası için. Pencere süresi içinde en az "Min. Tetiklenme" kadar hareket algılanırsa uyarı başlar.</p>
+      <div class="row" style="gap:16px">
+        <div>Hareket: <b id="kz-pir">-</b></div>
+        <div>Kapı: <b id="kz-kapi">-</b></div>
+        <div>Yerel Uyarı: <b id="kz-alarm">-</b></div>
+      </div>
+      <div class="sz-grid" style="margin-top:10px">
+        <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirPencere"></div>
+        <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="kz_pirMin"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="konteynerPirKaydet()">💾 Kaydet</button>
+      </div>
+      <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
       <h3>📡 Konteyner Zonu - IR Kumanda</h3>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa bas, sonra hangi komutu çalıştıracağını seç. Birden fazla kumanda eklenebilir.</p>
       <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
@@ -1229,7 +1299,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>UART0</td><td>1/3</td><td>Debug Serial</td><td>9600 baud (USB programlama/monitör)</td></tr>
         <tr><td>D4</td><td>4</td><td>IR Alıcı Modülü</td><td>OUT/sinyal ucu bu pine; VCC/GND ayrı (3.3V veya 5V modüle göre) besleme hattından</td></tr>
         <tr><td>D5</td><td>5</td><td>Kırmızı LED + Buzzer</td><td>İkisi PARALEL bu pine bağlı (pin tasarrufu) - LED'e seri direnç (~220-330Ω) şart, buzzer aktif tip olmalı (kendi osilatörü olan, doğrudan HIGH/LOW ile çalışan)</td></tr>
-        <tr><td>D6</td><td>6</td><td>PIR (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (genelde 5V)</td></tr>
+        <tr><td>D6</td><td>6</td><td>PIR HC-SR505 (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (mini tip, 3.3-5V)</td></tr>
         <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> alanından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir.</p>
@@ -1263,7 +1333,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D3</td><td>Kapı 2 sensör</td><td>INPUT_PULLUP</td></tr>
         <tr><td>D4</td><td>Alarm rölesi</td><td>OUTPUT (HIGH=aktif)</td></tr>
         <tr><td>D5</td><td>Nem rölesi</td><td>OUTPUT</td></tr>
-        <tr><td>D6</td><td>PIR hareket sensörü</td><td>INPUT - ESP8266 PIN_READ:6 ile okur (Nano kodu değişmez)</td></tr>
+        <tr><td>D6</td><td>PIR HC-SR501 hareket sensörü</td><td>INPUT - ESP8266 PIN_READ:6 ile okur (Nano kodu değişmez)</td></tr>
         <tr><td>D7-D12</td><td>Yedek GPIO</td><td>ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik</td></tr>
         <tr><td>D13</td><td>Depo iç lamba rölesi</td><td>OUTPUT (sadece lamba)</td></tr>
         <tr><td>A0-A5</td><td>Yedek GPIO</td><td>Analog + digital I/O</td></tr>
@@ -1442,6 +1512,23 @@ function renderUI(d){
   nanoBadge.textContent='Nano: '+(nanoOk?'OK':'Offline');
   nanoBadge.style.background=nanoOk?'rgba(16,185,129,.15)':'rgba(239,68,68,.15)';
   nanoBadge.style.color=nanoOk?'var(--accent)':'var(--danger)';
+  // Cihaz Durumu - genel sorun uyarilari (RTC, sensor, RS485 baglanti)
+  const hb=$('#hata-box');
+  if(hb){
+    const sorunlar=[];
+    if(!esp8266Ok) sorunlar.push('ESP8266 (Sudepo) bağlantısı yok');
+    if(!nanoOk) sorunlar.push('Nano bağlantısı yok');
+    if(d.rtc_ok===false) sorunlar.push('RTC (tarih/saat) geçersiz - ESP8266\'daki DS1307 zamanı kaybetmiş, Sudepo sayfasından zamanı yeniden ayarlayın');
+    if(d.sensor_err) sorunlar.push('Mesafe sensörü (HC-SR04) hata veriyor');
+    hb.innerHTML = sorunlar.length ? sorunlar.map(s=>'⚠️ '+s).join('<br>') : '';
+  }
+  // Konteyner Zonu PIR - durum + ayar alanlari (odaklıyken üzerine yazma)
+  const kz=d.konteyner||{};
+  const kzp=$('#kz-pir'); if(kzp) kzp.textContent = kz.pir?'Var':'Yok';
+  const kzk=$('#kz-kapi'); if(kzk) kzk.textContent = kz.kapi_acik?'Açık':'Kapalı';
+  const kza=$('#kz-alarm'); if(kza){ kza.textContent = kz.pir_alarm?'AKTİF':'Pasif'; kza.style.color = kz.pir_alarm?'var(--danger)':''; }
+  const kzpp=$('#kz_pirPencere'); if(kzpp && !kzpp.matches(':focus') && kz.pir_pencere!=null) kzpp.value=kz.pir_pencere;
+  const kzpm=$('#kz_pirMin'); if(kzpm && !kzpm.matches(':focus') && kz.pir_min!=null) kzpm.value=kz.pir_min;
   // Nano IO - dashboard
   $('#d1').textContent=d.nano.door1?'Açık':'Kapalı';
   $('#d2').textContent=d.nano.door2?'Açık':'Kapalı';
@@ -1666,6 +1753,13 @@ function telegramAcKapa(){
   });
 }
 
+function konteynerPirKaydet(){
+  const pencere=$('#kz_pirPencere').value, mint=$('#kz_pirMin').value;
+  api('/api/konteyner/pir_ayar?pencere='+encodeURIComponent(pencere)+'&min='+encodeURIComponent(mint)).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
 // === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
 const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
 function szGridHtml(prefix){
@@ -1843,14 +1937,16 @@ irListesiYukle();
 }
 
 String durumJson() {
-  DynamicJsonDocument doc(768);
+  DynamicJsonDocument doc(1024);
 
   doc["level_cm"] = sensorData.level_cm;
   doc["level_percent"] = sensorData.level_percent;
   doc["level_liters"] = sensorData.level_liters;
   doc["temperature"] = sensorData.temperature;
   doc["night_mode"] = sensorData.night_mode;
-  
+  doc["rtc_ok"] = sensorData.rtc_ok;
+  doc["sensor_err"] = sensorData.sensor_err;
+
   doc["nano"]["door1"] = nanoStatus.door1_open;
   doc["nano"]["door2"] = nanoStatus.door2_open;
   doc["nano"]["relay"] = nanoStatus.relay_active;
@@ -1868,6 +1964,9 @@ String durumJson() {
 
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
   doc["konteyner"]["pir"] = pir2HareketVar;
+  doc["konteyner"]["pir_alarm"] = konteynerPirAlarmVar;
+  doc["konteyner"]["pir_pencere"] = konteynerPirPencereSaniye;
+  doc["konteyner"]["pir_min"] = konteynerPirMinTetiklenme;
 
   doc["telegram_aktif"] = telegramBildirimAktif;
 
@@ -2211,6 +2310,17 @@ void handleAPI_TelegramAyar() {
     telegramAyarKaydet(server.arg("aktif").toInt() != 0);
   }
   server.send(200, "application/json", "{\"basarili\":true,\"aktif\":" + String(telegramBildirimAktif ? "true" : "false") + "}");
+}
+
+void handleAPI_KonteynerPirAyar() {
+  if (server.hasArg("pencere") && server.hasArg("min")) {
+    uint16_t pencere = (uint16_t)server.arg("pencere").toInt();
+    uint8_t minT = (uint8_t)server.arg("min").toInt();
+    if (pencere < 1) pencere = 1;
+    if (minT < 1) minT = 1;
+    konteynerPirAyarKaydet(pencere, minT);
+  }
+  server.send(200, "application/json", "{\"basarili\":true,\"pencere\":" + String(konteynerPirPencereSaniye) + ",\"min\":" + String(konteynerPirMinTetiklenme) + "}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -2929,6 +3039,7 @@ void setupWebServer() {
   server.on("/api/weather/check", handleAPI_WeatherCheck);
   server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
+  server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
@@ -3085,6 +3196,7 @@ void setup() {
   weatherYukle();
   irEslesmeYukle();
   telegramAyarYukle();
+  konteynerPirAyarYukle();
 
   // WiFi Connect
   wifi_connect();
