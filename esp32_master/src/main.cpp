@@ -942,6 +942,12 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .table th,.table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .table th{color:var(--muted);font-weight:600}
 .input{padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);width:100%}
+.sz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px 12px;margin-top:8px}
+.sz-label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.sz-radio{display:block;font-size:13px;padding:6px 0}
+.sz-cbgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px 10px;margin-top:4px}
+.sz-cbgrid label{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:normal}
+.sz-cbgrid input{width:auto}
 .section{display:none}
 .section.active{display:block}
 .nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
@@ -1104,68 +1110,67 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
     <div class="card">
       <h3>🚰 Su Deposu Zonu - Ayarlar</h3>
-      <p style="font-size:12px;color:var(--muted)">Bu ayarların gerçek karar/yürütmesi hâlâ ESP8266+Nano'da yapılır (fiziksel donanıma en yakın, RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için ESP8266'ya köprü. Sudepo.local'deki panel de aynı ayarları gösterir.</p>
+      <p style="font-size:12px;color:var(--muted)">Karar/yürütme hâlâ ESP8266+Nano'da yapılır (RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için köprü. Sudepo.local aynı ayarları gösterir.</p>
       <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
     </div>
-    <div class="card" id="sz-kalibrasyon" style="display:none">
-      <h4>Kalibrasyon</h4>
-      <label>Boş Mesafe (cm)</label><input type="number" step="0.1" id="sz_bosMesafe">
-      <label>Dolu Mesafe (cm)</label><input type="number" step="0.1" id="sz_doluMesafe">
-      <label>Kapasite (L)</label><input type="number" step="1" id="sz_kapasite">
-      <label>Şekil</label><select id="sz_depoYatay"><option value="1">Yatay</option><option value="0">Dikey</option></select>
-    </div>
-    <div class="card" id="sz-mod" style="display:none">
-      <h4>Alarm Modu</h4>
-      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod1" value="1" style="width:auto"> 1 - Sesli (siren hemen çalışır)</label>
-      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod2" value="2" style="width:auto"> 2 - Sessiz (siren çalışmaz, sadece bildirim)</label>
-      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod3" value="3" style="width:auto"> 3 - Onaylı (onay verince sesli gibi çalışır)</label>
-    </div>
-    <div class="card" id="sz-esik" style="display:none">
-      <h4>Alarm Eşiği ve Gece Saatleri</h4>
-      <label>Alarm %</label><input type="number" step="1" id="sz_alarmYuzde">
-      <label>Gece Başlangıç</label><input type="number" min="0" max="23" id="sz_geceBaslangic">
-      <label>Gece Bitiş</label><input type="number" min="0" max="23" id="sz_geceBitis">
-    </div>
-    <div class="card" id="sz-pir" style="display:none">
-      <h4>PIR Ayarları</h4>
-      <p style="font-size:12px;color:var(--muted)">Pencere süresi içinde PIR en az kaç kez tetiklenirse gerçek hareket sayılacak (0 = filtre yok).</p>
-      <label>Pencere Süresi (sn)</label><input type="number" min="0" max="120" id="sz_pirPencereSaniye">
-      <label>Min. Tetiklenme Sayısı</label><input type="number" min="1" max="10" id="sz_pirMinTetiklenme">
-    </div>
-    <div class="card" id="sz-tetikleyici" style="display:none">
-      <h4>Zamana Bağlı Tetikleyiciler</h4>
-      <p style="font-size:12px;color:var(--muted)">Gündüz:</p>
-      <div class="row" id="sz-grid-gunduz"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Gece:</p>
-      <div class="row" id="sz-grid-gece"></div>
-    </div>
-    <div class="card" id="sz-senaryo" style="display:none">
-      <h4>Mod Senaryoları</h4>
-      <p style="font-size:12px;color:var(--muted)">Sesli mod - Girdi:</p>
-      <div class="row" id="sz-grid-sesli-girdi"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sesli mod - Çıkış:</p>
-      <div class="row" id="sz-grid-sesli-cikis"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sessiz mod - Girdi:</p>
-      <div class="row" id="sz-grid-sessiz-girdi"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sessiz mod - Çıkış:</p>
-      <div class="row" id="sz-grid-sessiz-cikis"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Onaylı mod - Girdi:</p>
-      <div class="row" id="sz-grid-onayli-girdi"></div>
-    </div>
-    <div class="card" id="sz-tespit" style="display:none">
-      <h4>Sızıntı/Dolum Tespiti</h4>
-      <label>Dolum Eşiği (L)</label><input type="number" step="1" id="sz_minDolumLitre">
-      <label>Kaçak Eşiği (dk)</label><input type="number" step="1" id="sz_kacakEsikDakika">
-    </div>
-    <div class="card" id="sz-nem" style="display:none">
-      <h4>Nem Ayarları</h4>
-      <label>Düşük Eşik (%)</label><input type="number" min="0" max="100" id="sz_moistureThresholdLow">
-      <label>Yüksek Eşik (%)</label><input type="number" min="0" max="100" id="sz_moistureThresholdHigh">
-      <label>Mod</label><select id="sz_moistureAutomatic"><option value="0">Manuel</option><option value="1">Otomatik</option></select>
-      <div class="row" style="margin-top:10px">
-        <button class="btn btn-primary" onclick="szKaydet()">💾 Tüm Sudepo Ayarlarını Kaydet</button>
+    <div class="card" id="sz-form" style="display:none">
+      <h3>Kalibrasyon &amp; Eşikler</h3>
+      <div class="sz-grid">
+        <div><label class="sz-label">Boş Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_bosMesafe"></div>
+        <div><label class="sz-label">Dolu Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_doluMesafe"></div>
+        <div><label class="sz-label">Kapasite (L)</label><input class="input" type="number" step="1" id="sz_kapasite"></div>
+        <div><label class="sz-label">Depo Şekli</label><select class="input" id="sz_depoYatay"><option value="1">Yatay</option><option value="0">Dikey</option></select></div>
+        <div><label class="sz-label">Alarm Eşiği (%)</label><input class="input" type="number" step="1" id="sz_alarmYuzde"></div>
+        <div><label class="sz-label">Dolum Eşiği (L)</label><input class="input" type="number" step="1" id="sz_minDolumLitre"></div>
+        <div><label class="sz-label">Kaçak Eşiği (dk)</label><input class="input" type="number" step="1" id="sz_kacakEsikDakika"></div>
+      </div>
+
+      <h3 style="margin-top:18px">Alarm Modu, Gece &amp; PIR</h3>
+      <div style="margin:8px 0">
+        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod1" value="1"> <b>1 - Sesli</b> (siren hemen çalışır)</label>
+        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod2" value="2"> <b>2 - Sessiz</b> (siren çalışmaz, sadece bildirim)</label>
+        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod3" value="3"> <b>3 - Onaylı</b> (onay verince sesli gibi çalışır)</label>
+      </div>
+      <div class="sz-grid">
+        <div><label class="sz-label">Gece Başlangıç (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBaslangic"></div>
+        <div><label class="sz-label">Gece Bitiş (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBitis"></div>
+        <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="0" max="120" id="sz_pirPencereSaniye"></div>
+        <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="sz_pirMinTetiklenme"></div>
+      </div>
+
+      <h3 style="margin-top:18px">Zamana Bağlı Tetikleyiciler</h3>
+      <p class="sz-label">Gündüz</p>
+      <div class="sz-cbgrid" id="sz-grid-gunduz"></div>
+      <p class="sz-label" style="margin-top:10px">Gece</p>
+      <div class="sz-cbgrid" id="sz-grid-gece"></div>
+
+      <h3 style="margin-top:18px">Mod Senaryoları</h3>
+      <p style="font-size:12px;color:var(--muted)">Her modu hangi sensörlerin tetikleyeceği (girdi) ve neyin çalışacağı (çıkış).</p>
+      <p class="sz-label" style="margin-top:8px">Sesli - Girdi</p>
+      <div class="sz-cbgrid" id="sz-grid-sesli-girdi"></div>
+      <p class="sz-label" style="margin-top:6px">Sesli - Çıkış</p>
+      <div class="sz-cbgrid" id="sz-grid-sesli-cikis"></div>
+      <p class="sz-label" style="margin-top:10px">Sessiz - Girdi</p>
+      <div class="sz-cbgrid" id="sz-grid-sessiz-girdi"></div>
+      <p class="sz-label" style="margin-top:6px">Sessiz - Çıkış</p>
+      <div class="sz-cbgrid" id="sz-grid-sessiz-cikis"></div>
+      <p class="sz-label" style="margin-top:10px">Onaylı - Girdi</p>
+      <div class="sz-cbgrid" id="sz-grid-onayli-girdi"></div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="szKaydet()">💾 Sudepo Ayarlarını Kaydet</button>
       </div>
       <div id="sz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
+      <h3>📡 Konteyner Zonu - IR Kumanda</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa bas, sonra hangi komutu çalıştıracağını seç. Birden fazla kumanda eklenebilir.</p>
+      <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren</button>
+      </div>
+      <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
     </div>
 
     <div class="card">
@@ -1277,14 +1282,6 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <h3>Güncelleme Aralıkları</h3>
       <div id="guncelleme-bilgi" style="font-size:13px">Yükleniyor...</div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 5sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
-    </div>
-
-    <div class="card">
-      <h3>IR Kumanda Ayarları</h3>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya (herhangi bir kızılötesi kumanda) tuş tanımlayın - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basın, sonra hangi komutu çalıştıracağını seçin. Birden fazla kumanda eklenebilir.</p>
-      <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
-      <button class="btn btn-mavi" style="margin-top:10px" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren</button>
-      <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
     </div>
 
     <div class="card">
@@ -1672,11 +1669,10 @@ function telegramAcKapa(){
 // === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
 const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
 function szGridHtml(prefix){
-  return szTetikleyiciler.map(t=>'<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_'+t[0]+'" style="width:auto">'+t[1]+'</label>').join('');
+  return szTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'">'+t[1]+'</label>').join('');
 }
 function szOutputGridHtml(prefix){
-  return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_siren" style="width:auto">Siren</label>'
-    +'<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_lamba" style="width:auto">Lamba</label>';
+  return '<label><input type="checkbox" id="'+prefix+'_siren">Siren</label><label><input type="checkbox" id="'+prefix+'_lamba">Lamba</label>';
 }
 function szCalcTrigger(prefix){
   let v=0;
@@ -1709,13 +1705,12 @@ function szAyarlarYukle(){
   fetch('/api/sudepo_ayarlar').then(r=>r.json()).then(d=>{
     if(!d.basarili){ $('#sz-yukleniyor').textContent='ESP8266\'dan yanıt alınamadı - bağlı olduğundan emin olun.'; return; }
     $('#sz-yukleniyor').style.display='none';
-    ['sz-kalibrasyon','sz-mod','sz-esik','sz-pir','sz-tetikleyici','sz-senaryo','sz-tespit','sz-nem'].forEach(id=>{ const el=$('#'+id); if(el) el.style.display='block'; });
+    $('#sz-form').style.display='block';
     const set=(id,v)=>{ const el=$('#'+id); if(el) el.value=v; };
     set('sz_bosMesafe',d.bosMesafe); set('sz_doluMesafe',d.doluMesafe); set('sz_kapasite',d.kapasite); set('sz_depoYatay',d.depoYatay);
     set('sz_alarmYuzde',d.alarmYuzde); set('sz_geceBaslangic',d.geceBaslangic); set('sz_geceBitis',d.geceBitis);
     set('sz_pirPencereSaniye',d.pirPencereSaniye); set('sz_pirMinTetiklenme',d.pirMinTetiklenme);
     set('sz_minDolumLitre',d.minDolumLitre); set('sz_kacakEsikDakika',d.kacakEsikDakika);
-    set('sz_moistureThresholdLow',d.moistureThresholdLow); set('sz_moistureThresholdHigh',d.moistureThresholdHigh); set('sz_moistureAutomatic',d.moistureAutomatic?1:0);
     const modEl=$('#sz_mod'+Math.round(d.alarmMod)); if(modEl) modEl.checked=true;
     szSetTrigger('sz_Gunduz', d.triggerGunduz); szSetTrigger('sz_Gece', d.triggerGece);
     szSetTrigger('sz_Sesli', d.alarmMaskSesli); szSetOutput('sz_Sesli', d.alarmOutputSesli);
@@ -1731,7 +1726,6 @@ function szKaydet(){
     alarmYuzde:$('#sz_alarmYuzde').value, geceBaslangic:$('#sz_geceBaslangic').value, geceBitis:$('#sz_geceBitis').value,
     pirPencereSaniye:$('#sz_pirPencereSaniye').value, pirMinTetiklenme:$('#sz_pirMinTetiklenme').value,
     minDolumLitre:$('#sz_minDolumLitre').value, kacakEsikDakika:$('#sz_kacakEsikDakika').value,
-    moistureThresholdLow:$('#sz_moistureThresholdLow').value, moistureThresholdHigh:$('#sz_moistureThresholdHigh').value, moistureAutomatic:$('#sz_moistureAutomatic').value,
     alarmMod: modSecili?modSecili.value:1,
     triggerGunduz:szCalcTrigger('sz_Gunduz'), triggerGece:szCalcTrigger('sz_Gece'),
     alarmMaskSesli:szCalcTrigger('sz_Sesli'), alarmOutputSesli:szCalcOutput('sz_Sesli'),
@@ -1788,7 +1782,7 @@ yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
-const irKomutAdlari={LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
+const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
 let irOgrenPolling=null;
 function irListesiYukle(){
   fetch('/api/ir/liste').then(r=>r.json()).then(list=>{
@@ -2528,9 +2522,18 @@ bool komutCalistir(const String& komut, String& mesaj) {
   if (komut == "LAMBA_AC" || komut == "LAMBA_KAPAT") {
     ok = lambaAyarla(komut == "LAMBA_AC", reply);
     mesaj = ok ? (komut == "LAMBA_AC" ? "LAMBA=1" : "LAMBA=0") : "LAMBA";
+  } else if (komut == "LAMBA_TOGGLE") {
+    // IR kumandada tek tusla ac/kapa istegi - mevcut duruma bakip tersini yapar.
+    bool yeniDurum = !nanoStatus.lamp_on;
+    ok = lambaAyarla(yeniDurum, reply);
+    mesaj = ok ? ("LAMBA=" + String(yeniDurum ? "1" : "0")) : "LAMBA";
   } else if (komut == "ALARM_AC" || komut == "ALARM_KAPAT") {
     ok = alarmAyarla(komut == "ALARM_AC", reply);
     mesaj = ok ? (komut == "ALARM_AC" ? "ALARM=1" : "ALARM=0") : "ALARM";
+  } else if (komut == "ALARM_TOGGLE") {
+    bool yeniDurum = !alarmStatus.enabled;
+    ok = alarmAyarla(yeniDurum, reply);
+    mesaj = ok ? ("ALARM=" + String(yeniDurum ? "1" : "0")) : "ALARM";
   } else if (komut.startsWith("ALARM_MOD=")) {
     int mod = komut.substring(10).toInt();
     if (mod >= 1 && mod <= 3) {
@@ -2548,6 +2551,10 @@ bool komutCalistir(const String& komut, String& mesaj) {
   } else if (komut == "KAPI_AC" || komut == "KAPI_KAPAT") {
     ok = kapiAyarla(komut == "KAPI_AC", reply);
     mesaj = ok ? (komut == "KAPI_AC" ? "KAPI=1" : "KAPI=0") : "KAPI";
+  } else if (komut == "KAPI_TOGGLE") {
+    bool yeniDurum = !nanoStatus.relay_active;
+    ok = kapiAyarla(yeniDurum, reply);
+    mesaj = ok ? ("KAPI=" + String(yeniDurum ? "1" : "0")) : "KAPI";
   } else if (komut == "PANIK") {
     bool panicActive = false;
     ok = panikTetikle(panicActive, reply);
