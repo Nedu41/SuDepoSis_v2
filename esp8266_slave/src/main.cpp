@@ -1554,8 +1554,19 @@ void setup() {
     DEBUG_PRINTLN("[RTC] DS1307 bulunamadi - pil bitmis olabilir!");
   } else {
     rtcHazir = true;
+    // TANI LOGU: "RTC yine kayboldu" sikayeti tekrarlarsa, gercekten pil/
+    // osilator mu durmus (donanim) yoksa isrunning() tek seferlik I2C
+    // gurultusuyle mi yanlis "durmus" okumus (yazilim) ayirt edebilmek icin -
+    // adjust() ile UZERINE YAZMADAN ONCE cipte fiilen ne kayitli oldugunu
+    // logla. Eger burada makul/yakin bir tarih goruluyorsa (ornegin bugune
+    // yakin), pil/osilator sorunu degil, tek seferlik yanlis okuma demektir.
+    DateTime oncekiDeger = rtc.now();
+    char tanibuf[32];
+    snprintf(tanibuf, sizeof(tanibuf), "%02d/%02d/%04d %02d:%02d:%02d", oncekiDeger.day(), oncekiDeger.month(), oncekiDeger.year(), oncekiDeger.hour(), oncekiDeger.minute(), oncekiDeger.second());
+    DEBUG_PRINT("[RTC] Boot - isrunning="); DEBUG_PRINT(rtc.isrunning() ? "evet" : "HAYIR");
+    DEBUG_PRINT(", cipteki mevcut deger="); DEBUG_PRINTLN(tanibuf);
     if (!rtc.isrunning()) {
-      DEBUG_PRINTLN("[RTC] DS1307 calismiyor - degistirin!");
+      DEBUG_PRINTLN("[RTC] DS1307 calismiyor - build tarihine resetleniyor (yukaridaki 'cipteki mevcut deger' kaybolan zamandi)");
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
   }
