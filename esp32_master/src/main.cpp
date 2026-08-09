@@ -1817,11 +1817,14 @@ function irKodAtamaFormuGoster(kod){
   let secenekler='';
   for(const k in irKomutAdlari) secenekler+='<option value="'+k+'">'+irKomutAdlari[k]+'</option>';
   $('#ir-ogren-durum').innerHTML='Kod alındı: <b>0x'+kod+'</b><br>'
-    +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select> '
-    +'<button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
+    +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select><br>'
+    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px">'
+    +'<br><button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
 }
 function irKaydet(kod){
-  const sel=$('#ir-komut-sec'); const komut=sel.value; const etiket=sel.options[sel.selectedIndex].text;
+  const sel=$('#ir-komut-sec'); const komut=sel.value; const komutAdi=sel.options[sel.selectedIndex].text;
+  const not_=($('#ir-not')?.value||'').trim();
+  const etiket=not_?(komutAdi+' — '+not_):komutAdi;
   fetch('/api/ir/kaydet?kod='+kod+'&komut='+encodeURIComponent(komut)+'&etiket='+encodeURIComponent(etiket)).then(()=>{
     $('#ir-ogren-durum').innerHTML='Kaydedildi ✓';
     irListesiYukle();
