@@ -2455,6 +2455,16 @@ void setup() {
   setupWebServer();
 
   // BLE - telefon uygulamasi (WiFi'siz de calisir)
+  //
+  // TANI SONUCU (onemli): BLE baglantisi hicbir zaman kurulamiyordu
+  // (status=4). WiFi'yi (AP dahil) tamamen kapatarak ve hatta izole,
+  // sifirdan minimal bir test firmware'iyle (WiFi/RS485/MQTT hicbiri yok)
+  // test edildi - AYNI hata devam etti. nRF Connect (kanitlanmis, profesyonel
+  // BLE araci) ise ayni ESP32'ye sorunsuz baglandi. Bu, sorunun ESP32
+  // tarafinda OLMADIGINI, Android uygulamasindaki connectGatt() cagrisinda
+  // oldugunu kesin olarak kanitladi (bkz BLEDProject BleRepository.kt -
+  // TRANSPORT_LE eksikligi asil sebepti). ESP32 tarafinda bu yuzden baska
+  // bir degisiklige gerek yoktu.
 #if ENABLE_BLE
   ble_init();
 #endif
