@@ -349,13 +349,19 @@ void konteynerSensorleriOku() {
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
 }
 
-// IR kumanda - OGRENME MODU: gelen her kodu Serial'e yazdirir. Kullanici
-// kumandadaki tuslara basip kodlari Serial Monitor'den okuyup bildirecek,
-// sonra asagidaki (su an bos) tabloya kod->komut eslesmesi eklenecek.
+// IR kumanda - HAM YAKALAMA. Gercek eslesme/ogrenme-modu isleme (asagidaki
+// irEslesmeler tablosu ve komutCalistir()) dosyada daha ileride tanimli
+// oldugundan (komutCalistir *Ayarla fonksiyonlarindan sonra gelir), burada
+// sadece kodu paylasilan degiskenlere yazip birakiyor - loop() hemen
+// ardindan irKomutIsleVeCalistir()'i cagirir.
+volatile bool irYeniKodVar = false;
+uint32_t irSonKod = 0;
 void irKumandaIsle() {
   if (!IrReceiver.decode()) return;
+  irSonKod = IrReceiver.decodedIRData.decodedRawData;
+  irYeniKodVar = true;
   DEBUG_PRINT("[IR] Kod alindi: 0x");
-  DEBUG_PRINTLN(String(IrReceiver.decodedIRData.decodedRawData, HEX));
+  DEBUG_PRINTLN(String(irSonKod, HEX));
   IrReceiver.resume();
 }
 
@@ -1179,6 +1185,14 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>IR Kumanda Ayarları</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya (herhangi bir kızılötesi kumanda) tuş tanımlayın - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basın, sonra hangi komutu çalıştıracağını seçin. Birden fazla kumanda eklenebilir.</p>
+      <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
+      <button class="btn btn-mavi" style="margin-top:10px" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren</button>
+      <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
+    </div>
+
+    <div class="card">
       <h3>Kullanım Kılavuzu</h3>
       <div style="font-size:13px;line-height:1.6">
         <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer).</p>
@@ -1594,6 +1608,58 @@ connectSSE();
 setInterval(guncelle, 5000); guncelle();
 yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
+
+// === IR KUMANDA - OGRENME/ESLESTIRME ===
+const irKomutAdlari={LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
+let irOgrenPolling=null;
+function irListesiYukle(){
+  fetch('/api/ir/liste').then(r=>r.json()).then(list=>{
+    const el=$('#ir-liste'); if(!el) return;
+    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; return; }
+    el.innerHTML=list.map(e=>
+      '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
+      +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
+      +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
+    ).join('');
+  }).catch(()=>{});
+}
+function irOgrenBaslat(){
+  fetch('/api/ir/ogren_baslat').then(()=>{
+    $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)';
+    if(irOgrenPolling) clearInterval(irOgrenPolling);
+    irOgrenPolling=setInterval(irOgrenKontrolEt, 800);
+  }).catch(()=>{});
+}
+function irOgrenKontrolEt(){
+  fetch('/api/ir/ogren_durum').then(r=>r.json()).then(d=>{
+    if(d.hazir){
+      clearInterval(irOgrenPolling); irOgrenPolling=null;
+      irKodAtamaFormuGoster(d.kod);
+    } else if(d.zamanAsimi){
+      clearInterval(irOgrenPolling); irOgrenPolling=null;
+      $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.';
+    }
+  }).catch(()=>{});
+}
+function irKodAtamaFormuGoster(kod){
+  let secenekler='';
+  for(const k in irKomutAdlari) secenekler+='<option value="'+k+'">'+irKomutAdlari[k]+'</option>';
+  $('#ir-ogren-durum').innerHTML='Kod alındı: <b>0x'+kod+'</b><br>'
+    +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select> '
+    +'<button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
+}
+function irKaydet(kod){
+  const sel=$('#ir-komut-sec'); const komut=sel.value; const etiket=sel.options[sel.selectedIndex].text;
+  fetch('/api/ir/kaydet?kod='+kod+'&komut='+encodeURIComponent(komut)+'&etiket='+encodeURIComponent(etiket)).then(()=>{
+    $('#ir-ogren-durum').innerHTML='Kaydedildi ✓';
+    irListesiYukle();
+  }).catch(()=>{});
+}
+function irSil(kod){
+  if(!confirm('Bu tuş eşlemesi silinsin mi?')) return;
+  fetch('/api/ir/sil?kod='+kod).then(()=>irListesiYukle()).catch(()=>{});
+}
+irListesiYukle();
 </script>
 </body>
 </html>
@@ -2180,6 +2246,212 @@ void handleAPI_Panic() {
 }
 
 // ============================================================
+// ORTAK KOMUT SOZLUGU (Kontrol sekmesi/BLE/IR kumanda - hepsi ayni davranir)
+// ============================================================
+// Yukaridaki *Ayarla/*Tetikle fonksiyonlarini cagirip ayni "LAMBA_AC" tarzi
+// komut kelime dagarcigini isler. BLE (bkz asagida) ve IR kumanda (bkz
+// konteynerDonanimi bolumu) bu TEK fonksiyonu kullanir - ikisinin birbirinden
+// farkli davranma riskini ortadan kaldirir. ENABLE_BLE'dan bagimsiz (IR,
+// BLE kapaliyken de calismali).
+bool komutCalistir(const String& komut, String& mesaj) {
+  String reply;
+  bool ok = false;
+
+  if (komut == "LAMBA_AC" || komut == "LAMBA_KAPAT") {
+    ok = lambaAyarla(komut == "LAMBA_AC", reply);
+    mesaj = ok ? (komut == "LAMBA_AC" ? "LAMBA=1" : "LAMBA=0") : "LAMBA";
+  } else if (komut == "ALARM_AC" || komut == "ALARM_KAPAT") {
+    ok = alarmAyarla(komut == "ALARM_AC", reply);
+    mesaj = ok ? (komut == "ALARM_AC" ? "ALARM=1" : "ALARM=0") : "ALARM";
+  } else if (komut.startsWith("ALARM_MOD=")) {
+    int mod = komut.substring(10).toInt();
+    if (mod >= 1 && mod <= 3) {
+      ok = alarmModAyarla((uint8_t)mod, reply);
+      mesaj = ok ? ("MOD=" + String(mod)) : "ALARM_MOD";
+    } else {
+      mesaj = "ALARM_MOD_GECERSIZ";
+    }
+  } else if (komut == "ALARM_SUSTUR") {
+    ok = alarmSustur(reply);
+    mesaj = ok ? ("MUTE=" + String(alarmStatus.muted ? "1" : "0")) : "ALARM_SUSTUR";
+  } else if (komut == "ALARM_ONAYLA") {
+    ok = alarmOnayla(reply);
+    mesaj = ok ? "ONAYLANDI" : "ALARM_ONAYLA";
+  } else if (komut == "KAPI_AC" || komut == "KAPI_KAPAT") {
+    ok = kapiAyarla(komut == "KAPI_AC", reply);
+    mesaj = ok ? (komut == "KAPI_AC" ? "KAPI=1" : "KAPI=0") : "KAPI";
+  } else if (komut == "PANIK") {
+    bool panicActive = false;
+    ok = panikTetikle(panicActive, reply);
+    mesaj = ok ? ("PANIC=" + String(panicActive ? "1" : "0")) : "PANIK";
+  } else {
+    mesaj = "BILINMEYEN_KOMUT";
+  }
+  return ok;
+}
+
+// ============================================================
+// IR KUMANDA ESLESTIRME (kod -> komut, SPIFFS'te kalici, web'den yonetilir)
+// ============================================================
+// irKumandaIsle() (konteynerDonanimi bolumunde, sadece ham kod yakalar) ile
+// buradaki dispatch ayrildi - cunku komutCalistir() ve *Ayarla fonksiyonlari
+// dosyada daha asagida tanimli, oysa irKumandaIsle() cok daha erken. loop()
+// her ikisini de sirayla cagirir (bkz asagida).
+#define IR_MAX_ESLESME 20
+#define IR_OGRENME_TIMEOUT_MS 20000UL
+struct IrEslesme {
+  uint32_t kod = 0;
+  String komut = "";
+  String etiket = "";
+};
+IrEslesme irEslesmeler[IR_MAX_ESLESME];
+uint8_t irEslesmeSayisi = 0;
+const char* IR_MAP_DOSYA = "/ir_map.json";
+
+bool irOgrenmeModu = false;
+unsigned long irOgrenmeBaslangicMs = 0;
+uint32_t irOgrenmeYakalananKod = 0;
+bool irOgrenmeKodHazir = false;
+
+void irEslesmeYukle() {
+  File f = SPIFFS.open(IR_MAP_DOSYA, "r");
+  if (!f) return;
+  DynamicJsonDocument doc(2048);
+  if (deserializeJson(doc, f) == DeserializationError::Ok) {
+    irEslesmeSayisi = 0;
+    for (JsonObject o : doc.as<JsonArray>()) {
+      if (irEslesmeSayisi >= IR_MAX_ESLESME) break;
+      irEslesmeler[irEslesmeSayisi].kod = o["kod"] | 0UL;
+      irEslesmeler[irEslesmeSayisi].komut = String((const char*)(o["komut"] | ""));
+      irEslesmeler[irEslesmeSayisi].etiket = String((const char*)(o["etiket"] | ""));
+      irEslesmeSayisi++;
+    }
+  }
+  f.close();
+}
+
+void irEslesmeKaydet() {
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  for (uint8_t i = 0; i < irEslesmeSayisi; i++) {
+    JsonObject o = arr.createNestedObject();
+    o["kod"] = irEslesmeler[i].kod;
+    o["komut"] = irEslesmeler[i].komut;
+    o["etiket"] = irEslesmeler[i].etiket;
+  }
+  File f = SPIFFS.open(IR_MAP_DOSYA, "w");
+  if (f) { serializeJson(doc, f); f.close(); }
+}
+
+// Ham IR kodunu (irKumandaIsle'nin yakaladigi) ogrenme modunda kaydeder ya
+// da eslesme tablosunda arayip bulursa ayni komutCalistir() ile calistirir -
+// web/BLE ile birebir ayni davranir.
+void irKomutIsleVeCalistir() {
+  if (irOgrenmeModu && millis() - irOgrenmeBaslangicMs > IR_OGRENME_TIMEOUT_MS) {
+    irOgrenmeModu = false; // zaman asimi
+  }
+  if (!irYeniKodVar) return;
+  irYeniKodVar = false;
+  uint32_t kod = irSonKod;
+
+  if (irOgrenmeModu) {
+    irOgrenmeYakalananKod = kod;
+    irOgrenmeKodHazir = true;
+    irOgrenmeModu = false;
+    DEBUG_PRINT("[IR] Ogrenme modunda kod yakalandi: 0x");
+    DEBUG_PRINTLN(String(kod, HEX));
+    return;
+  }
+
+  for (uint8_t i = 0; i < irEslesmeSayisi; i++) {
+    if (irEslesmeler[i].kod == kod) {
+      String mesaj;
+      komutCalistir(irEslesmeler[i].komut, mesaj);
+      DEBUG_PRINT("[IR] Komut calistirildi: ");
+      DEBUG_PRINTLN(irEslesmeler[i].komut);
+      return;
+    }
+  }
+}
+
+void handleAPI_IrListe() {
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  for (uint8_t i = 0; i < irEslesmeSayisi; i++) {
+    JsonObject o = arr.createNestedObject();
+    o["kod"] = String(irEslesmeler[i].kod, HEX);
+    o["komut"] = irEslesmeler[i].komut;
+    o["etiket"] = irEslesmeler[i].etiket;
+  }
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+void handleAPI_IrOgrenBaslat() {
+  irOgrenmeModu = true;
+  irOgrenmeKodHazir = false;
+  irOgrenmeYakalananKod = 0;
+  irOgrenmeBaslangicMs = millis();
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+
+void handleAPI_IrOgrenDurum() {
+  bool zamanAsimi = (!irOgrenmeModu && !irOgrenmeKodHazir && irOgrenmeBaslangicMs > 0 &&
+                      millis() - irOgrenmeBaslangicMs > IR_OGRENME_TIMEOUT_MS);
+  String json = "{\"hazir\":" + String(irOgrenmeKodHazir ? "true" : "false") +
+    ",\"kod\":\"" + String(irOgrenmeYakalananKod, HEX) + "\"" +
+    ",\"zamanAsimi\":" + String(zamanAsimi ? "true" : "false") + "}";
+  server.send(200, "application/json", json);
+}
+
+void handleAPI_IrKaydet() {
+  if (!server.hasArg("kod") || !server.hasArg("komut")) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"eksik parametre\"}");
+    return;
+  }
+  uint32_t kod = strtoul(server.arg("kod").c_str(), nullptr, 16);
+  String komut = server.arg("komut");
+  String etiket = server.hasArg("etiket") ? server.arg("etiket") : komut;
+
+  int idx = -1;
+  for (uint8_t i = 0; i < irEslesmeSayisi; i++) {
+    if (irEslesmeler[i].kod == kod) { idx = i; break; }
+  }
+  if (idx < 0) {
+    if (irEslesmeSayisi >= IR_MAX_ESLESME) {
+      server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Maksimum tus sayisina ulasildi\"}");
+      return;
+    }
+    idx = irEslesmeSayisi++;
+  }
+  irEslesmeler[idx].kod = kod;
+  irEslesmeler[idx].komut = komut;
+  irEslesmeler[idx].etiket = etiket;
+  irEslesmeKaydet();
+  irOgrenmeKodHazir = false;
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+
+void handleAPI_IrSil() {
+  if (!server.hasArg("kod")) {
+    server.send(400, "application/json", "{\"basarili\":false}");
+    return;
+  }
+  uint32_t kod = strtoul(server.arg("kod").c_str(), nullptr, 16);
+  int idx = -1;
+  for (uint8_t i = 0; i < irEslesmeSayisi; i++) {
+    if (irEslesmeler[i].kod == kod) { idx = i; break; }
+  }
+  if (idx >= 0) {
+    for (uint8_t i = (uint8_t)idx; i < irEslesmeSayisi - 1; i++) irEslesmeler[i] = irEslesmeler[i + 1];
+    irEslesmeSayisi--;
+    irEslesmeKaydet();
+  }
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+
+// ============================================================
 // BLE - TELEFON UYGULAMASI (Kontrol sekmesiyle ayni komutlar)
 // ============================================================
 // WiFi agina hic girmeden, dogrudan telefonla eslesip Kontrol
@@ -2233,40 +2505,8 @@ void bleKomutIsle(NimBLECharacteristic* pChar, const String& komut) {
   DEBUG_PRINT("[BLE] Komut alindi: ");
   DEBUG_PRINTLN(komut);
 
-  String reply;
-  bool ok = false;
   String mesaj;
-
-  if (komut == "LAMBA_AC" || komut == "LAMBA_KAPAT") {
-    ok = lambaAyarla(komut == "LAMBA_AC", reply);
-    mesaj = ok ? (komut == "LAMBA_AC" ? "LAMBA=1" : "LAMBA=0") : "LAMBA";
-  } else if (komut == "ALARM_AC" || komut == "ALARM_KAPAT") {
-    ok = alarmAyarla(komut == "ALARM_AC", reply);
-    mesaj = ok ? (komut == "ALARM_AC" ? "ALARM=1" : "ALARM=0") : "ALARM";
-  } else if (komut.startsWith("ALARM_MOD=")) {
-    int mod = komut.substring(10).toInt();
-    if (mod >= 1 && mod <= 3) {
-      ok = alarmModAyarla((uint8_t)mod, reply);
-      mesaj = ok ? ("MOD=" + String(mod)) : "ALARM_MOD";
-    } else {
-      mesaj = "ALARM_MOD_GECERSIZ";
-    }
-  } else if (komut == "ALARM_SUSTUR") {
-    ok = alarmSustur(reply);
-    mesaj = ok ? ("MUTE=" + String(alarmStatus.muted ? "1" : "0")) : "ALARM_SUSTUR";
-  } else if (komut == "ALARM_ONAYLA") {
-    ok = alarmOnayla(reply);
-    mesaj = ok ? "ONAYLANDI" : "ALARM_ONAYLA";
-  } else if (komut == "KAPI_AC" || komut == "KAPI_KAPAT") {
-    ok = kapiAyarla(komut == "KAPI_AC", reply);
-    mesaj = ok ? (komut == "KAPI_AC" ? "KAPI=1" : "KAPI=0") : "KAPI";
-  } else if (komut == "PANIK") {
-    bool panicActive = false;
-    ok = panikTetikle(panicActive, reply);
-    mesaj = ok ? ("PANIC=" + String(panicActive ? "1" : "0")) : "PANIK";
-  } else {
-    mesaj = "BILINMEYEN_KOMUT";
-  }
+  bool ok = komutCalistir(komut, mesaj);
 
   String durum = (ok ? "ACK:" : "ERR:") + mesaj;
   pChar->setValue(durum.c_str());
@@ -2427,7 +2667,12 @@ void setupWebServer() {
   server.on("/api/wifi", handleAPI_Wifi);
   server.on("/api/wifi/scan", handleAPI_WifiScan);
   server.on("/api/restart", handleAPI_Restart);
-  
+  server.on("/api/ir/liste", handleAPI_IrListe);
+  server.on("/api/ir/ogren_baslat", handleAPI_IrOgrenBaslat);
+  server.on("/api/ir/ogren_durum", handleAPI_IrOgrenDurum);
+  server.on("/api/ir/kaydet", handleAPI_IrKaydet);
+  server.on("/api/ir/sil", handleAPI_IrSil);
+
   server.begin();
   DEBUG_PRINTLN("[WEB] Server started on port 80");
 }
@@ -2557,6 +2802,7 @@ void setup() {
     DEBUG_PRINTLN("[SPIFFS] Baslatilamadi");
   }
   weatherYukle();
+  irEslesmeYukle();
 
   // WiFi Connect
   wifi_connect();
@@ -2636,6 +2882,7 @@ void loop() {
   konteynerSensorleriOku();
   alarmLedGuncelle();
   irKumandaIsle();
+  irKomutIsleVeCalistir();
 
   // Hava durumu / yagmur tahmini - WiFi baglandiginda veya periyodik
   weatherKontrolEt();
