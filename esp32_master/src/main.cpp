@@ -1103,6 +1103,72 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </div>
 
     <div class="card">
+      <h3>🚰 Su Deposu Zonu - Ayarlar</h3>
+      <p style="font-size:12px;color:var(--muted)">Bu ayarların gerçek karar/yürütmesi hâlâ ESP8266+Nano'da yapılır (fiziksel donanıma en yakın, RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için ESP8266'ya köprü. Sudepo.local'deki panel de aynı ayarları gösterir.</p>
+      <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
+    </div>
+    <div class="card" id="sz-kalibrasyon" style="display:none">
+      <h4>Kalibrasyon</h4>
+      <label>Boş Mesafe (cm)</label><input type="number" step="0.1" id="sz_bosMesafe">
+      <label>Dolu Mesafe (cm)</label><input type="number" step="0.1" id="sz_doluMesafe">
+      <label>Kapasite (L)</label><input type="number" step="1" id="sz_kapasite">
+      <label>Şekil</label><select id="sz_depoYatay"><option value="1">Yatay</option><option value="0">Dikey</option></select>
+    </div>
+    <div class="card" id="sz-mod" style="display:none">
+      <h4>Alarm Modu</h4>
+      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod1" value="1" style="width:auto"> 1 - Sesli (siren hemen çalışır)</label>
+      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod2" value="2" style="width:auto"> 2 - Sessiz (siren çalışmaz, sadece bildirim)</label>
+      <label class="row" style="align-items:center"><input type="radio" name="sz_alarmMod" id="sz_mod3" value="3" style="width:auto"> 3 - Onaylı (onay verince sesli gibi çalışır)</label>
+    </div>
+    <div class="card" id="sz-esik" style="display:none">
+      <h4>Alarm Eşiği ve Gece Saatleri</h4>
+      <label>Alarm %</label><input type="number" step="1" id="sz_alarmYuzde">
+      <label>Gece Başlangıç</label><input type="number" min="0" max="23" id="sz_geceBaslangic">
+      <label>Gece Bitiş</label><input type="number" min="0" max="23" id="sz_geceBitis">
+    </div>
+    <div class="card" id="sz-pir" style="display:none">
+      <h4>PIR Ayarları</h4>
+      <p style="font-size:12px;color:var(--muted)">Pencere süresi içinde PIR en az kaç kez tetiklenirse gerçek hareket sayılacak (0 = filtre yok).</p>
+      <label>Pencere Süresi (sn)</label><input type="number" min="0" max="120" id="sz_pirPencereSaniye">
+      <label>Min. Tetiklenme Sayısı</label><input type="number" min="1" max="10" id="sz_pirMinTetiklenme">
+    </div>
+    <div class="card" id="sz-tetikleyici" style="display:none">
+      <h4>Zamana Bağlı Tetikleyiciler</h4>
+      <p style="font-size:12px;color:var(--muted)">Gündüz:</p>
+      <div class="row" id="sz-grid-gunduz"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Gece:</p>
+      <div class="row" id="sz-grid-gece"></div>
+    </div>
+    <div class="card" id="sz-senaryo" style="display:none">
+      <h4>Mod Senaryoları</h4>
+      <p style="font-size:12px;color:var(--muted)">Sesli mod - Girdi:</p>
+      <div class="row" id="sz-grid-sesli-girdi"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sesli mod - Çıkış:</p>
+      <div class="row" id="sz-grid-sesli-cikis"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sessiz mod - Girdi:</p>
+      <div class="row" id="sz-grid-sessiz-girdi"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Sessiz mod - Çıkış:</p>
+      <div class="row" id="sz-grid-sessiz-cikis"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Onaylı mod - Girdi:</p>
+      <div class="row" id="sz-grid-onayli-girdi"></div>
+    </div>
+    <div class="card" id="sz-tespit" style="display:none">
+      <h4>Sızıntı/Dolum Tespiti</h4>
+      <label>Dolum Eşiği (L)</label><input type="number" step="1" id="sz_minDolumLitre">
+      <label>Kaçak Eşiği (dk)</label><input type="number" step="1" id="sz_kacakEsikDakika">
+    </div>
+    <div class="card" id="sz-nem" style="display:none">
+      <h4>Nem Ayarları</h4>
+      <label>Düşük Eşik (%)</label><input type="number" min="0" max="100" id="sz_moistureThresholdLow">
+      <label>Yüksek Eşik (%)</label><input type="number" min="0" max="100" id="sz_moistureThresholdHigh">
+      <label>Mod</label><select id="sz_moistureAutomatic"><option value="0">Manuel</option><option value="1">Otomatik</option></select>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="szKaydet()">💾 Tüm Sudepo Ayarlarını Kaydet</button>
+      </div>
+      <div id="sz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card">
       <h3>WiFi</h3>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -1149,14 +1215,20 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
   <div id="bilgiler" class="section">
     <div class="card">
-      <h3>ESP32 Master Pinout</h3>
+      <h3>ESP32 Master Pinout (Konteyner)</h3>
       <table class="table">
-        <tr><th>Pin</th><th>GPIO</th><th>Modül</th><th>Fonksiyon</th></tr>
+        <tr><th>Pin</th><th>GPIO</th><th>Modül</th><th>Fonksiyon / Bağlantı</th></tr>
         <tr><td>RX (UART1)</td><td>16</td><td>MAX485 RS485</td><td>RO (Alıcı)</td></tr>
         <tr><td>TX (UART1)</td><td>17</td><td>MAX485 RS485</td><td>DI (Verici)</td></tr>
         <tr><td>D2</td><td>2</td><td>MAX485 RS485</td><td>DE/RE (Enable)</td></tr>
-        <tr><td>UART0</td><td>1/3</td><td>Debug Serial</td><td>9600 baud</td></tr>
+        <tr><td>UART0</td><td>1/3</td><td>Debug Serial</td><td>9600 baud (USB programlama/monitör)</td></tr>
+        <tr><td>D4</td><td>4</td><td>IR Alıcı Modülü</td><td>OUT/sinyal ucu bu pine; VCC/GND ayrı (3.3V veya 5V modüle göre) besleme hattından</td></tr>
+        <tr><td>D5</td><td>5</td><td>Kırmızı LED + Buzzer</td><td>İkisi PARALEL bu pine bağlı (pin tasarrufu) - LED'e seri direnç (~220-330Ω) şart, buzzer aktif tip olmalı (kendi osilatörü olan, doğrudan HIGH/LOW ile çalışan)</td></tr>
+        <tr><td>D6</td><td>6</td><td>PIR (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (genelde 5V)</td></tr>
+        <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
       </table>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> alanından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 8-15, 18, 21, 33-42, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
     </div>
 
     <div class="card">
@@ -1596,6 +1668,81 @@ function telegramAcKapa(){
     $('#telegram-ac-kapa-btn').textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı';
   });
 }
+
+// === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
+const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
+function szGridHtml(prefix){
+  return szTetikleyiciler.map(t=>'<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_'+t[0]+'" style="width:auto">'+t[1]+'</label>').join('');
+}
+function szOutputGridHtml(prefix){
+  return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_siren" style="width:auto">Siren</label>'
+    +'<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:13px"><input type="checkbox" id="'+prefix+'_lamba" style="width:auto">Lamba</label>';
+}
+function szCalcTrigger(prefix){
+  let v=0;
+  szTetikleyiciler.forEach((t,i)=>{ if($('#'+prefix+'_'+t[0]).checked) v|=(1<<i); });
+  return v;
+}
+function szCalcOutput(prefix){
+  let v=0;
+  if($('#'+prefix+'_siren').checked) v|=1;
+  if($('#'+prefix+'_lamba').checked) v|=2;
+  return v;
+}
+function szUncheckAll(prefix, adlar){ adlar.forEach(a=>{ const el=$('#'+prefix+'_'+a); if(el) el.checked=false; }); }
+function szSetTrigger(prefix, mask){
+  szTetikleyiciler.forEach((t,i)=>{ const el=$('#'+prefix+'_'+t[0]); if(el) el.checked=((mask&(1<<i))!==0); });
+}
+function szSetOutput(prefix, mask){
+  const s=$('#'+prefix+'_siren'), l=$('#'+prefix+'_lamba');
+  if(s) s.checked=((mask&1)!==0);
+  if(l) l.checked=((mask&2)!==0);
+}
+function szAyarlarYukle(){
+  $('#sz-grid-gunduz').innerHTML=szGridHtml('sz_Gunduz');
+  $('#sz-grid-gece').innerHTML=szGridHtml('sz_Gece');
+  $('#sz-grid-sesli-girdi').innerHTML=szGridHtml('sz_Sesli');
+  $('#sz-grid-sesli-cikis').innerHTML=szOutputGridHtml('sz_Sesli');
+  $('#sz-grid-sessiz-girdi').innerHTML=szGridHtml('sz_Sessiz');
+  $('#sz-grid-sessiz-cikis').innerHTML=szOutputGridHtml('sz_Sessiz');
+  $('#sz-grid-onayli-girdi').innerHTML=szGridHtml('sz_Onayli');
+  fetch('/api/sudepo_ayarlar').then(r=>r.json()).then(d=>{
+    if(!d.basarili){ $('#sz-yukleniyor').textContent='ESP8266\'dan yanıt alınamadı - bağlı olduğundan emin olun.'; return; }
+    $('#sz-yukleniyor').style.display='none';
+    ['sz-kalibrasyon','sz-mod','sz-esik','sz-pir','sz-tetikleyici','sz-senaryo','sz-tespit','sz-nem'].forEach(id=>{ const el=$('#'+id); if(el) el.style.display='block'; });
+    const set=(id,v)=>{ const el=$('#'+id); if(el) el.value=v; };
+    set('sz_bosMesafe',d.bosMesafe); set('sz_doluMesafe',d.doluMesafe); set('sz_kapasite',d.kapasite); set('sz_depoYatay',d.depoYatay);
+    set('sz_alarmYuzde',d.alarmYuzde); set('sz_geceBaslangic',d.geceBaslangic); set('sz_geceBitis',d.geceBitis);
+    set('sz_pirPencereSaniye',d.pirPencereSaniye); set('sz_pirMinTetiklenme',d.pirMinTetiklenme);
+    set('sz_minDolumLitre',d.minDolumLitre); set('sz_kacakEsikDakika',d.kacakEsikDakika);
+    set('sz_moistureThresholdLow',d.moistureThresholdLow); set('sz_moistureThresholdHigh',d.moistureThresholdHigh); set('sz_moistureAutomatic',d.moistureAutomatic?1:0);
+    const modEl=$('#sz_mod'+Math.round(d.alarmMod)); if(modEl) modEl.checked=true;
+    szSetTrigger('sz_Gunduz', d.triggerGunduz); szSetTrigger('sz_Gece', d.triggerGece);
+    szSetTrigger('sz_Sesli', d.alarmMaskSesli); szSetOutput('sz_Sesli', d.alarmOutputSesli);
+    szSetTrigger('sz_Sessiz', d.alarmMaskSessiz); szSetOutput('sz_Sessiz', d.alarmOutputSessiz);
+    szSetTrigger('sz_Onayli', d.alarmMaskOnayli);
+  }).catch(()=>{ $('#sz-yukleniyor').textContent='ESP8266\'dan yanıt alınamadı.'; });
+}
+function szKaydet(){
+  $('#sz-sonuc').textContent='Kaydediliyor...';
+  const modSecili=document.querySelector('input[name=sz_alarmMod]:checked');
+  const q=new URLSearchParams({
+    bosMesafe:$('#sz_bosMesafe').value, doluMesafe:$('#sz_doluMesafe').value, kapasite:$('#sz_kapasite').value, depoYatay:$('#sz_depoYatay').value,
+    alarmYuzde:$('#sz_alarmYuzde').value, geceBaslangic:$('#sz_geceBaslangic').value, geceBitis:$('#sz_geceBitis').value,
+    pirPencereSaniye:$('#sz_pirPencereSaniye').value, pirMinTetiklenme:$('#sz_pirMinTetiklenme').value,
+    minDolumLitre:$('#sz_minDolumLitre').value, kacakEsikDakika:$('#sz_kacakEsikDakika').value,
+    moistureThresholdLow:$('#sz_moistureThresholdLow').value, moistureThresholdHigh:$('#sz_moistureThresholdHigh').value, moistureAutomatic:$('#sz_moistureAutomatic').value,
+    alarmMod: modSecili?modSecili.value:1,
+    triggerGunduz:szCalcTrigger('sz_Gunduz'), triggerGece:szCalcTrigger('sz_Gece'),
+    alarmMaskSesli:szCalcTrigger('sz_Sesli'), alarmOutputSesli:szCalcOutput('sz_Sesli'),
+    alarmMaskSessiz:szCalcTrigger('sz_Sessiz'), alarmOutputSessiz:szCalcOutput('sz_Sessiz'),
+    alarmMaskOnayli:szCalcTrigger('sz_Onayli')
+  });
+  fetch('/api/sudepo_ayarlar/kaydet?'+q.toString()).then(r=>r.json()).then(d=>{
+    $('#sz-sonuc').textContent=d.basarili?'Kaydedildi ✓':(d.mesaj||'Hata');
+  }).catch(()=>{ $('#sz-sonuc').textContent='Hata'; });
+}
+szAyarlarYukle();
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -2252,6 +2399,87 @@ void handleAPI_Kapi() {
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Kapi Acik" : "Kapi Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
+// ============================================================
+// SUDEPO ZONU AYARLARI (ESP8266+Nano) - Kalburum'dan da yonetim
+// ============================================================
+// Kullanici talebiyle: karar/yurutme hala ESP8266'da (RS485 gecikmesi
+// olmadan tepki versin, ayrica bu tarafi "tam test edilmeden" ESP32'ye
+// tasimak riskliydi - bkz kullanici onayi). Burada SADECE ekran/kontrol
+// Kalburum'a tasiniyor - ESP8266'nin GET_AYARLAR/SET_AYARLAR RS485
+// komutlarina koprulenir, ESP8266 hala tek dogru kaynak.
+bool sudepoAyarlarGetir(String& veri) {
+  rs485_api_busy = true;
+  String reply;
+  bool ok = rs485_send_wait_ack("MASTER:GET_AYARLAR\n", reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) {
+    int idx = reply.indexOf("AYARLAR=");
+    veri = (idx >= 0) ? reply.substring(idx + 8) : "";
+  }
+  return ok;
+}
+
+bool sudepoAyarlarKaydet(const String& veri, String& reply) {
+  rs485_api_busy = true;
+  bool ok = rs485_send_wait_ack(("MASTER:SET_AYARLAR=" + veri + "\n").c_str(), reply, 1000, 3);
+  rs485_api_busy = false;
+  if (ok) last_rs485_update_ms = millis();
+  return ok;
+}
+
+void handleAPI_SudepoAyarlarGetir() {
+  String veri;
+  bool ok = sudepoAyarlarGetir(veri);
+  if (!ok) {
+    server.send(200, "application/json", "{\"basarili\":false,\"mesaj\":\"ESP8266'dan yanit yok\"}");
+    return;
+  }
+  // "k=v,k=v,..." -> JSON. Deger tipini tahmin etmeye calismadan hepsini
+  // sayi olarak yaziyoruz (JS tarafinda Number()/parseInt() zaten kullanilacak).
+  DynamicJsonDocument doc(1024);
+  int pos = 0;
+  while (pos < (int)veri.length()) {
+    int eq = veri.indexOf('=', pos);
+    if (eq < 0) break;
+    int comma = veri.indexOf(',', eq);
+    if (comma < 0) comma = veri.length();
+    String key = veri.substring(pos, eq);
+    String val = veri.substring(eq + 1, comma);
+    doc[key] = val.toFloat();
+    pos = comma + 1;
+  }
+  doc["basarili"] = true;
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+void handleAPI_SudepoAyarlarKaydet() {
+  // Web formundan gelen ayni parametre adlarini "k=v,k=v" RS485 formatina
+  // cevirir - ESP8266'nin kendi /ayarlar/kaydet endpoint'iyle ayni alan adlari.
+  const char* alanlar[] = {
+    "bosMesafe", "doluMesafe", "kapasite", "alarmYuzde", "geceBaslangic", "geceBitis",
+    "minDolumLitre", "kacakEsikDakika", "depoYatay", "moistureAutomatic",
+    "moistureThresholdLow", "moistureThresholdHigh", "triggerGunduz", "triggerGece",
+    "alarmMod", "alarmMaskSesli", "alarmMaskSessiz", "alarmMaskOnayli",
+    "alarmOutputSesli", "alarmOutputSessiz", "pirPencereSaniye", "pirMinTetiklenme"
+  };
+  String veri;
+  for (const char* alan : alanlar) {
+    if (server.hasArg(alan)) {
+      if (veri.length() > 0) veri += ",";
+      veri += String(alan) + "=" + server.arg(alan);
+    }
+  }
+  if (veri.length() == 0) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"ayar yok\"}");
+    return;
+  }
+  String reply;
+  bool ok = sudepoAyarlarKaydet(veri, reply);
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Kaydedildi" : "Komut hatasi") + "\"}");
+}
+
 // ============ PANIK BUTONU (ESP8266 ile senkronize) ============
 // ESP8266'daki /role/panic ile aynı toggle davranışı.
 // RS485 üzerinden MASTER:PANIC gönderir, ESP8266 toggle yapar ve
@@ -2708,6 +2936,8 @@ void setupWebServer() {
   server.on("/api/wifi", handleAPI_Wifi);
   server.on("/api/wifi/scan", handleAPI_WifiScan);
   server.on("/api/restart", handleAPI_Restart);
+  server.on("/api/sudepo_ayarlar", handleAPI_SudepoAyarlarGetir);
+  server.on("/api/sudepo_ayarlar/kaydet", handleAPI_SudepoAyarlarKaydet);
   server.on("/api/ir/liste", handleAPI_IrListe);
   server.on("/api/ir/ogren_baslat", handleAPI_IrOgrenBaslat);
   server.on("/api/ir/ogren_durum", handleAPI_IrOgrenDurum);
