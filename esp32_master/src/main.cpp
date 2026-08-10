@@ -500,8 +500,20 @@ void alarmLedGuncelle() {
 }
 
 void konteynerSensorleriOku() {
+  bool kapiOncekiDurum = kapi2Acik;
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
+
+  // Kapi ANLIK/kesin bir tetikleyici (PIR'daki gibi bir "onay suresi"
+  // beklemesi gerekmiyor - bkz PIR eskalasyon yorumu asagida) - bu yuzden
+  // Onayli modda yukselen kenarda DOGRUDAN onay beklemeye alinir. ONCEDEN
+  // BUG: bu blok hic yoktu, sadece PIR'in kendi "bolum" takibi
+  // konteynerOnayBekleniyor'u set ediyordu - PIR hic tetiklenmeden sadece
+  // kapi acilirsa Onayli modda alarm sessizce hicbir sey yapmiyordu (ne
+  // siren/lamba caliyordu ne onay ekrani cikiyordu).
+  if (kapi2Acik && !kapiOncekiDurum && alarmStatus.mode == 3) {
+    konteynerOnayBekleniyor = true;
+  }
 
   // Yeni hareket "bolumu" mu basliyor? (bolum = kesintisiz/tutma-suresiyle-
   // kopruli hareket suresi). Basliyorsa on uyari bipini tetikle ve eskalasyon
@@ -530,10 +542,17 @@ void konteynerSensorleriOku() {
     }
   }
 
-  // Bolum tamamen bitti (tutma suresi de doldu) - her seyi sifirla.
+  // PIR bolumu (kendi ic sayaci) bitti mi.
   if (!konteynerPirAlarmVar && konteynerPirBolumBaslangicMs != 0) {
     konteynerPirBolumBaslangicMs = 0;
     konteynerPirEskalasyonOldu = false;
+  }
+
+  // Onay bayraklari: ONCEDEN sadece yukaridaki PIR-bolum kosuluna bagliydi -
+  // kapidan gelen bir onay hic sifirlanmiyordu (kapi bolum takibine dahil
+  // degildi). Artik NE PIR NE kapi eskale degilse (ikisi de kapandi/bitti)
+  // sifirlanir - hangi kaynaktan gelirse gelsin dogru zamanda temizlenir.
+  if (!konteynerPirAlarmVar && !kapi2Acik) {
     konteynerOnayBekleniyor = false;
     konteynerOnayVerildi = false;
     konteynerLambaOnayVerildi = false;
@@ -585,7 +604,7 @@ void telegramAyarKaydet(bool aktif) {
   ayarPrefs.end();
 }
 
-const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
+const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "Sudepo PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
 
 // konteynerPir/konteynerKapi: ESP8266'nin trigger_mask'inden BAGIMSIZ,
 // ESP32'nin yerel Konteyner sensorleri (PIR2 + kapi reed) - ESP8266
@@ -1385,7 +1404,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
           <div><label class="sz-label">Gece Başlangıç (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBaslangic" onchange="szKaydet()"></div>
           <div><label class="sz-label">Gece Bitiş (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBitis" onchange="szKaydet()"></div>
           <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="0" max="120" id="sz_pirPencereSaniye" onchange="szKaydet()"></div>
-          <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="sz_pirMinTetiklenme" onchange="szKaydet()"></div>
+          <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="8" id="sz_pirMinTetiklenme" onchange="szKaydet()"></div>
         </div>
 
         <details class="subdet">
@@ -1665,7 +1684,7 @@ function bipSesi(){
   }catch(e){}
 }
 
-const tetikleyiciAdlari=['Sol Kapi','Sag Kapi','PIR','Su Seviyesi','Kacak','Sensor Hatasi'];
+const tetikleyiciAdlari=['Sol Kapi','Sag Kapi','Sudepo PIR (Hareket)','Su Seviyesi','Kacak','Sensor Hatasi'];
 function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi){
   if(panicAktif) return 'Panik (elle acildi)';
   const l=[];
@@ -1736,7 +1755,7 @@ function renderUI(d){
     else if(d.alarm.leak) at='ALARM: Kaçak!';
     else if(d.alarm.low_level) at='ALARM: Düşük seviye!';
     else if(d.alarm.door) at='ALARM: Kapı açık!';
-    else if(alarmMask & 4) at='ALARM: Hareket algılandı!';
+    else if(alarmMask & 4) at='ALARM: Sudepo hareket algılandı!';
     else if(alarmMask & 32) at='ALARM: Sensör hatası!';
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
@@ -2736,7 +2755,16 @@ bool alarmModAyarla(uint8_t mod, String& reply) {
   rs485_api_busy = true;
   bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
   rs485_api_busy = false;
-  if (ok) { alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  if (ok) {
+    alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis();
+    // Konteyner'in yerel onay bayraklarini da mod degisince temizle - ONCEDEN
+    // BUG: mod=3'te "Sessiz (Lamba)" onaylanmisken mod Sessiz'e (2) gecilince
+    // konteynerLambaOnayVerildi eski onaydan true kaldigi icin lamba yanik
+    // kaliyordu ("Sessiz modda hicbir fiziksel cikis olmaz" kuralini bozuyordu).
+    konteynerOnayBekleniyor = false;
+    konteynerOnayVerildi = false;
+    konteynerLambaOnayVerildi = false;
+  }
   return ok;
 }
 
@@ -2756,10 +2784,18 @@ void handleAPI_AlarmMod() {
 }
 
 bool alarmSustur(String& reply) {
+  // ONCEDEN BUG: "MASTER:ALARM_MUTE" KOSULSUZ TOGGLE komutuydu -
+  // rs485_send_wait_ack ACK gelmezse AYNI komutu 3 kere tekrar gonderir; ACK
+  // kaybolup komut ESP8266'ya yine de ulasmis olursa (RS485 hat cakismasi bu
+  // projede daha once gercek bir sorun olmustu) susturma yanlislikla iki kez
+  // tetiklenip ESKI haline donebiliyordu. Artik ESP32 istenen HEDEF degeri
+  // hesaplayip acikca gonderiyor - kac kere tekrar gonderilirse gonderilsin
+  // sonuc ayni (idempotent).
+  bool hedef = !alarmStatus.muted;
   rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_MUTE\n", reply, 1000, 3);
+  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
   rs485_api_busy = false;
-  if (ok) { alarmStatus.muted = !alarmStatus.muted; last_rs485_update_ms = millis(); }
+  if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
 }
 
@@ -2775,9 +2811,17 @@ bool alarmOnayla(String& reply) {
   rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
-  // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin.
+  // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin. ONCEDEN BUG:
+  // burasi Konteyner'de HICBIR SEY beklemiyor olsa bile (orn. sadece
+  // Sudepo'nun kacak alarmi onaylaniyordu) konteynerOnayVerildi'yi
+  // KOSULSUZ true yapiyordu - sonraki, tamamen ILGISIZ bir Konteyner
+  // tetiklemesinde kullanici hic onaylamadan siren/lamba dogrudan
+  // calisiyordu. Artik sadece GERCEKTEN bekleyen bir Konteyner onayi varsa
+  // isaretleniyor.
+  if (konteynerOnayBekleniyor) {
+    konteynerOnayVerildi = true; // "Sesli" onay - buzzer devreye girer
+  }
   konteynerOnayBekleniyor = false;
-  konteynerOnayVerildi = true; // "Sesli" onay - buzzer devreye girer
   return ok;
 }
 
@@ -2795,9 +2839,12 @@ void handleAPI_AlarmOnaylaLamba() {
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
   // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
-  // kalir), ama lamba tek basina aktif olur.
+  // kalir), ama lamba tek basina aktif olur. Sadece GERCEKTEN bekleyen bir
+  // Konteyner onayi varsa isaretlenir (bkz alarmOnayla() ayni duzeltme).
+  if (konteynerOnayBekleniyor) {
+    konteynerLambaOnayVerildi = true;
+  }
   konteynerOnayBekleniyor = false;
-  konteynerLambaOnayVerildi = true;
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Sadece lamba flasoru aktif" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
@@ -2958,12 +3005,17 @@ void handleAPI_SudepoAyarlarKaydet() {
 }
 
 // ============ PANIK BUTONU (ESP8266 ile senkronize) ============
-// ESP8266'daki /role/panic ile aynı toggle davranışı.
-// RS485 üzerinden MASTER:PANIC gönderir, ESP8266 toggle yapar ve
-// ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
+// ESP8266'daki /role/panic ile aynı davranış.
+// RS485 üzerinden MASTER:PANIC=1/0 gönderir (HEDEF değer acikca belirtilir -
+// ONCEDEN kosulsuz toggle komutuydu: ACK kaybolup rs485_send_wait_ack ayni
+// komutu tekrar gonderirse panik yanlislikla iki kez tetiklenip eski haline
+// donebiliyordu, guvenlik-kritik bir ozellik icin ciddi bir riskti. Artik
+// idempotent - kac kere tekrar gonderilirse gonderilsin sonuc ayni),
+// ESP8266 ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
 bool panikTetikle(bool& panicActive, String& reply) {
+  bool hedef = !alarmStatus.panic_mode;
   rs485_api_busy = true;
-  bool ok = rs485_send_wait_ack("MASTER:PANIC\n", reply, 1000, 3);
+  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
   rs485_api_busy = false;
 
   // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
@@ -3663,11 +3715,13 @@ void loop() {
   mqtt_connect();
   mqtt_publish();
   
-  // Alarm Kontrol
-  if (sensorData.level_percent < ALARM_LEVEL_PERCENT) {
-    alarmStatus.low_level_alarm = true;
-  } else {
-    alarmStatus.low_level_alarm = false;
+  // Alarm Kontrol - ONCEDEN BUG: ESP8266 baglantisi hic gelmemisken/koptugunda
+  // sensorData.level_percent varsayilan 0.0'da kalip ALARM_LEVEL_PERCENT'in
+  // altinda oldugundan yanlislikla "Dusuk seviye!" alarmi gosteriyordu. Artik
+  // sadece veri TAZEYSE (esp8266_online ile ayni 10sn esigi) degerlendiriliyor,
+  // bayat veride mevcut/varsayilan durum korunuyor.
+  if ((millis() - sensorData.last_update_ms) < 10000) {
+    alarmStatus.low_level_alarm = (sensorData.level_percent < ALARM_LEVEL_PERCENT);
   }
   
   // MQTT Callback process
