@@ -1684,12 +1684,26 @@ function show(id){
 
 function renderUI(d){
   const mo = d.moisture||{};
-  // Su seviyesi
-  $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
-  $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
-  $('#kpi-litre').textContent=(d.level_liters||0).toFixed(0)+' L';
-  $('#kpi-temp').textContent=(d.temperature||0).toFixed(1)+' °C';
-  $('#bar-pct').style.width=Math.max(0,Math.min(100,d.level_percent||0))+'%';
+  // Su seviyesi - bu degerler ESP8266'dan geliyor (sensorData struct, RS485
+  // ile dolduruluyor). ESP8266 baglantisi koparsa backend bu alanlari
+  // SIFIRLAMIYOR, son bilinen degeri struct'ta tutmaya devam ediyor (bkz
+  // durumJson main.cpp) - bu yuzden burada esp8266_online kontrolu YAPMAZSAK
+  // bağlanti koptuktan cok sonra bile son gorulen (artik yanlis/eski) seviye
+  // ekranda "canliymis gibi" kalirdi. FIX: baglanti yoksa "--" goster.
+  const esp8266Baglı = d.esp8266_online !== false;
+  if(esp8266Baglı){
+    $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
+    $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
+    $('#kpi-litre').textContent=(d.level_liters||0).toFixed(0)+' L';
+    $('#kpi-temp').textContent=(d.temperature||0).toFixed(1)+' °C';
+    $('#bar-pct').style.width=Math.max(0,Math.min(100,d.level_percent||0))+'%';
+  } else {
+    $('#kpi-pct').textContent='--';
+    $('#kpi-cm').textContent='--';
+    $('#kpi-litre').textContent='--';
+    $('#kpi-temp').textContent='--';
+    $('#bar-pct').style.width='0%';
+  }
   // Alarm
   const ad=$('#alarm-dot'); let at='Sistem Normal';
   // FIX: alarm sistemi kapaliyken (d.alarm.enabled===false) bile ham kapi/
