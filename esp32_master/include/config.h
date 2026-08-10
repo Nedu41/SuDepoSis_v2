@@ -68,15 +68,22 @@
 // ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti
 // eklerken cakisma olmasin diye:
 //   KULLANILAN:    GPIO2, GPIO16, GPIO17 (RS485)
-//                  GPIO4, GPIO5, GPIO6, GPIO7   (asagida - IR/LED+Buzzer/PIR/Reed)
+//                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO8-15, 18, 21, 33-42, 47, 48
+//   SERBEST (gelecekteki eklentiler icin): GPIO10-15, 18, 21, 33-42, 47, 48
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
-#define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir)
+#define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
 #define KAPI_REED_PIN 7   // GPIO7 - Konteyner kapisi reed (manyetik) switch, digital (INPUT_PULLUP)
+// Siren/Lamba: ALARM_LED_PIN'den AYRI, gercek role modulu uzerinden calisan
+// donanim (Sudepo Zonu'ndaki Nano "Alarm Rolesi"/"Depo Ici Lamba Rolesi" ile
+// ayni role). Varsayilan HIGH=aktif - role modulunuz aktif-LOW ise (kablolama
+// tersse) main.cpp'de alarmLedGuncelle() icindeki digitalWrite satirlarini
+// ters cevirmeniz yeterli (reed switch'teki gibi tek satirlik duzeltme).
+#define KONTEYNER_SIREN_PIN 8   // GPIO8 - Alarm sireni rolesi (Sesli/Onayli+Sesli-onay'da aktif)
+#define KONTEYNER_LAMBA_PIN 9   // GPIO9 - Uyari lambasi/flasoru rolesi (siren ile birlikte VEYA Onayli+"Sessiz(Lamba)" onayinda tek basina aktif)
 
 // NOT: ESP8266 status satiri (alarm mod/mute/pending alanlari eklendikten
 // sonra) ~270 karaktere ulasti. 9600 baud'da bu ~280ms surer - eski
