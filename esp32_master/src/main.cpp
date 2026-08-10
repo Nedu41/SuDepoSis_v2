@@ -21,6 +21,17 @@
 // makrolarimizin UZERINE yaziyordu - butun dosyada bu makrolar tanimsiz hale
 // geliyordu. IRremote.hpp'yi config.h'dan ONCE include ederek bizim
 // tanimlarimizin (config.h) son/gecerli olanlar olmasini garantiliyoruz.
+//
+// BUG DUZELTMESI: kutuphane varsayilan olarak, bilinen hicbir protokole
+// (NEC vb.) uymayan sinyaller icin de "evrensel/hash" bir yedek cozucu
+// calistirir - bu, kumandaya HIC BASILMADAN bile ortamdaki IR gurultusunu
+// (gunes isigi, floresan/LED aydinlatma, elektriksel parazit) "basarili"
+// bir kod gibi decode edip "Kod alindi: 0x0" veya rastgele sayilar
+// gostermesine yol aciyordu. EXCLUDE_UNIVERSAL_PROTOCOLS bu gurultuye-acik
+// yedek cozucuyu kapatir - sadece GERCEK/bilinen protokoller (bu
+// kumandalarin neredeyse hepsinde NEC) decode edilir, include'dan ONCE
+// tanimlanmasi sart (kutuphanenin kendi kosullu derlemesini etkiliyor).
+#define EXCLUDE_UNIVERSAL_PROTOCOLS
 #include <IRremote.hpp>
 
 #include "../include/config.h"
