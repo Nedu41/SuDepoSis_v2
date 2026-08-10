@@ -154,37 +154,54 @@ void weatherKaydet() {
 // Open-Meteo'dan 7 gunluk yagmur tahminini ceker (sabit konum). Basarili
 // olursa gercek cekim gununu ESP8266'nin RTC'sinden alip SPIFFS'e kaydeder.
 bool weatherTahminCek() {
-  if (WiFi.status() != WL_CONNECTED) { weatherDurum = "WiFi bagli degil"; return false; }
+  DEBUG_PRINTLN("[Weather] weatherTahminCek() basladi");
+  if (WiFi.status() != WL_CONNECTED) {
+    weatherDurum = "WiFi bagli degil";
+    DEBUG_PRINTLN("[Weather] " + weatherDurum);
+    return false;
+  }
 
   String url = String(WEATHER_FORECAST_API) + "?latitude=" + String(GARDEN_LATITUDE, 6) +
                "&longitude=" + String(GARDEN_LONGITUDE, 6) +
                "&daily=precipitation_sum&forecast_days=" + String(WEATHER_FORECAST_DAYS) + "&timezone=auto";
+  DEBUG_PRINTLN("[Weather] GET " + url);
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
   http.begin(client, url);
   int code = http.GET();
+  DEBUG_PRINTLN("[Weather] HTTP kod: " + String(code));
   if (code != HTTP_CODE_OK) {
-    weatherDurum = "HTTP hata: " + String(code) + " (" + http.errorToString(code) + ")";
+    // errorToString() sadece HTTPClient'in KENDI (negatif) baglanti hatalari
+    // icin anlamli metin dondurur - pozitif HTTP durum kodlarinda (400/403/
+    // 500 vb.) genelde bos string donup mesaji "HTTP hata: 500 ()" gibi
+    // yaristirir. Sadece negatif kodlarda ekleniyor.
+    weatherDurum = "HTTP hata: " + String(code) + (code < 0 ? (" (" + http.errorToString(code) + ")") : "");
+    DEBUG_PRINTLN("[Weather] " + weatherDurum);
     http.end();
     return false;
   }
   String payload = http.getString();
   http.end();
+  DEBUG_PRINTLN("[Weather] Yanit boyutu: " + String(payload.length()) + " byte");
 
   DynamicJsonDocument doc(3072);
-  if (deserializeJson(doc, payload) != DeserializationError::Ok) {
-    weatherDurum = "JSON parse hatasi";
+  DeserializationError parseErr = deserializeJson(doc, payload);
+  if (parseErr != DeserializationError::Ok) {
+    weatherDurum = "JSON parse hatasi: " + String(parseErr.c_str());
+    DEBUG_PRINTLN("[Weather] " + weatherDurum);
     return false;
   }
   JsonArray dates = doc["daily"]["time"].as<JsonArray>();
   JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
   int n = min((int)precip.size(), WEATHER_FORECAST_DAYS);
-  if (n < 2) { weatherDurum = "API yanitinda gun verisi eksik"; return false; }
+  DEBUG_PRINTLN("[Weather] Parse edilen gun sayisi: " + String(n));
+  if (n < 2) { weatherDurum = "API yanitinda gun verisi eksik"; DEBUG_PRINTLN("[Weather] " + weatherDurum); return false; }
 
   for (int i = 0; i < n; i++) {
     weatherForecastDates[i] = dates[i].as<String>();
     weatherForecastMm[i] = precip[i].as<float>();
+    DEBUG_PRINTLN("[Weather]   " + weatherForecastDates[i] + ": " + String(weatherForecastMm[i], 1) + "mm");
   }
   weatherForecastCount = n;
 
@@ -197,6 +214,7 @@ bool weatherTahminCek() {
   // yeni cekilen tahmin verisi yine de kullanilabilir durumda kalir.
   weatherKaydet();
   weatherDurum = "OK";
+  DEBUG_PRINTLN("[Weather] Basarili, " + String(n) + " gunluk tahmin kaydedildi");
   return true;
 }
 
@@ -232,7 +250,13 @@ void weatherKontrolEt() {
   // dene (guncellik zaten WEATHER_CHECK_INTERVAL_MS ile toleransli).
   if (wifiVar && (yeniBaglandi || weatherForecastCount == 0 || zamanGeldi)) {
     if (ESP.getFreeHeap() < BLE_SAFE_MIN_HEAP) {
-      DEBUG_PRINTLN("[Weather] Heap dusuk, bu dongu atlaniyor");
+      // ONEMLI: bu atlama ONCEDEN sessizdi (sadece Serial log) - UI'daki
+      // "Durum:" kutusu guncellenmedigi icin kullanicinin gorebilecegi hicbir
+      // iz birakmiyordu. Artik weatherDurum da guncelleniyor ki bu engel
+      // gercekten devredeyse "Ayarlar" sekmesinden (reflash/Serial olmadan)
+      // gorulebilsin.
+      weatherDurum = "Heap dusuk (" + String(ESP.getFreeHeap()) + " byte), sonraki denemede tekrar denenecek";
+      DEBUG_PRINTLN("[Weather] " + weatherDurum);
     } else {
       weatherTahminCek();
     }
@@ -365,6 +389,25 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
   ayarPrefs.end();
 }
 
+// Konteyner'in KENDI bagimsiz alarm ac/kapa anahtari - Sudepo Zonu'nun
+// alarmStatus.enabled'i ESP8266'dan RS485 ile aynalanan (o zona ait) bir
+// deger, Konteyner tamamen ESP32-yerel donanim oldugundan kendi ayri, NVS'de
+// kalici bir bayragi var. Boylece iki zon birbirinden BAGIMSIZ acilip
+// kapatilabilir (bkz alarmLedGuncelle/telegramAlarmKontrolEt).
+bool konteynerAlarmEtkin = true;
+
+void konteynerAlarmAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerAlarmEtkin = ayarPrefs.getBool("k_alarm_en", true);
+  ayarPrefs.end();
+}
+void konteynerAlarmAyarKaydet(bool etkin) {
+  konteynerAlarmEtkin = etkin;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putBool("k_alarm_en", etkin);
+  ayarPrefs.end();
+}
+
 void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
@@ -404,7 +447,7 @@ void alarmLedGuncelle() {
   // LED+buzzer, Telegram, banner) TUTARLI olarak enabled/mod'dan BAGIMSIZ -
   // "her seyin onunde calisir, elle ac/kapat anahtari gibi" davranisiyla
   // Konteyner siren+lambasini da dogrudan (Sesli gibi) tetikler.
-  bool konteynerEskaleVar = alarmStatus.panic_mode || (alarmStatus.enabled && (konteynerPirEskalasyonOldu || kapi2Acik));
+  bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && (konteynerPirEskalasyonOldu || kapi2Acik));
   bool konteynerBuzzerVar = false;
   if (konteynerEskaleVar) {
     if (alarmStatus.panic_mode || alarmStatus.mode == 1) konteynerBuzzerVar = true; // Panik veya Sesli - hemen cal
@@ -618,11 +661,11 @@ bool telegramMesajGonder(const String& metin) {
 void telegramAlarmKontrolEt() {
   uint8_t mask = alarmStatus.trigger_mask;
   // Konteyner sensorleri (PIR2 + kapi reed), ESP8266'nin trigger_mask'inden
-  // bagimsiz yerel kaynaklar - ana enabled anahtarina uyarlar (kullanici
-  // alarm sistemini kapatinca konteyner de sessiz kalsin), panik/onay
-  // bekleme ESP8266'ya ozgu oldugundan onlara karismazlar.
-  bool konteynerPirVar = alarmStatus.enabled && konteynerPirEskalasyonOldu;
-  bool konteynerKapiVar = alarmStatus.enabled && kapi2Acik;
+  // bagimsiz yerel kaynaklar - KENDI bagimsiz ac/kapa anahtarina
+  // (konteynerAlarmEtkin, Sudepo'nun alarmStatus.enabled'inden AYRI) uyarlar,
+  // panik/onay bekleme ESP8266'ya ozgu oldugundan onlara karismazlar.
+  bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEskalasyonOldu;
+  bool konteynerKapiVar = konteynerAlarmEtkin && kapi2Acik;
   bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar;
   bool alarmVar = anyAlarm || alarmStatus.pending;
 
@@ -1224,8 +1267,12 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
     <div class="card">
       <h3>Alarm</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">Aç/Kapat anahtarları her zon için AYRI - birini kapatmak sadece o zonun tetikleyicilerini (siren/lamba/Telegram) susturur. Alarm Modu ve Sustur ise ortak (Sesli/Sessiz/Onaylı ikisi için de aynı).</p>
       <div class="row">
-        <button class="btn btn-accent" id="alarm-btn" onclick="toggleAlarm()">Alarmı Kapat</button>
+        <button class="btn btn-accent" id="alarm-btn" onclick="toggleAlarm()">Sudepo Zonu: Alarmı Kapat</button>
+        <button class="btn btn-accent" id="konteyner-alarm-btn" onclick="toggleKonteynerAlarm()">Konteyner Zonu: Alarmı Kapat</button>
+      </div>
+      <div class="row" style="margin-top:8px">
         <button class="btn btn-primary" onclick="kapiKontrol(1)">Kapıyı Aç/Kapat</button>
       </div>
       <div class="row" style="margin-top:8px">
@@ -1238,6 +1285,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">Onay bekleyen bir tetiklenme olursa "Sesli"/"Sessiz" secenekleri ekranin ustundeki uyari kutusunda (hangi sekmede olursan ol) cikar.</p>
       <div id="alarm-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div id="konteyner-alarm-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -1655,12 +1703,14 @@ function renderUI(d){
   // mod+zaman senaryosuna gore filtreledigi otoriter kaynak - artik o
   // kullaniliyor. Panik de ayrica eklendi (eskiden hic banner tetiklemiyordu).
   const alarmMask = (d.alarm && d.alarm.trigger_mask) || 0;
-  // Konteyner (ESP32-yerel) sensorleri de genel alarm sistemine dahil -
-  // ana enabled anahtarina uyar, ESP8266'nin trigger_mask'inden ayri tutulur.
+  // Konteyner (ESP32-yerel) sensorleri de genel alarm sistemine dahil - ama
+  // KENDI bagimsiz ac/kapa anahtarina (d.konteyner.enabled) uyar, Sudepo'nun
+  // d.alarm.enabled'inden AYRI - iki zon birbirinden bagimsiz kapatilabilir.
   const enabledMi = !(d.alarm && d.alarm.enabled === false);
   const kz = d.konteyner||{};
-  const konteynerPirVar = enabledMi && !!kz.pir_alarm;
-  const konteynerKapiVar = enabledMi && !!kz.kapi_acik;
+  const konteynerEnabledMi = !(kz.enabled === false);
+  const konteynerPirVar = konteynerEnabledMi && !!kz.pir_alarm;
+  const konteynerKapiVar = konteynerEnabledMi && !!kz.kapi_acik;
   // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
   // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
@@ -1775,7 +1825,8 @@ function renderUI(d){
   // Her buton sadece KENDI komutu surerken (busySet'te ise) atlanir; digerleri
   // her zaman taze veriyle guncellenir (bkz. busySet aciklamasi yukarida).
   if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = d.nano.lamp ? 'Kapat' : 'Aç';
-  if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç';
+  if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
+  if(!busySet.has('#konteyner-alarm-btn')){ const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
   if(!busySet.has('#panic-btn')){ const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
   if(!busySet.has('#alarm-mod-sel')){ const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
   if(!busySet.has('#alarm-mute-btn')){ const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
@@ -1893,8 +1944,12 @@ function setMoistureThresholds(){
   sendCommand(null,'/api/moisture/threshold?low='+low+'&high='+high,'#moisture-settings-msg');
 }
 function toggleAlarm(){
-  const aktif = $('#alarm-btn').textContent.trim() === 'Alarmı Kapat';
+  const aktif = $('#alarm-btn').textContent.trim().endsWith('Alarmı Kapat');
   sendCommand('#alarm-btn', '/api/alarm?aktif='+(aktif?0:1), '#alarm-sonuc');
+}
+function toggleKonteynerAlarm(){
+  const aktif = $('#konteyner-alarm-btn').textContent.trim().endsWith('Alarmı Kapat');
+  sendCommand('#konteyner-alarm-btn', '/api/konteyner/alarm?aktif='+(aktif?0:1), '#konteyner-alarm-sonuc');
 }
 function kapiKontrol(v){
   sendCommand(null, '/api/kapi?durum='+v, '#lamba-sonuc');
@@ -2234,6 +2289,7 @@ String durumJson() {
   doc["alarm"]["pending"] = alarmStatus.pending;
   doc["alarm"]["trigger_mask"] = alarmStatus.trigger_mask;
 
+  doc["konteyner"]["enabled"] = konteynerAlarmEtkin;
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
   doc["konteyner"]["pir"] = pir2HareketVar;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
@@ -2600,6 +2656,18 @@ void handleAPI_KonteynerPirAyar() {
   }
   konteynerPirAyarKaydet(tutma, onay);
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
+}
+
+// Konteyner Zonu'nun KENDI alarm ac/kapa anahtari - Sudepo'nun /api/alarm'inin
+// aksine RS485 YOK, tamamen yerel/anlik NVS kaydi (bkz konteynerAlarmEtkin).
+void handleAPI_KonteynerAlarm() {
+  if (!server.hasArg("aktif")) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"aktif eksik\"}");
+    return;
+  }
+  bool aktif = server.arg("aktif").toInt() != 0;
+  konteynerAlarmAyarKaydet(aktif);
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(aktif ? "Konteyner Alarmi Aktif" : "Konteyner Alarmi Pasif") + "\"}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -3334,6 +3402,7 @@ void setupWebServer() {
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
   server.on("/api/moisture/threshold", handleAPI_MoistureThreshold);
   server.on("/api/alarm", handleAPI_Alarm);
+  server.on("/api/konteyner/alarm", handleAPI_KonteynerAlarm);
   server.on("/api/alarm/mod", handleAPI_AlarmMod);
   server.on("/api/alarm/mute", handleAPI_AlarmMute);
   server.on("/api/alarm/onayla", handleAPI_AlarmOnayla);
@@ -3483,6 +3552,7 @@ void setup() {
   irEslesmeYukle();
   telegramAyarYukle();
   konteynerPirAyarYukle();
+  konteynerAlarmAyarYukle();
 
   // WiFi Connect
   wifi_connect();
