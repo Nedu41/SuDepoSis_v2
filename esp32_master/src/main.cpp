@@ -281,7 +281,6 @@ struct AlarmStatus {
   bool door_alarm = false;
   bool enabled = true;  // Alarm toggle state
   bool panic_mode = false;  // Panik butonu durumu (ESP8266 ile senkron)
-  unsigned long leak_start_ms = 0;
   uint8_t mode = 1;      // 1=Sesli 2=Sessiz 3=Onayli (ESP8266 ile senkron)
   bool muted = false;    // Susturuldu mu (ESP8266 ile senkron)
   bool pending = false;  // Mod 3: onay bekliyor mu (ESP8266 ile senkron)
@@ -313,47 +312,66 @@ unsigned long last_mqtt_publish_ms = 0;
 Preferences ayarPrefs;
 
 bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
-bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham, debounce'suz)
-bool konteynerPirAlarmVar = false; // Debounce sonrasi "onaylanmis" hareket - LED/buzzer bunu kullanir
+bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
+bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
+unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an
 
-// Konteyner PIR ayarlari (NVS'de kalici) - Sudepo'daki PIR Pencere/Min
-// Tetiklenme ayarlarinin ayni mantigi: pencere suresi icinde en az N kez
-// tetiklenirse "gercek" hareket sayilir, tek seferlik gurultu/yanlis
-// pozitifleri eler.
+// PIR HASSASIYET (2 kademeli) - HC-SR505'in potansiyometresi olmadigindan
+// (sabit ~8sn HIGH, hareketin buyuklugune bakmaksizin) "ufak kipirdama"yi
+// donanimsal degil, sureye dayali yazilim mantigiyla eliyoruz:
+//  1) ON UYARI: her yeni hareket "bolumu" basladiginda 1sn'lik kisa bip/LED
+//     darbesi - alarm DEGIL, sadece yerel/duyulur "sensor gordu" isareti.
+//  2) ESKALASYON: hareket (tutma suresiyle kopruleniyor) kesintisiz Onay
+//     Suresi'ni (varsayilan 10sn) gecerse GERCEK alarm sayilir - bundan sonrasi
+//     genel Alarm Modu'na (Sesli/Sessiz/Onayli) uyar, bkz alarmLedGuncelle().
+bool konteynerPirEskalasyonOldu = false;   // bu "bolum"de Onay Suresi asildi mi
+unsigned long konteynerPirBolumBaslangicMs = 0; // 0 = aktif bolum yok
+bool konteynerOnBipCiksin = false;         // loop'a "yeni bolum basladi, on bip ver" sinyali
+bool konteynerOnayBekleniyor = false;      // mode==3 + eskalasyon oldu + henuz onaylanmadi
+bool konteynerOnayVerildi = false;         // mode==3 + bu bolum icin onaylandi (Sesli onay ile)
+bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (Lamba)" onayi verildi
+bool konteynerSirenAktif = false;          // KONTEYNER_SIREN_PIN'in guncel durumu (durumJson icin)
+bool konteynerLambaAktif = false;          // KONTEYNER_LAMBA_PIN'in guncel durumu (durumJson icin)
+
+// Konteyner PIR ayari (NVS'de kalici).
 // ONEMLI (HC-SR505 datasheet farki, HC-SR501'den FARKLI calisiyor - bkz
 // kullanici uyarisi): HC-SR505'te potansiyometre/jumper YOK, cikis suresi
 // SABIT ~6-12sn (datasheet: 8sn +-%30), tetiklenebilir modda hareket
-// surdukce HIGH'ta kalir. Yani TEK bir hareket olayi TEK bir yukselen
-// kenar uretir (uzun sure HIGH'ta kalsa bile) - HC-SR501'deki gibi ust
-// uste hizli kenarlar vermez. Varsayilan min=2 idi ama ilk tetiklenmeden
-// sonra sinyal zaten >=6sn HIGH kaldigi icin 5sn'lik pencere icinde ikinci
-// bir kenar gelmesi neredeyse imkansizdi - "calismiyor" sikayetinin sebebi
-// buydu. min=1 ile duzeltildi (sensorun kendi 6-12sn tutmasi zaten yeterli
-// filtreleme sagliyor, ek tetiklenme sayisi sartina gerek yok).
-uint16_t konteynerPirPencereSaniye = 10;
-uint8_t konteynerPirMinTetiklenme = 1;
-#define KONTEYNER_PIR_BUFFER 10
-unsigned long konteynerPirTetikZamanlari[KONTEYNER_PIR_BUFFER] = {0};
-uint8_t konteynerPirTetikSayisi = 0;
+// surdukce HIGH'ta kalir - yani sinyal SEVIYE tabanlidir, kesikli/darbeli
+// degildir (HC-SR501'deki gibi ust uste ayrik kenarlar vermez).
+// ONCEKI TASARIM HATASI: "pencere icinde en az N kez tetiklenme" (Sudepo'daki
+// PIR ayarlarinin ayni mantigi kopyalanmisti) bu sinyal tipine uymuyordu -
+// sadece YUKSELEN KENARDA kayit tutuyordu, surekli 20sn'lik kesintisiz bir
+// harekette TEK kayit olusuyordu; pencere suresi dolunca (hareket hala
+// suruyorken) alarm yanlislikla FALSE'a donuyordu (kullanicinin bulgusu).
+// DUZELTME: artik kenar saymiyoruz, en son hareket gorulen ani takip
+// ediyoruz - alarm, hareket VAR oldugu surece VE bittikten sonra "Tutma
+// Suresi" kadar daha aktif kalir (basit, dogru, seviye-tabanli mantik).
+uint16_t konteynerPirTutmaSaniye = 5;
+uint16_t konteynerPirOnaySaniye = 10; // Eskalasyon esigi (bkz yukaridaki aciklama)
 
 void konteynerPirAyarYukle() {
   ayarPrefs.begin("ayarlar", true);
-  konteynerPirPencereSaniye = ayarPrefs.getUShort("k_pir_pen", 10);
-  konteynerPirMinTetiklenme = ayarPrefs.getUChar("k_pir_min", 1);
+  konteynerPirTutmaSaniye = ayarPrefs.getUShort("k_pir_tut", 5);
+  konteynerPirOnaySaniye = ayarPrefs.getUShort("k_pir_onay", 10);
   ayarPrefs.end();
 }
-void konteynerPirAyarKaydet(uint16_t pencereSaniye, uint8_t minTetiklenme) {
-  konteynerPirPencereSaniye = pencereSaniye;
-  konteynerPirMinTetiklenme = minTetiklenme;
+void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
+  konteynerPirTutmaSaniye = tutmaSaniye;
+  konteynerPirOnaySaniye = onaySaniye;
   ayarPrefs.begin("ayarlar", false);
-  ayarPrefs.putUShort("k_pir_pen", pencereSaniye);
-  ayarPrefs.putUChar("k_pir_min", minTetiklenme);
+  ayarPrefs.putUShort("k_pir_tut", tutmaSaniye);
+  ayarPrefs.putUShort("k_pir_onay", onaySaniye);
   ayarPrefs.end();
 }
 
 void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
+  pinMode(KONTEYNER_SIREN_PIN, OUTPUT);
+  digitalWrite(KONTEYNER_SIREN_PIN, LOW);
+  pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
+  digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
   pinMode(PIR2_PIN, INPUT);
   // Reed switch: kablolamaya gore kapali/acik seviyesi degisebilir -
   // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
@@ -368,15 +386,60 @@ void konteynerDonanimiInit() {
 }
 
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
-// mevcut alarm durumunu okur (banner'in gorunurlugüyle ayni mantik) VE
-// konteynerPirAlarmVar'i (yerel, debounce'lu PIR2 tetiklenmesi) da hesaba
-// katar. ESP8266 tarafindaki Sesli/Sessiz mod ayrimindan BAGIMSIZ -
-// kullanicinin talebiyle ("gercek her alarmda calissin") konteynerdaki bu
-// yerel uyari her zaman aktif, LED ile ayni ritimde (400ms) yanip soner/oter.
+// mevcut alarm durumunu okur (banner'in gorunurlugüyle ayni mantik) VE yerel
+// Konteyner sensorlerini (kapi reed + ESKALE OLMUS PIR) de hesaba katar -
+// genel alarm sistemine adapte edildi (bkz telegramAlarmKontrolEt, ayni mantik
+// orada da tekrarlanir). ESP8266'daki Sesli/Sessiz/Onayli mod ayrimiyla ARTIK
+// AYNI: Sesli'de hemen calar, Sessiz'de hic calmaz (Telegram/banner yine de
+// bildirir), Onayli'da banner'dan "Sesli" ile onaylanana kadar sessiz kalir.
+// Ayrica her yeni PIR hareket "bolumu" basladiginda (konteynerOnBipCiksin),
+// gercek bir alarm calmiyorsa 1sn'lik kisa bir "on uyari" darbesi verir.
 void alarmLedGuncelle() {
   static bool ledDurum = false;
   static unsigned long sonDegisimMs = 0;
-  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending || konteynerPirAlarmVar;
+  static bool onBipAktif = false;
+  static unsigned long onBipBaslangicMs = 0;
+
+  bool konteynerEskaleVar = alarmStatus.enabled && (konteynerPirEskalasyonOldu || kapi2Acik);
+  bool konteynerBuzzerVar = false;
+  if (konteynerEskaleVar) {
+    if (alarmStatus.mode == 1) konteynerBuzzerVar = true;             // Sesli - hemen cal
+    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi; // Onayli - onaydan sonra cal
+    // mode==2 (Sessiz): konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
+  }
+
+  // Siren + Lamba (ALARM_LED_PIN'deki kucuk LED+buzzer'dan AYRI, gercek role
+  // uzerinden calisan donanim - bkz config.h). Siren, kucuk buzzer ile AYNI
+  // kosulda aktif ama SABIT/surekli (role oldugu icin 400ms yanip-sonme YOK,
+  // sik ac/kapa roleye zarar verir). Lamba, siren ile birlikte VEYA Onayli
+  // modda "Sessiz (Lamba)" onayi verildiginde (konteynerLambaOnayVerildi) TEK
+  // BASINA aktif - Sudepo Zonu'ndaki "Onayli - sadece lamba flasoru" secenegiyle
+  // ayni mantik, artik Konteyner'de de gercek bir fiziksel karsiligi var.
+  konteynerSirenAktif = konteynerBuzzerVar;
+  konteynerLambaAktif = konteynerBuzzerVar || konteynerLambaOnayVerildi;
+  digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
+  digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaAktif ? HIGH : LOW);
+
+  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending || konteynerBuzzerVar;
+
+  // On uyari darbesi - sadece gercek bir alarm CALMIYORSA baslat (cakismasin diye)
+  if (konteynerOnBipCiksin) {
+    konteynerOnBipCiksin = false;
+    if (!alarmVar && !onBipAktif) {
+      onBipAktif = true;
+      onBipBaslangicMs = millis();
+      digitalWrite(ALARM_LED_PIN, HIGH);
+    }
+  }
+  if (onBipAktif) {
+    if (millis() - onBipBaslangicMs >= 1000) {
+      onBipAktif = false;
+      if (!alarmVar) digitalWrite(ALARM_LED_PIN, LOW);
+    } else if (!alarmVar) {
+      return; // bip suruyor, asagidaki surekli-alarm darbe mantigina girme
+    }
+  }
+
   if (!alarmVar) {
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
@@ -390,25 +453,44 @@ void alarmLedGuncelle() {
 }
 
 void konteynerSensorleriOku() {
-  bool oncekiPir = pir2HareketVar;
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
 
-  // Debounce: her YUKSELEN kenarda (hareketsizden harekete gecis) bir
-  // "tetiklenme" zamani kaydet - Sudepo'daki PIR Pencere/Min Tetiklenme
-  // ayarlariyla ayni mantik (bkz konteynerPirAyarYukle).
-  if (pir2HareketVar && !oncekiPir) {
-    konteynerPirTetikZamanlari[konteynerPirTetikSayisi % KONTEYNER_PIR_BUFFER] = millis();
-    konteynerPirTetikSayisi++;
+  // Yeni hareket "bolumu" mu basliyor? (bolum = kesintisiz/tutma-suresiyle-
+  // kopruli hareket suresi). Basliyorsa on uyari bipini tetikle ve eskalasyon
+  // sayacini sifirla.
+  if (pir2HareketVar && konteynerPirBolumBaslangicMs == 0) {
+    konteynerPirBolumBaslangicMs = millis();
+    konteynerPirEskalasyonOldu = false;
+    konteynerOnBipCiksin = true;
   }
-  unsigned long simdi = millis();
-  unsigned long pencereMs = (unsigned long)konteynerPirPencereSaniye * 1000UL;
-  uint8_t pencerdekiSayi = 0;
-  uint8_t bakilacak = min((uint8_t)KONTEYNER_PIR_BUFFER, konteynerPirTetikSayisi);
-  for (uint8_t i = 0; i < bakilacak; i++) {
-    if (simdi - konteynerPirTetikZamanlari[i] <= pencereMs) pencerdekiSayi++;
+
+  // Seviye tabanli: hareket VAR oldugu her anda "son hareket" zamani
+  // guncellenir (sadece yukselen kenarda degil) - boylece surekli/uzun
+  // sureli hareket boyunca alarm hic dusmez. Hareket bittikten sonra da
+  // Tutma Suresi kadar aktif kalmaya devam eder (kisa kesintileri/aninda
+  // sonlanmayi tolere eder).
+  if (pir2HareketVar) konteynerPirSonHareketMs = millis();
+  unsigned long tutmaMs = (unsigned long)konteynerPirTutmaSaniye * 1000UL;
+  konteynerPirAlarmVar = pir2HareketVar || (millis() - konteynerPirSonHareketMs <= tutmaMs);
+
+  // ESKALASYON: bolum, Onay Suresi'ni kesintisiz astiysa artik GERCEK alarm.
+  if (konteynerPirAlarmVar && konteynerPirBolumBaslangicMs != 0 && !konteynerPirEskalasyonOldu) {
+    unsigned long onaySuresiMs = (unsigned long)konteynerPirOnaySaniye * 1000UL;
+    if (millis() - konteynerPirBolumBaslangicMs > onaySuresiMs) {
+      konteynerPirEskalasyonOldu = true;
+      if (alarmStatus.mode == 3) konteynerOnayBekleniyor = true;
+    }
   }
-  konteynerPirAlarmVar = (pencerdekiSayi >= konteynerPirMinTetiklenme);
+
+  // Bolum tamamen bitti (tutma suresi de doldu) - her seyi sifirla.
+  if (!konteynerPirAlarmVar && konteynerPirBolumBaslangicMs != 0) {
+    konteynerPirBolumBaslangicMs = 0;
+    konteynerPirEskalasyonOldu = false;
+    konteynerOnayBekleniyor = false;
+    konteynerOnayVerildi = false;
+    konteynerLambaOnayVerildi = false;
+  }
 }
 
 // IR kumanda - HAM YAKALAMA. Gercek eslesme/ogrenme-modu isleme (asagidaki
@@ -458,7 +540,11 @@ void telegramAyarKaydet(bool aktif) {
 
 const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
 
-String alarmTetikleyenMetni(uint8_t mask, bool panik) {
+// konteynerPir/konteynerKapi: ESP8266'nin trigger_mask'inden BAGIMSIZ,
+// ESP32'nin yerel Konteyner sensorleri (PIR2 + kapi reed) - ESP8266
+// bitmask'ina karistirilmiyor (o mask ESP8266'nin kendi kodlamasi, ileride
+// cakisma riski olmasin diye ayri tutuluyor).
+String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false, bool konteynerKapi = false) {
   if (panik) return "Panik (elle acildi)";
   String s = "";
   for (int i = 0; i < 6; i++) {
@@ -466,6 +552,14 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik) {
       if (s.length() > 0) s += ", ";
       s += alarmTetikleyiciAdlari[i];
     }
+  }
+  if (konteynerPir) {
+    if (s.length() > 0) s += ", ";
+    s += "Konteyner PIR (Hareket)";
+  }
+  if (konteynerKapi) {
+    if (s.length() > 0) s += ", ";
+    s += "Konteyner Kapı";
   }
   return s.length() > 0 ? s : "Bilinmiyor";
 }
@@ -519,7 +613,13 @@ bool telegramMesajGonder(const String& metin) {
 // tekrar denenir, sonra vazgecilir.
 void telegramAlarmKontrolEt() {
   uint8_t mask = alarmStatus.trigger_mask;
-  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode;
+  // Konteyner sensorleri (PIR2 + kapi reed), ESP8266'nin trigger_mask'inden
+  // bagimsiz yerel kaynaklar - ana enabled anahtarina uyarlar (kullanici
+  // alarm sistemini kapatinca konteyner de sessiz kalsin), panik/onay
+  // bekleme ESP8266'ya ozgu oldugundan onlara karismazlar.
+  bool konteynerPirVar = alarmStatus.enabled && konteynerPirEskalasyonOldu;
+  bool konteynerKapiVar = alarmStatus.enabled && kapi2Acik;
+  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar;
   bool alarmVar = anyAlarm || alarmStatus.pending;
 
   if (!telegramBildirimAktif) {
@@ -532,7 +632,7 @@ void telegramAlarmKontrolEt() {
     // Yeni alarm basladi - mesaj hazirla, ilk denemeyi hemen yap.
     String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" :
                      (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
-    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode);
+    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar);
     telegramBekleyenVar = true;
     telegramIlkDenemeMs = millis();
   }
@@ -785,8 +885,6 @@ void parse_esp8266_data(String payload) {
       sensorData.rtc_ok = (value == "1");
     } else if (key == "LEAK") {
       alarmStatus.leak_alarm = (value == "1");
-    } else if (key == "LEAK_DK") {
-      alarmStatus.leak_start_ms = value.toInt() * 60000UL;
     } else if (key == "FILL") {
       // dolum durumu - log
     } else if (key == "PANIC") {
@@ -964,7 +1062,13 @@ void mqtt_publish() {
 // ============================================================
 
 void handleRoot() {
-  String html = R"html(
+  // ONEMLI: bu sayfa buyudukce (~120KB+) "String html = R"html(...)" seklinde
+  // heap'e KOPYALAMAK riskli - BLE+WiFi+MQTT+SPIFFS aktifken tek seferde bu
+  // kadar buyuk kesintisiz bir heap bloğu bulunamayabilir (String::operator=
+  // sessizce basarisiz olur, sonuc BOS/beyaz sayfa). Bunun yerine 'static
+  // const char[]' olarak flash'ta (.rodata) tutup send_P/sendContent_P ile
+  // DOGRUDAN client'a akitiyoruz - hic heap kopyasi olmuyor.
+  static const char PAGE_HTML[] PROGMEM = R"html(
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -982,7 +1086,37 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .header .meta{font-size:12px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
-.card h3{font-size:14px;color:var(--muted);margin-bottom:8px}
+.card h3,.card summary{font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px;letter-spacing:.2px}
+.card summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px}
+.card summary::-webkit-details-marker{display:none}
+.card summary::before{content:'▸';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}
+.card[open]>summary::before{transform:rotate(90deg)}
+.card.zone-sudepo{border-left:4px solid #3b82f6}
+.card.zone-konteyner{border-left:4px solid var(--warn)}
+.subdet{margin-top:16px;border-top:1px solid var(--border);padding-top:10px}
+.subdet summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--text)}
+.subdet summary::-webkit-details-marker{display:none}
+.subdet summary::before{content:'▸';display:inline-block;font-size:11px;color:var(--muted);transition:transform .15s}
+.subdet[open]>summary::before{transform:rotate(90deg)}
+.remote-body{background:linear-gradient(180deg,var(--card),var(--bg));border:1px solid var(--border);border-radius:20px;padding:20px 12px;max-width:340px;margin:12px auto 0}
+.remote-key{width:56px;height:56px;border-radius:50%;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1;padding:2px}
+.remote-key:hover{border-color:var(--primary)}
+.remote-key.power{background:#dc2626;border-color:#dc2626;color:#fff}
+.remote-key.assigned{border-color:var(--accent);box-shadow:0 0 0 2px rgba(16,185,129,.35)}
+.remote-key.active-learning{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.4);animation:pulse 1s infinite}
+.remote-top{display:flex;justify-content:center;gap:28px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+.remote-left-col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.remote-dpad{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,56px);gap:6px}
+.remote-dpad .rk-chp{grid-column:2;grid-row:1}
+.remote-dpad .rk-volm{grid-column:1;grid-row:2}
+.remote-dpad .rk-menu{grid-column:2;grid-row:2}
+.remote-dpad .rk-volp{grid-column:3;grid-row:2}
+.remote-dpad .rk-chm{grid-column:2;grid-row:3}
+.remote-numpad{display:grid;grid-template-columns:repeat(4,56px);gap:8px;justify-content:center;margin-top:16px}
+.remote-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--muted)}
+.remote-legend span{display:inline-flex;align-items:center;gap:5px}
+.remote-legend i{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid var(--border)}
+.remote-legend i.assigned-dot{border-color:var(--accent);box-shadow:0 0 0 2px rgba(16,185,129,.35)}
 .kpi{font-size:28px;font-weight:700}
 .kpi small{font-size:12px;color:var(--muted);font-weight:400}
 .bar{background:var(--border);height:18px;border-radius:999px;overflow:hidden;margin-top:8px}
@@ -1038,6 +1172,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     <button onclick="show('dashboard')" id="nav-dashboard" class="active">Genel</button>
     <button onclick="show('kontrol')" id="nav-kontrol">Kontrol</button>
     <button onclick="show('ayarlar')" id="nav-ayarlar">Ayarlar</button>
+    <button onclick="show('kumanda')" id="nav-kumanda">Kumanda</button>
     <button onclick="show('bilgiler')" id="nav-bilgiler">Bilgiler</button>
   </div>
 
@@ -1111,8 +1246,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   </div>
 
   <div id="ayarlar" class="section">
-    <div class="card">
-      <h3>OTA Güncelleme</h3>
+    <details class="card">
+      <summary>OTA Güncelleme</summary>
       <p style="font-size:12px;color:var(--muted)">GitHub'daki en son firmware'i indirip yazar (main dalı).</p>
       <div class="row">
         <button class="btn btn-primary" onclick="otaGuncelle()">GitHub'dan Güncelle</button>
@@ -1125,10 +1260,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         </form>
       </div>
       <div id="ota-dosya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>ESP8266 Firmware Deposu</h3>
+    <details class="card">
+      <summary>ESP8266 Firmware Deposu</summary>
       <p style="font-size:12px;color:var(--muted)">Bahcede internet olmadigindan, ESP8266'nin "URL'den Guncelle" kutusuna GitHub yerine buradaki adresi yaz - ikisi ayni WiFi agindayken calisir. ESP8266'nin web arayuzu artik firmware'in icine gomulu oldugu icin tek dosya (esp8266.bin) yeterli.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="fw-durum-kutu">Yukleniyor...</div>
       <div class="row">
@@ -1136,10 +1271,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-primary" onclick="firmwareYukle()">Yukle</button>
       </div>
       <div id="fw-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Kayit Yedekleme</h3>
+    <details class="card">
+      <summary>Kayit Yedekleme</summary>
       <p style="font-size:12px;color:var(--muted)">ESP8266'nin kayitlar.csv dosyasinin yedegi - donanim arizasi/factory reset gibi durumlarda buradan geri yukleyebilirsin.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="yedek-durum-kutu">Yukleniyor...</div>
       <div class="row">
@@ -1147,10 +1282,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-warn" onclick="kayitGeriYukle()">ESP8266'ya Geri Yukle</button>
       </div>
       <div id="yedek-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Hava Durumu / Yağmur Tahmini</h3>
+    <details class="card">
+      <summary>Hava Durumu / Yağmur Tahmini</summary>
       <p style="font-size:12px;color:var(--muted)">Sabit konum (bahçe) - internet varken (örn. telefon hotspot'u) otomatik çekilir. 7 günden eski tahmin dikkate alınmaz, o durumda sulama normal devam eder.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="weather-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -1158,104 +1293,97 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
       <div id="weather-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <div id="weather-haftalik" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Telegram Bildirimleri</h3>
-      <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb.) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
+    <details class="card" open>
+      <summary>Telegram Bildirimleri</summary>
+      <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb. - Kalburum/Konteyner PIR'ı dahil) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
       <div class="row">
         <button class="btn" id="telegram-ac-kapa-btn" onclick="telegramAcKapa()">Yükleniyor...</button>
         <button class="btn btn-primary" onclick="telegramTest()">Test Mesajı Gönder</button>
       </div>
       <div id="telegram-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>🚰 Su Deposu Zonu - Ayarlar</h3>
+    <details class="card zone-sudepo" open>
+      <summary>🚰 Su Deposu Zonu - Ayarlar</summary>
       <p style="font-size:12px;color:var(--muted)">Karar/yürütme hâlâ ESP8266+Nano'da yapılır (RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için köprü. Sudepo.local aynı ayarları gösterir.</p>
       <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
-    </div>
-    <div class="card" id="sz-form" style="display:none">
-      <h3>Kalibrasyon &amp; Eşikler</h3>
-      <div class="sz-grid">
-        <div><label class="sz-label">Boş Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_bosMesafe"></div>
-        <div><label class="sz-label">Dolu Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_doluMesafe"></div>
-        <div><label class="sz-label">Kapasite (L)</label><input class="input" type="number" step="1" id="sz_kapasite"></div>
-        <div><label class="sz-label">Depo Şekli</label><select class="input" id="sz_depoYatay"><option value="1">Yatay</option><option value="0">Dikey</option></select></div>
-        <div><label class="sz-label">Alarm Eşiği (%)</label><input class="input" type="number" step="1" id="sz_alarmYuzde"></div>
-        <div><label class="sz-label">Dolum Eşiği (L)</label><input class="input" type="number" step="1" id="sz_minDolumLitre"></div>
-        <div><label class="sz-label">Kaçak Eşiği (dk)</label><input class="input" type="number" step="1" id="sz_kacakEsikDakika"></div>
+      <div id="sz-form" style="display:none">
+        <h3>Kalibrasyon &amp; Eşikler</h3>
+        <p style="font-size:11px;color:var(--muted);margin-top:-4px">Bir alanı değiştirip dışına tıklayınca otomatik kaydedilir.</p>
+        <div class="sz-grid">
+          <div><label class="sz-label">Boş Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_bosMesafe" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Dolu Mesafe (cm)</label><input class="input" type="number" step="0.1" id="sz_doluMesafe" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Kapasite (L)</label><input class="input" type="number" step="1" id="sz_kapasite" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Depo Şekli</label><select class="input" id="sz_depoYatay" onchange="szKaydet()"><option value="1">Yatay</option><option value="0">Dikey</option></select></div>
+          <div><label class="sz-label">Alarm Eşiği (%)</label><input class="input" type="number" step="1" id="sz_alarmYuzde" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Dolum Eşiği (L)</label><input class="input" type="number" step="1" id="sz_minDolumLitre" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Kaçak Eşiği (dk)</label><input class="input" type="number" step="1" id="sz_kacakEsikDakika" onchange="szKaydet()"></div>
+        </div>
+
+        <h3 style="margin-top:18px">Alarm Modu, Gece &amp; PIR</h3>
+        <div style="margin:8px 0">
+          <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod1" value="1" onchange="szKaydet()"> <b>1 - Sesli</b> (siren hemen çalışır)</label>
+          <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod2" value="2" onchange="szKaydet()"> <b>2 - Sessiz</b> (siren çalışmaz, sadece bildirim)</label>
+          <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod3" value="3" onchange="szKaydet()"> <b>3 - Onaylı</b> (onay verince sesli gibi çalışır)</label>
+        </div>
+        <p style="font-size:11px;color:var(--muted)">Bu mod Kalburum/Konteyner Zonu için de geçerlidir (ortak Alarm Modu) - Kontrol sekmesindeki seçici ile de değiştirilebilir.</p>
+        <div class="sz-grid">
+          <div><label class="sz-label">Gece Başlangıç (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBaslangic" onchange="szKaydet()"></div>
+          <div><label class="sz-label">Gece Bitiş (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBitis" onchange="szKaydet()"></div>
+          <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="0" max="120" id="sz_pirPencereSaniye" onchange="szKaydet()"></div>
+          <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="sz_pirMinTetiklenme" onchange="szKaydet()"></div>
+        </div>
+
+        <details class="subdet">
+          <summary>Zamana Bağlı Tetikleyiciler</summary>
+          <p class="sz-label">Gündüz</p>
+          <div class="sz-cbgrid" id="sz-grid-gunduz"></div>
+          <p class="sz-label" style="margin-top:10px">Gece</p>
+          <div class="sz-cbgrid" id="sz-grid-gece"></div>
+        </details>
+
+        <details class="subdet">
+          <summary>Mod Senaryoları</summary>
+          <p style="font-size:12px;color:var(--muted)">Her modu hangi sensörlerin tetikleyeceği (girdi) ve neyin çalışacağı (çıkış).</p>
+          <p class="sz-label" style="margin-top:8px">Sesli - Girdi</p>
+          <div class="sz-cbgrid" id="sz-grid-sesli-girdi"></div>
+          <p class="sz-label" style="margin-top:6px">Sesli - Çıkış</p>
+          <div class="sz-cbgrid" id="sz-grid-sesli-cikis"></div>
+          <p class="sz-label" style="margin-top:10px">Sessiz - Girdi</p>
+          <div class="sz-cbgrid" id="sz-grid-sessiz-girdi"></div>
+          <p class="sz-label" style="margin-top:6px">Sessiz - Çıkış</p>
+          <div class="sz-cbgrid" id="sz-grid-sessiz-cikis"></div>
+          <p class="sz-label" style="margin-top:10px">Onaylı - Girdi</p>
+          <div class="sz-cbgrid" id="sz-grid-onayli-girdi"></div>
+        </details>
+
+        <div id="sz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       </div>
+    </details>
 
-      <h3 style="margin-top:18px">Alarm Modu, Gece &amp; PIR</h3>
-      <div style="margin:8px 0">
-        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod1" value="1"> <b>1 - Sesli</b> (siren hemen çalışır)</label>
-        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod2" value="2"> <b>2 - Sessiz</b> (siren çalışmaz, sadece bildirim)</label>
-        <label class="sz-radio"><input type="radio" name="sz_alarmMod" id="sz_mod3" value="3"> <b>3 - Onaylı</b> (onay verince sesli gibi çalışır)</label>
-      </div>
-      <div class="sz-grid">
-        <div><label class="sz-label">Gece Başlangıç (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBaslangic"></div>
-        <div><label class="sz-label">Gece Bitiş (saat)</label><input class="input" type="number" min="0" max="23" id="sz_geceBitis"></div>
-        <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="0" max="120" id="sz_pirPencereSaniye"></div>
-        <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="sz_pirMinTetiklenme"></div>
-      </div>
-
-      <h3 style="margin-top:18px">Zamana Bağlı Tetikleyiciler</h3>
-      <p class="sz-label">Gündüz</p>
-      <div class="sz-cbgrid" id="sz-grid-gunduz"></div>
-      <p class="sz-label" style="margin-top:10px">Gece</p>
-      <div class="sz-cbgrid" id="sz-grid-gece"></div>
-
-      <h3 style="margin-top:18px">Mod Senaryoları</h3>
-      <p style="font-size:12px;color:var(--muted)">Her modu hangi sensörlerin tetikleyeceği (girdi) ve neyin çalışacağı (çıkış).</p>
-      <p class="sz-label" style="margin-top:8px">Sesli - Girdi</p>
-      <div class="sz-cbgrid" id="sz-grid-sesli-girdi"></div>
-      <p class="sz-label" style="margin-top:6px">Sesli - Çıkış</p>
-      <div class="sz-cbgrid" id="sz-grid-sesli-cikis"></div>
-      <p class="sz-label" style="margin-top:10px">Sessiz - Girdi</p>
-      <div class="sz-cbgrid" id="sz-grid-sessiz-girdi"></div>
-      <p class="sz-label" style="margin-top:6px">Sessiz - Çıkış</p>
-      <div class="sz-cbgrid" id="sz-grid-sessiz-cikis"></div>
-      <p class="sz-label" style="margin-top:10px">Onaylı - Girdi</p>
-      <div class="sz-cbgrid" id="sz-grid-onayli-girdi"></div>
-
-      <div class="row" style="margin-top:16px">
-        <button class="btn btn-primary" onclick="szKaydet()">💾 Sudepo Ayarlarını Kaydet</button>
-      </div>
-      <div id="sz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
-    <div class="card">
-      <h3>👁️ Konteyner Zonu - PIR Ayarları</h3>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505), kırmızı LED+buzzer'ı yerel olarak tetikler - RS485/ana alarm sistemine bağlı değil, sadece burası için. Pencere süresi içinde en az "Min. Tetiklenme" kadar hareket algılanırsa uyarı başlar.</p>
-      <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı) - yani tek bir hareket TEK tetiklenme üretir. Min. Tetiklenme'yi 1'de bırak, 2+ yaparsan pratikte hiç alarm tetiklenmez.</p>
+    <details class="card zone-konteyner" open>
+      <summary>👁️ Konteyner Zonu - PIR Ayarları</summary>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505) artık genel <b>Alarm Modu</b>'na (Sesli/Sessiz/Onaylı) uyar, Telegram ve büyük uyarı banner'ına da yansır - Sudepo Zonu ile aynı ortak sistemi kullanır.</p>
+      <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı hareketin büyüklüğüne bakmaksızın sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı). Bu yüzden "hassasiyet" iki kademeli süre mantığıyla ayarlanır: <b>1)</b> her yeni harekette hemen 1sn'lik kısa bir bip/LED darbesi verilir (henüz alarm değil, sadece "sensör gördü" işareti); <b>2)</b> hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır ve Alarm Modu'na göre tepki verir. Kısa/ufak/tek seferlik kıpırdamalar böylece sadece bir bip ile geçer, Telegram/siren tetiklemez.</p>
       <div class="row" style="gap:16px">
         <div>Hareket: <b id="kz-pir">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
-        <div>Yerel Uyarı: <b id="kz-alarm">-</b></div>
+        <div>Yerel Uyarı (LED/Buzzer): <b id="kz-alarm">-</b></div>
+        <div>Siren: <b id="kz-siren">-</b></div>
+        <div>Lamba: <b id="kz-lamba">-</b></div>
       </div>
       <div class="sz-grid" style="margin-top:10px">
-        <div><label class="sz-label">PIR Pencere (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirPencere"></div>
-        <div><label class="sz-label">PIR Min. Tetiklenme</label><input class="input" type="number" min="1" max="10" id="kz_pirMin"></div>
+        <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
+        <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
       </div>
-      <div class="row" style="margin-top:10px">
-        <button class="btn btn-primary" onclick="konteynerPirKaydet()">💾 Kaydet</button>
-      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği. Değer girip alandan çıkınca otomatik kaydedilir.</p>
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>📡 Konteyner Zonu - IR Kumanda</h3>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa bas, sonra hangi komutu çalıştıracağını seç. Birden fazla kumanda eklenebilir.</p>
-      <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
-      <div class="row" style="margin-top:10px">
-        <button class="btn btn-primary" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren</button>
-      </div>
-      <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
-    </div>
-
-    <div class="card">
-      <h3>WiFi</h3>
+    <details class="card" open>
+      <summary>WiFi</summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
         <select class="input" id="staSSIDSel"><option value="">Ağları tara...</option></select>
@@ -1270,10 +1398,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <button class="btn btn-danger" onclick="wifiKaldir()">Kaldır</button>
       </div>
       <div id="wifi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Nem Ayarları</h3>
+    <details class="card" open>
+      <summary>Nem Ayarları</summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)">
         Nem: <b id="settings-moisture-val">-</b> | Çıkış: <b id="settings-moisture-out">-</b> | Mod: <b id="settings-moisture-mod">-</b>
       </div>
@@ -1283,25 +1411,76 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
       <div style="margin-top:10px;">
         <label style="display:block;font-size:12px;color:var(--muted);">Alt Eşik (%)</label>
-        <input class="input" type="number" id="moisture-settings-low" min="0" max="100" style="width:120px;display:inline-block;" value="0">
+        <input class="input" type="number" id="moisture-settings-low" min="0" max="100" style="width:120px;display:inline-block;" value="0" onchange="setMoistureThresholds()">
         <label style="display:block;font-size:12px;color:var(--muted);margin-top:8px;">Üst Eşik (%)</label>
-        <input class="input" type="number" id="moisture-settings-high" min="0" max="100" style="width:120px;display:inline-block;" value="0">
-        <button class="btn btn-warn" style="margin-top:10px;" onclick="setMoistureThresholds()">Kaydet</button>
+        <input class="input" type="number" id="moisture-settings-high" min="0" max="100" style="width:120px;display:inline-block;" value="0" onchange="setMoistureThresholds()">
       </div>
       <div id="moisture-settings-msg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Sistem</h3>
+    <details class="card" open>
+      <summary>Sistem</summary>
       <div class="row">
         <button class="btn btn-danger" onclick="restartSistem()">Yeniden Başlat</button>
       </div>
-    </div>
+    </details>
+  </div>
+
+  <div id="kumanda" class="section">
+    <details class="card zone-konteyner" open>
+      <summary>🎛️ Kumanda Haritası</summary>
+      <p style="font-size:12px;color:var(--muted)">Aşağıdaki görsel, örnek bir evrensel kumandanın tuş düzenini gösterir - gerçek kumandanız farklı görünse de sorun değil. Bir tuşa tıklayın, sonra GERÇEK kumandanızda karşılık gelen tuşa basın: <b>tıklama IR sinyali göndermez</b>, sadece hangi tuşu öğrettiğinizi işaretlemenin bir yolu.</p>
+      <div class="remote-body">
+        <div class="remote-top">
+          <div class="remote-left-col">
+            <button class="remote-key power" data-key="POWER" onclick="irTusaTikla('POWER')">POWER</button>
+            <button class="remote-key" data-key="MUTE" onclick="irTusaTikla('MUTE')">🔇</button>
+            <button class="remote-key" data-key="AV/TV" onclick="irTusaTikla('AV/TV')">AV/TV</button>
+          </div>
+          <div class="remote-dpad">
+            <button class="remote-key rk-chp" data-key="CH+" onclick="irTusaTikla('CH+')">CH+</button>
+            <button class="remote-key rk-volm" data-key="VOL-" onclick="irTusaTikla('VOL-')">VOL-</button>
+            <button class="remote-key rk-menu" data-key="MENU" onclick="irTusaTikla('MENU')">MENU</button>
+            <button class="remote-key rk-volp" data-key="VOL+" onclick="irTusaTikla('VOL+')">VOL+</button>
+            <button class="remote-key rk-chm" data-key="CH-" onclick="irTusaTikla('CH-')">CH-</button>
+          </div>
+        </div>
+        <div class="remote-numpad">
+          <button class="remote-key" data-key="1" onclick="irTusaTikla('1')">1</button>
+          <button class="remote-key" data-key="2" onclick="irTusaTikla('2')">2</button>
+          <button class="remote-key" data-key="3" onclick="irTusaTikla('3')">3</button>
+          <button class="remote-key" data-key="4" onclick="irTusaTikla('4')">4</button>
+          <button class="remote-key" data-key="5" onclick="irTusaTikla('5')">5</button>
+          <button class="remote-key" data-key="6" onclick="irTusaTikla('6')">6</button>
+          <button class="remote-key" data-key="7" onclick="irTusaTikla('7')">7</button>
+          <button class="remote-key" data-key="8" onclick="irTusaTikla('8')">8</button>
+          <button class="remote-key" data-key="9" onclick="irTusaTikla('9')">9</button>
+          <button class="remote-key" data-key="0" onclick="irTusaTikla('0')">0</button>
+          <button class="remote-key" data-key="-/--" onclick="irTusaTikla('-/--')">-/--</button>
+          <button class="remote-key" data-key="AUTO" onclick="irTusaTikla('AUTO')">AUTO</button>
+        </div>
+      </div>
+      <div class="remote-legend">
+        <span><i class="assigned-dot"></i> Atanmış tuş</span>
+        <span><i></i> Boş tuş</span>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:8px">Önerilen eşleşmeler: POWER=Alarm Aç/Kapat, MUTE=Sustur, AV/TV=Panik, CH+=Lamba Aç, CH-=Lamba Kapat, VOL+=Kapı Aç, VOL-=Kapı Kapat, MENU=Kapı Aç/Kapat, 1/2/3=Mod Sesli/Sessiz/Onaylı, 0=Onayla, AUTO=Lamba Aç/Kapat. Öğrenirken açılan listede bu öneri otomatik seçili gelir, dilerseniz değiştirebilirsiniz. Boş kalan tuşlar (4-9, -/--) ileride ek komutlar için serbesttir.</p>
+    </details>
+
+    <details class="card zone-konteyner" open>
+      <summary>📡 Tanımlı Tuşlar</summary>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - yukarıdaki haritadan bir tuşa tıklayın ya da doğrudan "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basın, sonra hangi komutu çalıştıracağını seçin. Birden fazla kumanda eklenebilir.</p>
+      <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren (haritasız)</button>
+      </div>
+      <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
+    </details>
   </div>
 
   <div id="bilgiler" class="section">
-    <div class="card">
-      <h3>ESP32 Master Pinout (Konteyner)</h3>
+    <details class="card zone-konteyner">
+      <summary>ESP32 Master Pinout (Konteyner)</summary>
       <table class="table">
         <tr><th>Pin</th><th>GPIO</th><th>Modül</th><th>Fonksiyon / Bağlantı</th></tr>
         <tr><td>RX (UART1)</td><td>16</td><td>MAX485 RS485</td><td>RO (Alıcı)</td></tr>
@@ -1312,13 +1491,15 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D5</td><td>5</td><td>Kırmızı LED + Buzzer</td><td>İkisi PARALEL bu pine bağlı (pin tasarrufu) - LED'e seri direnç (~220-330Ω) şart, buzzer aktif tip olmalı (kendi osilatörü olan, doğrudan HIGH/LOW ile çalışan)</td></tr>
         <tr><td>D6</td><td>6</td><td>PIR HC-SR505 (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (mini tip, 3.3-5V)</td></tr>
         <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
+        <tr><td>D8</td><td>8</td><td>Alarm Sireni Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif (Sudepo Zonu'ndaki "Alarm Rölesi" ile aynı mantık)</td></tr>
+        <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
       </table>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> alanından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 8-15, 18, 21, 33-42, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
-    </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> alanından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 10-15, 18, 21, 33-42, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
+    </details>
 
-    <div class="card">
-      <h3>ESP8266 Slave Pinout</h3>
+    <details class="card zone-sudepo">
+      <summary>ESP8266 Slave Pinout</summary>
       <table class="table">
         <tr><th>Pin (NodeMCU)</th><th>GPIO</th><th>Modül</th><th>Fonksiyon</th></tr>
         <tr><td>D0</td><td>16</td><td>MAX485</td><td>DI (RS485 TX)</td></tr>
@@ -1332,10 +1513,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>TX (D10)</td><td>1</td><td>Arduino Nano</td><td>UART0 TX → Nano RX</td></tr>
         <tr><td>A0</td><td>ADC0</td><td>Toprak Nem</td><td>Analog nem sensörü</td></tr>
       </table>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Arduino Nano IO (v2 Pin Planı)</h3>
+    <details class="card zone-sudepo">
+      <summary>Arduino Nano IO (v2 Pin Planı)</summary>
       <table class="table">
         <tr><th>Pin</th><th>Modül</th><th>Fonksiyon</th></tr>
         <tr><td>D0 (RX)</td><td>ESP8266 TX</td><td>Seri haberleşme</td></tr>
@@ -1351,24 +1532,24 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>A6-A7</td><td>Yedek</td><td>Sadece analog input</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL</p>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>WiFi & Sistem</h3>
+    <details class="card" open>
+      <summary>WiFi & Sistem</summary>
       <div id="bilgi-sistem" style="font-size:13px">Yükleniyor...</div>
       <div id="build-info" style="font-size:12px;color:var(--muted);margin-top:8px">Yükleniyor...</div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Güncelleme Aralıkları</h3>
+    <details class="card" open>
+      <summary>Güncelleme Aralıkları</summary>
       <div id="guncelleme-bilgi" style="font-size:13px">Yükleniyor...</div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 5sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Kullanım Kılavuzu</h3>
+    <details class="card" open>
+      <summary>Kullanım Kılavuzu</summary>
       <div style="font-size:13px;line-height:1.6">
-        <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer).</p>
+        <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer). Bu mod artık hem Sudepo Zonu hem Kalburum/Konteyner için ORTAK - Konteyner PIR'ı eskale olup gerçek alarma dönüştüğünde de aynı moda göre davranır (bkz Ayarlar → Konteyner Zonu PIR Ayarları).</p>
         <p><b>Sustur/Sireni Kapat:</b> Alarm koşulu sürse bile röleyi susturur; koşul temizlenince otomatik sıfırlanır.</p>
         <p><b>Panik:</b> Tetikleyicilerden bağımsız, elle aç/kapat anahtarı gibi çalışır - röleyi zorla açık tutar.</p>
         <p><b>Kapı/PIR/Kaçak/Düşük seviye</b> tetikleyicileri ve gündüz/gece + mod bazlı senaryolar ESP8266 panelinin "Alarm" sekmesinden ayarlanır (bu panel sadece görüntüler ve mod/susturma/onay/panik komutlarını iletir).</p>
@@ -1376,8 +1557,9 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <p><b>Hava Durumu / Yağmur Tahmini:</b> Bahçenin sabit konumu için haftalık tahmin, bu cihazın interneti olduğu anda (örn. telefon hotspotu bağlıyken) otomatik çekilip hafızada saklanır. Bahçede kalıcı internet olmadığı için tahmin bayatlayabilir - 7 günden eski ise dikkate alınmaz ve sulama normal devam eder. Yarın yağmur bekleniyorsa bugünkü sulama otomatik atlanır (su israfını önlemek için).</p>
         <p><b>Telegram Bildirimleri:</b> Bir alarm YENİ tetiklendiğinde (panik, kapı, PIR, kaçak, sensör hatası) sayfa açık olmasa bile telefona Telegram mesajı gider - yalnızca cihazın o an interneti varsa (hotspot bağlıyken) çalışır, aksi halde birkaç dakika tekrar denenir. Bot token/chat ID <code>secrets.h</code> içinde saklanır.</p>
         <p><b>Mimari:</b> Nano (kapı/röle/lamba/PIR/nem çıkışı) ⇄ ESP8266 (sensörler + web) ⇄ RS485 ⇄ ESP32 (bu panel, MQTT yayını). Nano firmware'i genel amaçlı GPIO komutlarıyla (PIN_MODE/WRITE/READ) çalıştığı için donanım eklemelerinde çoğunlukla yeniden flaşlanması gerekmez.</p>
+        <p><b>Kumanda:</b> IR kumanda tuş eşleştirmesi ayrı "Kumanda" sekmesinde - görsel kumanda üzerinden tuşa tıklamak IR sinyali göndermez, sadece hangi tuşu öğrettiğinizi işaretler; kod gerçek kumandada o tuşa basılınca yakalanır.</p>
       </div>
-    </div>
+    </details>
   </div>
 </div>
 
@@ -1397,6 +1579,18 @@ const $=s=>document.querySelector(s);
 // UI'da hepsini kilitlemeye gerek yok.
 let busySet = new Set();
 
+// Bir input "Kaydet" butonu olmadan onchange ile otomatik kaydedilince, kayit
+// butonuna tiklamanin aksine input BLUR olur (odak kaybolur) - tam o anda
+// gelen bir periyodik guncelleme (SSE/poll) sunucunun henuz eski degerini
+// gosterip degeri bir an icin "eski hale donup tekrar gelmis" gibi
+// gosterebilirdi (odak koruması artik gecerli degil). Bu, alani kisa bir
+// sure (varsayilan 2.5sn) "yakinda kullanici tarafindan degistirildi" olarak
+// isaretleyip o sure icinde sunucudan gelen degerle UZERINE YAZMAYI atlayan
+// basit bir koruma.
+const yakinDuzenlenenler = new Map(); // id -> koruma bitis zamani (ms)
+function yakinDuzenlendi(id, ms=2500){ yakinDuzenlenenler.set(id, Date.now()+ms); }
+function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Date.now()<t; }
+
 // Alarm tetiklendiginde kisa bip - ESP8266 panelindeki ile ayni desen.
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
 let alarmOncekiDurum = false;
@@ -1413,10 +1607,12 @@ function bipSesi(){
 }
 
 const tetikleyiciAdlari=['Sol Kapi','Sag Kapi','PIR','Su Seviyesi','Kacak','Sensor Hatasi'];
-function tetikleyenMetni(mask,panicAktif){
+function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi){
   if(panicAktif) return 'Panik (elle acildi)';
   const l=[];
   for(let i=0;i<6;i++) if(mask&(1<<i)) l.push(tetikleyiciAdlari[i]);
+  if(konteynerPir) l.push('Konteyner PIR (Hareket)');
+  if(konteynerKapi) l.push('Konteyner Kapı');
   return l.length?l.join(', '):'-';
 }
 
@@ -1448,11 +1644,17 @@ function renderUI(d){
   // mod+zaman senaryosuna gore filtreledigi otoriter kaynak - artik o
   // kullaniliyor. Panik de ayrica eklendi (eskiden hic banner tetiklemiyordu).
   const alarmMask = (d.alarm && d.alarm.trigger_mask) || 0;
+  // Konteyner (ESP32-yerel) sensorleri de genel alarm sistemine dahil -
+  // ana enabled anahtarina uyar, ESP8266'nin trigger_mask'inden ayri tutulur.
+  const enabledMi = !(d.alarm && d.alarm.enabled === false);
+  const kz = d.konteyner||{};
+  const konteynerPirVar = enabledMi && !!kz.pir_alarm;
+  const konteynerKapiVar = enabledMi && !!kz.kapi_acik;
   // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
   // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
   // kapatilmisken panik basilinca banner hic gorunmuyordu.
-  const anyAlarm = !!(d.alarm && ((d.alarm.enabled !== false && alarmMask !== 0) || d.alarm.panic));
+  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar));
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
@@ -1461,13 +1663,15 @@ function renderUI(d){
     else if(d.alarm.door) at='ALARM: Kapı açık!';
     else if(alarmMask & 4) at='ALARM: Hareket algılandı!';
     else if(alarmMask & 32) at='ALARM: Sensör hatası!';
+    else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
+    else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
   }
   $('#alarm-text').textContent=at;
   // Buyuk uyari banner'i - ESP8266'daki gibi, tetiklendiginde sayfanin
   // her sekmesinde gorunur olsun diye header'in hemen altina konuldu.
   const ban=$('#alarm-banner');
   if(ban){
-    const bekliyor = d.alarm && d.alarm.pending;
+    const bekliyor = (d.alarm && d.alarm.pending) || (d.konteyner && d.konteyner.pending);
     const alarmSimdiVar = !!(anyAlarm || bekliyor);
     if(alarmSimdiVar && !alarmOncekiDurum) bipSesi();
     alarmOncekiDurum = alarmSimdiVar;
@@ -1480,7 +1684,7 @@ function renderUI(d){
       let msg = panikAktif ? at : (bekliyor ? ('ONAY BEKLIYOR - '+at) : at);
       if(!panikAktif){
         if(d.alarm && d.alarm.muted) msg += ' (Susturuldu)';
-        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false);
+        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar);
         msg += ' | Tetikleyen: '+tk;
       }
       let html = '⚠ '+msg;
@@ -1534,12 +1738,13 @@ function renderUI(d){
     hb.innerHTML = sorunlar.length ? sorunlar.map(s=>'⚠️ '+s).join('<br>') : '';
   }
   // Konteyner Zonu PIR - durum + ayar alanlari (odaklıyken üzerine yazma)
-  const kz=d.konteyner||{};
   const kzp=$('#kz-pir'); if(kzp) kzp.textContent = kz.pir?'Var':'Yok';
   const kzk=$('#kz-kapi'); if(kzk) kzk.textContent = kz.kapi_acik?'Açık':'Kapalı';
-  const kza=$('#kz-alarm'); if(kza){ kza.textContent = kz.pir_alarm?'AKTİF':'Pasif'; kza.style.color = kz.pir_alarm?'var(--danger)':''; }
-  const kzpp=$('#kz_pirPencere'); if(kzpp && !kzpp.matches(':focus') && kz.pir_pencere!=null) kzpp.value=kz.pir_pencere;
-  const kzpm=$('#kz_pirMin'); if(kzpm && !kzpm.matches(':focus') && kz.pir_min!=null) kzpm.value=kz.pir_min;
+  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||kz.kapi_acik; kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
+  const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
+  const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
+  const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
+  const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
   // Nano IO - dashboard
   $('#d1').textContent=d.nano.door1?'Açık':'Kapalı';
   $('#d2').textContent=d.nano.door2?'Açık':'Kapalı';
@@ -1567,10 +1772,8 @@ function renderUI(d){
   const smv=$('#settings-moisture-val'); if(smv) smv.textContent=(mo.percent||0).toFixed(1)+'%';
   const smo=$('#settings-moisture-out'); if(smo) smo.textContent=mo.output?'Açık':'Kapalı';
   const smm=$('#settings-moisture-mod'); if(smm) smm.textContent=mo.auto?'Otomatik':'Manuel';
-  const ml=$('#moisture-low'); if(ml&&!ml.matches(':focus')) ml.value=mo.low||0;
-  const mh=$('#moisture-high'); if(mh&&!mh.matches(':focus')) mh.value=mo.high||0;
-  const sml=$('#moisture-settings-low'); if(sml&&!sml.matches(':focus')) sml.value=mo.low||0;
-  const smh=$('#moisture-settings-high'); if(smh&&!smh.matches(':focus')) smh.value=mo.high||0;
+  const sml=$('#moisture-settings-low'); if(sml&&!sml.matches(':focus')&&!yakinKorumali('moisture-settings-low')) sml.value=mo.low||0;
+  const smh=$('#moisture-settings-high'); if(smh&&!smh.matches(':focus')&&!yakinKorumali('moisture-settings-high')) smh.value=mo.high||0;
   // Bilgiler sekmesi - sistem bilgileri
   const bi=$('#bilgi-sistem');
   if(bi){
@@ -1662,6 +1865,7 @@ function toggleMoistureAuto(){
   sendCommand('#moisture-settings-auto-btn', '/api/moisture/auto?aktif='+(manuel?0:1), '#moisture-settings-msg');
 }
 function setMoistureThresholds(){
+  yakinDuzenlendi('moisture-settings-low'); yakinDuzenlendi('moisture-settings-high');
   const low=parseInt($('#moisture-settings-low').value)||0;
   const high=parseInt($('#moisture-settings-high').value)||0;
   if(low<0||low>100||high<0||high>100||low>=high){
@@ -1765,8 +1969,10 @@ function telegramAcKapa(){
 }
 
 function konteynerPirKaydet(){
-  const pencere=$('#kz_pirPencere').value, mint=$('#kz_pirMin').value;
-  api('/api/konteyner/pir_ayar?pencere='+encodeURIComponent(pencere)+'&min='+encodeURIComponent(mint)).then(()=>{
+  yakinDuzenlendi('kz_pirTutma'); yakinDuzenlendi('kz_pirOnay');
+  const tutma=$('#kz_pirTutma').value;
+  const onay=$('#kz_pirOnay').value;
+  api('/api/konteyner/pir_ayar?tutma='+encodeURIComponent(tutma)+'&onay='+encodeURIComponent(onay)).then(()=>{
     $('#kz-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
@@ -1774,10 +1980,10 @@ function konteynerPirKaydet(){
 // === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
 const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
 function szGridHtml(prefix){
-  return szTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'">'+t[1]+'</label>').join('');
+  return szTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'" onchange="szKaydet()">'+t[1]+'</label>').join('');
 }
 function szOutputGridHtml(prefix){
-  return '<label><input type="checkbox" id="'+prefix+'_siren">Siren</label><label><input type="checkbox" id="'+prefix+'_lamba">Lamba</label>';
+  return '<label><input type="checkbox" id="'+prefix+'_siren" onchange="szKaydet()">Siren</label><label><input type="checkbox" id="'+prefix+'_lamba" onchange="szKaydet()">Lamba</label>';
 }
 function szCalcTrigger(prefix){
   let v=0;
@@ -1888,21 +2094,45 @@ setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
 const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
+// Kumanda Haritası'ndaki tuşlar icin onerilen (sadece on-dolgu, degistirilebilir) komut
+const irOnerilenKomut={'POWER':'ALARM_TOGGLE','MUTE':'ALARM_SUSTUR','AV/TV':'PANIK','CH+':'LAMBA_AC','CH-':'LAMBA_KAPAT','VOL+':'KAPI_AC','VOL-':'KAPI_KAPAT','MENU':'KAPI_TOGGLE','1':'ALARM_MOD=1','2':'ALARM_MOD=2','3':'ALARM_MOD=3','0':'ALARM_ONAYLA','AUTO':'LAMBA_TOGGLE'};
 let irOgrenPolling=null;
+let irSeciliTusAdi=null; // Kumanda Haritasi'ndan secilen tus (haritasiz ogrenmede null kalir)
 function irListesiYukle(){
   fetch('/api/ir/liste').then(r=>r.json()).then(list=>{
     const el=$('#ir-liste'); if(!el) return;
-    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; return; }
-    el.innerHTML=list.map(e=>
-      '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
-      +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
-      +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
-    ).join('');
+    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; }
+    else {
+      el.innerHTML=list.map(e=>
+        '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
+        +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
+        +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
+      ).join('');
+    }
+    // Kumanda Haritasi'nda atanmis tuslari isaretle - etiket "Komut — TUS" formatinda
+    // kaydedildiginde (bkz irKodAtamaFormuGoster/irKaydet) son parca tus adiyla eslesir.
+    document.querySelectorAll('.remote-key[data-key]').forEach(b=>{ b.classList.remove('assigned'); b.title=''; });
+    (Array.isArray(list)?list:[]).forEach(e=>{
+      const parts=(e.etiket||'').split(' — ');
+      const tus = parts.length>1 ? parts[parts.length-1] : null;
+      if(!tus) return;
+      const btn=document.querySelector('.remote-key[data-key="'+tus+'"]');
+      if(btn){ btn.classList.add('assigned'); btn.title=e.etiket; }
+    });
   }).catch(()=>{});
 }
-function irOgrenBaslat(){
+function irTusaTikla(tus){
+  document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
+  const btn=document.querySelector('.remote-key[data-key="'+tus+'"]');
+  if(btn) btn.classList.add('active-learning');
+  irOgrenBaslat(tus);
+}
+function irOgrenBaslat(tusAdi){
+  irSeciliTusAdi = tusAdi || null;
   fetch('/api/ir/ogren_baslat').then(()=>{
-    $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)';
+    $('#ir-ogren-durum').innerHTML = irSeciliTusAdi
+      ? ('Kumandanızda <b>'+irSeciliTusAdi+'</b> tuşuna basın... (20sn içinde)')
+      : 'Kumandada bir tuşa basın... (20sn içinde)';
     if(irOgrenPolling) clearInterval(irOgrenPolling);
     irOgrenPolling=setInterval(irOgrenKontrolEt, 800);
   }).catch(()=>{});
@@ -1915,6 +2145,7 @@ function irOgrenKontrolEt(){
     } else if(d.zamanAsimi){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
       $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.';
+      document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
     }
   }).catch(()=>{});
 }
@@ -1923,8 +2154,10 @@ function irKodAtamaFormuGoster(kod){
   for(const k in irKomutAdlari) secenekler+='<option value="'+k+'">'+irKomutAdlari[k]+'</option>';
   $('#ir-ogren-durum').innerHTML='Kod alındı: <b>0x'+kod+'</b><br>'
     +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select><br>'
-    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px">'
+    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px" value="'+(irSeciliTusAdi||'')+'">'
     +'<br><button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
+  const onerilen = irSeciliTusAdi && irOnerilenKomut[irSeciliTusAdi];
+  if(onerilen){ const sel=$('#ir-komut-sec'); if(sel) sel.value=onerilen; }
 }
 function irKaydet(kod){
   const sel=$('#ir-komut-sec'); const komut=sel.value; const komutAdi=sel.options[sel.selectedIndex].text;
@@ -1932,6 +2165,8 @@ function irKaydet(kod){
   const etiket=not_?(komutAdi+' — '+not_):komutAdi;
   fetch('/api/ir/kaydet?kod='+kod+'&komut='+encodeURIComponent(komut)+'&etiket='+encodeURIComponent(etiket)).then(()=>{
     $('#ir-ogren-durum').innerHTML='Kaydedildi ✓';
+    irSeciliTusAdi=null;
+    document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
     irListesiYukle();
   }).catch(()=>{});
 }
@@ -1944,7 +2179,7 @@ irListesiYukle();
 </body>
 </html>
   )html";
-  server.send(200, "text/html", html);
+  server.send_P(200, "text/html", PAGE_HTML, sizeof(PAGE_HTML) - 1);
 }
 
 String durumJson() {
@@ -1975,9 +2210,12 @@ String durumJson() {
 
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
   doc["konteyner"]["pir"] = pir2HareketVar;
-  doc["konteyner"]["pir_alarm"] = konteynerPirAlarmVar;
-  doc["konteyner"]["pir_pencere"] = konteynerPirPencereSaniye;
-  doc["konteyner"]["pir_min"] = konteynerPirMinTetiklenme;
+  doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
+  doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
+  doc["konteyner"]["pir_onay"] = konteynerPirOnaySaniye;
+  doc["konteyner"]["pending"] = konteynerOnayBekleniyor;
+  doc["konteyner"]["siren"] = konteynerSirenAktif;
+  doc["konteyner"]["lamba"] = konteynerLambaAktif;
 
   doc["telegram_aktif"] = telegramBildirimAktif;
 
@@ -2324,14 +2562,18 @@ void handleAPI_TelegramAyar() {
 }
 
 void handleAPI_KonteynerPirAyar() {
-  if (server.hasArg("pencere") && server.hasArg("min")) {
-    uint16_t pencere = (uint16_t)server.arg("pencere").toInt();
-    uint8_t minT = (uint8_t)server.arg("min").toInt();
-    if (pencere < 1) pencere = 1;
-    if (minT < 1) minT = 1;
-    konteynerPirAyarKaydet(pencere, minT);
+  uint16_t tutma = konteynerPirTutmaSaniye;
+  uint16_t onay = konteynerPirOnaySaniye;
+  if (server.hasArg("tutma")) {
+    tutma = (uint16_t)server.arg("tutma").toInt();
+    if (tutma < 1) tutma = 1;
   }
-  server.send(200, "application/json", "{\"basarili\":true,\"pencere\":" + String(konteynerPirPencereSaniye) + ",\"min\":" + String(konteynerPirMinTetiklenme) + "}");
+  if (server.hasArg("onay")) {
+    onay = (uint16_t)server.arg("onay").toInt();
+    if (onay < 1) onay = 1;
+  }
+  konteynerPirAyarKaydet(tutma, onay);
+  server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
 }
 
 // ============ RS485 KOMUT API'LERI ============
@@ -2424,6 +2666,10 @@ bool alarmOnayla(String& reply) {
   bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
   rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
+  // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin.
+  konteynerOnayBekleniyor = false;
+  konteynerOnayVerildi = true; // "Sesli" onay - buzzer devreye girer
   return ok;
 }
 
@@ -2439,6 +2685,11 @@ void handleAPI_AlarmOnaylaLamba() {
   bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
   rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
+  // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
+  // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
+  // kalir), ama lamba tek basina aktif olur.
+  konteynerOnayBekleniyor = false;
+  konteynerLambaOnayVerildi = true;
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Sadece lamba flasoru aktif" : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
@@ -2991,8 +3242,6 @@ void bleDurumBildir() {
 
 #endif // ENABLE_BLE
 
-// Test 1: Nano D13 LED kontrolü
-// ESP32 -> RS485 -> ESP8266 (MASTER:SET_LAMBA) -> Nano (LAMBA_ON) -> D13 HIGH
 void handleAPI_Wifi() {
   if (!server.hasArg("ssid")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"SSID eksik\"}");
