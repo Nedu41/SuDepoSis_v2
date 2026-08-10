@@ -159,7 +159,11 @@ void ayarlariYukle() {
     ayarlariKaydet();
   } else {
     if (ayar.pirPencereSaniye > 120) ayar.pirPencereSaniye = 10; // eski firmware'den kalma gecersiz/bozuk deger
-    if (ayar.pirMinTetiklenme == 0 || ayar.pirMinTetiklenme > 10) ayar.pirMinTetiklenme = 2;
+    // Ust sinir asagidaki PIR_DARBE_GECMISI_BOYUTU (8, satir ~220) ile
+    // ESLESMELI - buyugu, sayac en fazla 8 olabildigi icin ASLA
+    // tetiklenemeyen bir alarm demekti (bug). Define bu noktadan sonra
+    // oldugundan (once kullanilamaz) literal 8 yazildi.
+    if (ayar.pirMinTetiklenme == 0 || ayar.pirMinTetiklenme > 8) ayar.pirMinTetiklenme = 2;
   }
 }
 
@@ -684,8 +688,13 @@ void rs485KomutDinle() {
           } else {
             response = "NACK:" + komut;
           }
-        } else if (komut == "ALARM_MUTE") {
-          alarmSusturuldu = !alarmSusturuldu;
+        } else if (komut.startsWith("ALARM_MUTE=")) {
+          // ONCEDEN "ALARM_MUTE" kosulsuz TOGGLE komutuydu - ESP32 tarafi
+          // ACK kaybedip komutu tekrar gonderirse (rs485_send_wait_ack
+          // retry) susturma yanlislikla iki kez tetiklenip eski haline
+          // donebiliyordu. Artik ESP32 acik HEDEF degeri gonderiyor,
+          // burada dogrudan o degere SET ediliyor - retry idempotent.
+          alarmSusturuldu = (komut.substring(11) == "1");
           response = "ACK:" + komut;
         } else if (komut == "ALARM_ONAYLA") {
           alarmOnaylandi = true; alarmOnayBekliyor = false; alarmOnaySadeceLamba = false;
@@ -693,10 +702,14 @@ void rs485KomutDinle() {
         } else if (komut == "ALARM_ONAYLA_LAMBA") {
           alarmOnaySadeceLamba = true; alarmOnayBekliyor = false; alarmOnaylandi = false;
           response = "ACK:" + komut;
-        } else if (komut == "PANIC") {
+        } else if (komut.startsWith("PANIC=")) {
           // ESP32'nin /api/panic'i bunu bekler: web /role/panic ile ayni
-          // toggle davranisi, ACK icinde yeni durumu da doner (PANIC=1/0).
-          panicRoleAktif = !panicRoleAktif;
+          // davranis, ACK icinde yeni durumu da doner (PANIC=1/0). ONCEDEN
+          // bare "PANIC" kosulsuz toggle komutuydu - ayni ACK-kaybi/retry
+          // riski (bkz ALARM_MUTE yorumu) panik gibi guvenlik-kritik bir
+          // ozellik icin cok daha ciddiydi. Artik acik HEDEF degere set
+          // ediliyor, idempotent.
+          panicRoleAktif = (komut.substring(6) == "1");
           bool ok = nanoRoleKontrol(panicRoleAktif);
           response = (ok ? "ACK:" : "NACK:") + String("PANIC=") + (panicRoleAktif ? "1" : "0");
         } else if (komut == "GET_AYARLAR") {
@@ -740,7 +753,7 @@ void rs485KomutDinle() {
           v = ayarDegerAl(veri, "alarmOutputSesli"); if (v.length()) ayar.alarmOutputSesli = v.toInt();
           v = ayarDegerAl(veri, "alarmOutputSessiz"); if (v.length()) ayar.alarmOutputSessiz = v.toInt();
           v = ayarDegerAl(veri, "pirPencereSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.pirPencereSaniye = x; }
-          v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 10) x = 10; ayar.pirMinTetiklenme = x; }
+          v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > PIR_DARBE_GECMISI_BOYUTU) x = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = x; }
           ayarlariKaydet();
           response = "ACK:SET_AYARLAR";
         }
@@ -1241,7 +1254,7 @@ void handleSaveSettings() {
     int v = server.arg("pirPencereSaniye").toInt(); if (v < 0) v = 0; if (v > 120) v = 120; ayar.pirPencereSaniye = v;
   }
   if (server.hasArg("pirMinTetiklenme")) {
-    int v = server.arg("pirMinTetiklenme").toInt(); if (v < 1) v = 1; if (v > 10) v = 10; ayar.pirMinTetiklenme = v;
+    int v = server.arg("pirMinTetiklenme").toInt(); if (v < 1) v = 1; if (v > PIR_DARBE_GECMISI_BOYUTU) v = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = v;
   }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
@@ -1508,6 +1521,20 @@ void setupWiFi() {
   }
 }
 
+// Genel amacli /pin/mode,/pin/write,/pin/read GPIO API'si (Nano'ya dogrudan
+// serial komut gonderir) icin donanima ONCEDEN AYRILMIS pinleri korur.
+// ONCEDEN BUG: bu API hicbir blacklist olmadan pin numarasini oldugu gibi
+// Nano'ya iletiyordu - orn. /pin/write?pin=4&val=1 dogrudan alarm rolesini
+// (nano_io/include/config.h: RELAY_PIN=4) manipule edebiliyordu,
+// /pin/mode?pin=6&mod=OUTPUT ise PIR pinini (PIR_PIN=6) surucu cikisina
+// cevirip surekli yanlis "hareket" bildirimine yol acabiliyordu -
+// hicbir kimlik dogrulama da yok. Pin numaralari nano_io/include/config.h
+// ile SENKRON tutulmali: DOOR1_PIN=2, DOOR2_PIN=3, RELAY_PIN=4,
+// MOISTURE_PIN=5, PIR_PIN=6, LAMBA_PIN=13.
+bool pinKorumali(int pin) {
+  return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13;
+}
+
 // ============ SETUP ============
 void setup() {
   // FIX: Serial (UART0) 9600 baud'da başlatılır - Nano ile aynı hız
@@ -1630,6 +1657,7 @@ void setup() {
   server.on("/pin/mode", []() {
     if (!server.hasArg("pin") || !server.hasArg("mod")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"pin ve mod gerekli\"}"); return; }
     int pin = server.arg("pin").toInt();
+    if (pinKorumali(pin)) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Bu pin donanima ayrilmis (kapi/role/PIR/lamba), genel GPIO API ile degistirilemez\"}"); return; }
     String mod = server.arg("mod"); mod.toUpperCase();
     if (mod != "OUTPUT" && mod != "INPUT" && mod != "INPUT_PULLUP") { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"mod: OUTPUT/INPUT/INPUT_PULLUP\"}"); return; }
     while (Serial.available()) Serial.read();
@@ -1644,6 +1672,7 @@ void setup() {
   server.on("/pin/write", []() {
     if (!server.hasArg("pin") || !server.hasArg("val")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"pin ve val gerekli\"}"); return; }
     int pin = server.arg("pin").toInt();
+    if (pinKorumali(pin)) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Bu pin donanima ayrilmis (kapi/role/PIR/lamba), genel GPIO API ile degistirilemez\"}"); return; }
     int val = server.arg("val").toInt();
     while (Serial.available()) Serial.read();
     Serial.print("PIN_WRITE:"); Serial.print(pin); Serial.print(","); Serial.println(val);
@@ -1657,6 +1686,7 @@ void setup() {
   server.on("/pin/read", []() {
     if (!server.hasArg("pin")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"pin gerekli\"}"); return; }
     int pin = server.arg("pin").toInt();
+    if (pinKorumali(pin)) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Bu pin donanima ayrilmis (kapi/role/PIR/lamba), genel GPIO API ile okunamaz\"}"); return; }
     while (Serial.available()) Serial.read();
     Serial.print("PIN_READ:"); Serial.println(pin);
     unsigned long t = millis(); String r = ""; bool ok = false;
