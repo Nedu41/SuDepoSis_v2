@@ -58,21 +58,27 @@
 
 // ===== RS485 Ayarları =====
 // ESP8266 slave SoftwareSerial için 9600 baud seçildi.
+// NOT: ESP32-S3'te UART pinleri (klasik ESP32'nin aksine) sabit degil - GPIO
+// matrisi uzerinden Serial1.begin() cagrisinda hangi pin verilirse o kullanilir
+// (bkz main.cpp). Bu yuzden RX/TX/DE pinleri, karttaki fiziksel kablolamaya en
+// uygun herhangi bir SERBEST GPIO'ya (asagidaki Konteyner Donanimi bolumundeki
+// listeye bkz) tasinabilir - donanimsal/yazilimsal bir kisit yok. Kartin sag-
+// orta bolgesine denk gelen GPIO37/38/39 secildi (kullanicinin tercihi).
 #define RS485_BAUDRATE 9600
-#define RS485_RX_PIN 16      // GPIO16 (UART1)
-#define RS485_TX_PIN 17      // GPIO17 (UART1)
-#define RS485_DE_PIN 2       // GPIO2 (Verici Enable)
+#define RS485_RX_PIN 37      // GPIO37 - MAX485 RO (Alici cikisi -> ESP32 RX)
+#define RS485_TX_PIN 38      // GPIO38 - MAX485 DI (Verici girisi <- ESP32 TX)
+#define RS485_DE_PIN 39      // GPIO39 - MAX485 DE/RE (Verici Enable)
 #define RS485_UART_NUM 1     // UART1
 
 // ===== Konteyner Donanimi (IR alici, alarm LED, PIR) =====
 // ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti
 // eklerken cakisma olmasin diye:
-//   KULLANILAN:    GPIO2, GPIO16, GPIO17 (RS485)
+//   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485)
 //                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO10-15, 18, 21, 33-42, 47, 48
+//   SERBEST (gelecekteki eklentiler icin): GPIO2, 10-15, 16, 17, 18, 21, 33, 34, 36, 40, 41, 42, 47, 48
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
