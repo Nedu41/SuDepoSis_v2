@@ -538,6 +538,13 @@ void masterGonder() {
   // 60-900sn'lik periyodik olcumde tazeleniyordu, aradaki surede Kalburum
   // eski/durgun deger gorebiliyordu.
   moistureOku();
+  // EKSIK KALAN YARISI (BUG): deger burada taze okunuyordu ama role KARARI
+  // (applyMoistureControl) HALA sadece 60sn (gunduz) / 900sn=15dk (gece!)
+  // periyodik olcum donguisunde veriliyordu - Kalburum panelinde deger
+  // saniyede guncellenirken (bu fonksiyon ~1sn'de bir calisir), rolenin esigi
+  // gecmesine ragmen tepki vermesi 15 dakikaya kadar gecikebiliyordu. Karar
+  // da artik AYNI sikta, degerle birlikte taze veriliyor.
+  if (ayar.moistureAutomatic) applyMoistureControl();
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),

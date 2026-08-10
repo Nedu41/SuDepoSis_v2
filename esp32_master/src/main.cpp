@@ -568,6 +568,19 @@ volatile bool irYeniKodVar = false;
 uint32_t irSonKod = 0;
 void irKumandaIsle() {
   if (!IrReceiver.decode()) return;
+  // ONEMLI BUG DUZELTMESI: NEC protokolu (bu kumandalarin cogu) bir tusa
+  // basili tutulurken ~108ms'de bir "repeat" (tekrar) karesi gonderir - bu,
+  // IrReceiver.decode()'un AYRI bir basarili decode olarak donmesine neden
+  // olur (decodedRawData degismez, ama HER karede irYeniKodVar tekrar true
+  // oluyordu). Bu filtre YOKKEN, normal bir tus basisi (birkac yuz ms surse
+  // bile) TOGGLE komutlarini (Lamba/Alarm/Kapi Ac-Kapat) arka arkaya 2-5 kez
+  // tetikleyip durumu ac-kapa-ac diye rastgele degistiriyordu - "kumanda
+  // sapitiyor" sikayetinin sebebi buydu. Repeat kareleri artik yok sayilir,
+  // sadece YENI/tam kod islenir.
+  if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) {
+    IrReceiver.resume();
+    return;
+  }
   irSonKod = IrReceiver.decodedIRData.decodedRawData;
   irYeniKodVar = true;
   DEBUG_PRINT("[IR] Kod alindi: 0x");
