@@ -365,6 +365,7 @@ bool konteynerOnBipCiksin = false;         // loop'a "yeni bolum basladi, on bip
 bool konteynerOnayBekleniyor = false;      // mode==3 + eskalasyon oldu + henuz onaylanmadi
 bool konteynerOnayVerildi = false;         // mode==3 + bu bolum icin onaylandi (Sesli onay ile)
 bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (Lamba)" onayi verildi
+bool konteynerLambaManuel = false;         // Kontrol sekmesinden elle acilan/kapanan lamba - alarm/siren'den BAGIMSIZ, otomatik davranisla OR'lanir (bkz alarmLedGuncelle)
 bool konteynerSirenAktif = false;          // KONTEYNER_SIREN_PIN'in guncel durumu (durumJson icin)
 bool konteynerLambaAktif = false;          // KONTEYNER_LAMBA_PIN'in guncel durumu (durumJson icin)
 
@@ -473,8 +474,12 @@ void alarmLedGuncelle() {
   // modda "Sessiz (Lamba)" onayi verildiginde (konteynerLambaOnayVerildi) TEK
   // BASINA aktif - Sudepo Zonu'ndaki "Onayli - sadece lamba flasoru" secenegiyle
   // ayni mantik, artik Konteyner'de de gercek bir fiziksel karsiligi var.
+  // konteynerLambaManuel: Kontrol sekmesinden elle ac/kapa - otomatik alarm
+  // davranisiyla OR'lanir (alarm sururken elle kapatilsa bile alarm onu
+  // yeniden yakar - siren gibi tamamen otomatiklestirilmedi, bilincli tercih:
+  // kullanici "lambayi ac" dedigi surece, alarm bitse bile yanik kalsin).
   konteynerSirenAktif = konteynerBuzzerVar;
-  konteynerLambaAktif = konteynerBuzzerVar || konteynerLambaOnayVerildi;
+  konteynerLambaAktif = konteynerBuzzerVar || konteynerLambaOnayVerildi || konteynerLambaManuel;
   digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
   digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaAktif ? HIGH : LOW);
 
@@ -1283,10 +1288,13 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   <div id="kontrol" class="section">
     <div class="card">
       <h3>Lamba</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">İki zonun da kendi lambası var - Sudepo'nunki tamamen elle, Konteyner'inki hem elle hem alarm/siren ile otomatik yanabilir (ikisi birbirini bastırmaz - alarm sürerken elle kapatsanız bile alarm onu yeniden yakar).</p>
       <div class="row">
-        <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Aç</button>
+        <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Sudepo Zonu: Aç</button>
+        <button class="btn btn-primary" id="konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Konteyner Zonu: Aç</button>
       </div>
       <div id="lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div id="konteyner-lamba-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -1822,7 +1830,8 @@ function renderUI(d){
   // === BUTON METİNLERİ - SUNUCUDAN GELIR, local state YOK ===
   // Her buton sadece KENDI komutu surerken (busySet'te ise) atlanir; digerleri
   // her zaman taze veriyle guncellenir (bkz. busySet aciklamasi yukarida).
-  if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = d.nano.lamp ? 'Kapat' : 'Aç';
+  if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (d.nano.lamp ? 'Kapat' : 'Aç');
+  if(!busySet.has('#konteyner-lamba-btn')){ const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
   if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   if(!busySet.has('#konteyner-alarm-btn')){ const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
   if(!busySet.has('#panic-btn')){ const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
@@ -1921,8 +1930,12 @@ function sendCommand(btnId, path, resultId, label){
 function toggleLamba(){
   // Mevcut durumu buton metninden değil, sunucu state'inden bil
   // Butonda 'Kapat' yazıyorsa lamba açık demek → hedef=0
-  const acik = $('#lamba-btn').textContent.trim() === 'Kapat';
+  const acik = $('#lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#lamba-btn', '/api/lamba?durum='+(acik?0:1), '#lamba-sonuc');
+}
+function toggleKonteynerLamba(){
+  const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
+  sendCommand('#konteyner-lamba-btn', '/api/konteyner/lamba?durum='+(acik?0:1), '#konteyner-lamba-sonuc');
 }
 function toggleMoisture(){
   const acik = $('#moisture-settings-toggle-btn').textContent.trim() === 'Kapat';
@@ -2668,6 +2681,18 @@ void handleAPI_Lamba() {
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Lamba Acik" : "Lamba Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
 
+// Konteyner'in KENDI elle ac/kapa lamba anahtari - Sudepo'nun /api/lamba'sinin
+// aksine RS485 YOK, tamamen yerel/anlik (bkz konteynerLambaManuel,
+// alarmLedGuncelle icinde otomatik alarm davranisiyla OR'lanir).
+void handleAPI_KonteynerLamba() {
+  if (!server.hasArg("durum")) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
+    return;
+  }
+  konteynerLambaManuel = (server.arg("durum").toInt() == 1);
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(konteynerLambaManuel ? "Lamba Acik" : "Lamba Kapali") + "\"}");
+}
+
 bool alarmAyarla(bool aktif, String& reply) {
   rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
@@ -3400,6 +3425,7 @@ void setupWebServer() {
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
+  server.on("/api/konteyner/lamba", handleAPI_KonteynerLamba);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
   server.on("/api/moisture/threshold", handleAPI_MoistureThreshold);
