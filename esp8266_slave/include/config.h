@@ -12,14 +12,10 @@
 #define RS485_TX_PIN D0       // GPIO16 - MAX485 DI
 #define RS485_RX_PIN D7       // GPIO13 - MAX485 RO
 #define RS485_DE_PIN D3       // GPIO0 - MAX485 DE/RE (boot: LOW, jumper 3V3 for upload)
-#define RS485_TIMEOUT_MS 1000
-#define RS485_SEND_INTERVAL 1000  // 1 saniyede bir master'a veri gönder
 
 // ===== HC-SR04 Ultrasonik Sensör =====
 #define TRIG_PIN D5           // GPIO14
 #define ECHO_PIN D6           // GPIO12
-#define HCSR04_SAMPLES 3
-#define HCSR04_UPDATE_INTERVAL 2000  // 2 saniye
 
 // ===== Nano UART0 Haberleşmesi (HardwareSerial) =====
 // ESP8266 D9(GPIO3)=UART0 RX ← Nano TX

@@ -229,7 +229,6 @@ int moistureRaw = 0;
 float moisturePercent = 0.0;
 
 // ============ RS485 ============
-unsigned long sonRS485GonderMs = 0;
 String sonRS485AlinanMsj = "(yok)";
 unsigned long sonRS485AlinanMs = 0;
 
@@ -1351,13 +1350,6 @@ void handleWifiKaydet() {
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi\"}");
 }
 
-void handleWifiKart() {
-  // FIX: WiFi kartı ayrı endpoint'ten yüklenir - ana HTML'in heap taşması
-  // nedeniyle WiFi bölümünün görünmemesi sorunu çözülür.
-  String h = "<div class=card><h3>WiFi Ayarlari</h3><p class=muted>AP: " + String(WIFI_AP_SSID) + " / " + String(WIFI_AP_PASSWORD) + "</p><div class=info id=wifiDurumKutu>Yukleniyor...</div><label>SSID Sec</label><div style='display:flex;gap:8px'><select id=staSSID style='flex:1'></select><button class='btn btn-mavi' onclick=wifiScan()>Aglari Tara</button></div><label>Ya da elle girin</label><input type=text id=staSSIDManual placeholder='SSID girin'><label>Sifre</label><div style='position:relative'><input type=password id=staSifre style='width:100%;padding-right:52px'><button type=button id=pwToggleBtn onclick=togglePw() style='position:absolute;right:6px;top:6px;border:1px solid var(--input-border);border-radius:6px;background:var(--input-bg);color:var(--primary);font-size:11px;padding:6px 8px;cursor:pointer;font-weight:600'>Goster</button></div><div class=btn-satir><button class=btn-mavi onclick=wifiKaydet()>Baglan & Kaydet</button><button class=btn-kirmizi onclick=wifiKaldir()>Temizle</button></div><div id=wifiSonuc class=sonuc-metni></div></div>";
-  server.send(200, "text/html", h);
-}
-
 void handleWifiScan() {
   delay(100); // give radio a moment
   DEBUG_PRINTLN("[WIFI] Scan basliyor...");
@@ -1616,7 +1608,7 @@ void setup() {
   server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
-  server.on("/wifi/scan", handleWifiScan); server.on("/wifi/kart", handleWifiKart);
+  server.on("/wifi/scan", handleWifiScan);
   server.on("/lamba", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt(); // Buffer temizle, komutu gönder, ACK bekle (max 300ms)
   while (Serial.available()) Serial.read();
   Serial.println(y ? "LAMBA_ON" : "LAMBA_OFF");
