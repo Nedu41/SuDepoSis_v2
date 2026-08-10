@@ -1014,15 +1014,7 @@ Rs485State rs485_state = RS485_IDLE;
 unsigned long rs485_state_start_ms = 0;
 String rs485_pending_msg = "";
 
-// FIX: API komutları (handleAPI_Lamba vb.) bu flag'i true yapar,
-// böylece rs485_poll periyodik GET_STATUS'u o döngüde atlar.
-// Race condition: poll + API komutu aynı anda RS485'e yazmasın.
-bool rs485_api_busy = false;
-
 void rs485_poll() {
-  // API komutu işleniyorsa periyodik poll'u atla
-  if (rs485_api_busy) return;
-
   unsigned long now = millis();
   
   switch (rs485_state) {
@@ -1607,7 +1599,7 @@ const $=s=>document.querySelector(s);
 
 // Global kilit yerine buton-bazli kilit: bir komut surerken sadece o buton
 // kilitlenir, digerleri kullanilabilir kalir. RS485 gercek gonderimi zaten
-// ESP32 tarafinda (rs485_api_busy) tek seferde bir komutla sinirlanir, bu
+// ESP32 tarafinda (RS485Kilit mutex) tek seferde bir komutla sinirlanir, bu
 // yuzden ayni anda iki buton basilsa bile fiziksel komutlar siraya girer -
 // UI'da hepsini kilitlemeye gerek yok.
 let busySet = new Set();
@@ -2555,17 +2547,13 @@ bool esp8266KayitGeriYukle() {
 }
 
 void handleAPI_KayitYedekle() {
-  rs485_api_busy = true;
   bool ok = esp8266KayitYedekle();
-  rs485_api_busy = false;
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
               String(ok ? "Yedeklendi" : "Yedekleme basarisiz") + "\"}");
 }
 
 void handleAPI_KayitGeriYukle() {
-  rs485_api_busy = true;
   bool ok = esp8266KayitGeriYukle();
-  rs485_api_busy = false;
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" +
               String(ok ? "Geri yuklendi" : ("Geri yukleme basarisiz: " + kayitGeriYuklemeHata)) + "\"}");
 }
@@ -2653,9 +2641,7 @@ void handleAPI_KonteynerAlarm() {
 // (bleKomutIsle, asagida) tarafindan ortak kullanilir - ikisi de ayni RS485
 // komutunu gonderip ayni global durumu guncellemeli.
 bool lambaAyarla(bool acik, String& reply) {
-  rs485_api_busy = true; // poll'u durdur
   bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_LAMBA=1\n" : "MASTER:SET_LAMBA=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) {
     nanoStatus.lamp_on = acik;
     last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
@@ -2687,9 +2673,7 @@ void handleAPI_KonteynerLamba() {
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { alarmStatus.enabled = aktif; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -2706,9 +2690,7 @@ void handleAPI_Alarm() {
 }
 
 bool alarmModAyarla(uint8_t mod, String& reply) {
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) {
     alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis();
     // Konteyner'in yerel onay bayraklarini da mod degisince temizle - ONCEDEN
@@ -2746,9 +2728,7 @@ bool alarmSustur(String& reply) {
   // hesaplayip acikca gonderiyor - kac kere tekrar gonderilirse gonderilsin
   // sonuc ayni (idempotent).
   bool hedef = !alarmStatus.muted;
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -2760,9 +2740,7 @@ void handleAPI_AlarmMute() {
 }
 
 bool alarmOnayla(String& reply) {
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
   // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin. ONCEDEN BUG:
@@ -2787,9 +2765,7 @@ void handleAPI_AlarmOnayla() {
 
 void handleAPI_AlarmOnaylaLamba() {
   String reply;
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
   // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
@@ -2809,9 +2785,7 @@ void handleAPI_MoistureToggle() {
   }
   int d = server.arg("durum").toInt();
   String reply;
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(d ? "MASTER:SET_MOISTURE=1\n" : "MASTER:SET_MOISTURE=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { sensorData.moisture_output = (d == 1); last_rs485_update_ms = millis(); }
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Nem cikisi Acik" : "Nem cikisi Kapali") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
@@ -2823,9 +2797,7 @@ void handleAPI_MoistureAuto() {
   }
   int d = server.arg("aktif").toInt();
   String reply;
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(d ? "MASTER:SET_MOISTURE_AUTO=1\n" : "MASTER:SET_MOISTURE_AUTO=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) { sensorData.moisture_auto = (d == 1); last_rs485_update_ms = millis(); }
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? (d ? "Nem otomatik" : "Nem manuel") : "Komut hatasi") + "\",\"reply\":\"" + reply + "\"}");
 }
@@ -2845,10 +2817,8 @@ void handleAPI_MoistureThreshold() {
   String replyHigh;
   String cmdLow = String("MASTER:SET_MOISTURE_LOW=") + low + "\n";
   String cmdHigh = String("MASTER:SET_MOISTURE_HIGH=") + high + "\n";
-  rs485_api_busy = true;
   bool okLow = rs485_send_wait_ack(cmdLow.c_str(), replyLow, 1000, 3);
   bool okHigh = rs485_send_wait_ack(cmdHigh.c_str(), replyHigh, 1000, 3);
-  rs485_api_busy = false;
   if (okLow && okHigh) {
     sensorData.moisture_low = low;
     sensorData.moisture_high = high;
@@ -2859,9 +2829,7 @@ void handleAPI_MoistureThreshold() {
 }
 
 bool kapiAyarla(bool acik, String& reply) {
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_KAPI=1\n" : "MASTER:SET_KAPI=0\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }
@@ -2886,10 +2854,8 @@ void handleAPI_Kapi() {
 // Kalburum'a tasiniyor - ESP8266'nin GET_AYARLAR/SET_AYARLAR RS485
 // komutlarina koprulenir, ESP8266 hala tek dogru kaynak.
 bool sudepoAyarlarGetir(String& veri) {
-  rs485_api_busy = true;
   String reply;
   bool ok = rs485_send_wait_ack("MASTER:GET_AYARLAR\n", reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) {
     int idx = reply.indexOf("AYARLAR=");
     veri = (idx >= 0) ? reply.substring(idx + 8) : "";
@@ -2898,9 +2864,7 @@ bool sudepoAyarlarGetir(String& veri) {
 }
 
 bool sudepoAyarlarKaydet(const String& veri, String& reply) {
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack(("MASTER:SET_AYARLAR=" + veri + "\n").c_str(), reply, 1000, 3);
-  rs485_api_busy = false;
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }
@@ -2968,9 +2932,7 @@ void handleAPI_SudepoAyarlarKaydet() {
 // ESP8266 ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
 bool panikTetikle(bool& panicActive, String& reply) {
   bool hedef = !alarmStatus.panic_mode;
-  rs485_api_busy = true;
   bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
-  rs485_api_busy = false;
 
   // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
   panicActive = false;
