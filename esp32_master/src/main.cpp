@@ -400,12 +400,16 @@ void alarmLedGuncelle() {
   static bool onBipAktif = false;
   static unsigned long onBipBaslangicMs = 0;
 
-  bool konteynerEskaleVar = alarmStatus.enabled && (konteynerPirEskalasyonOldu || kapi2Acik);
+  // Panik (elle acilan), sistemdeki DIGER tum panik kontrolleriyle (yerel
+  // LED+buzzer, Telegram, banner) TUTARLI olarak enabled/mod'dan BAGIMSIZ -
+  // "her seyin onunde calisir, elle ac/kapat anahtari gibi" davranisiyla
+  // Konteyner siren+lambasini da dogrudan (Sesli gibi) tetikler.
+  bool konteynerEskaleVar = alarmStatus.panic_mode || (alarmStatus.enabled && (konteynerPirEskalasyonOldu || kapi2Acik));
   bool konteynerBuzzerVar = false;
   if (konteynerEskaleVar) {
-    if (alarmStatus.mode == 1) konteynerBuzzerVar = true;             // Sesli - hemen cal
+    if (alarmStatus.panic_mode || alarmStatus.mode == 1) konteynerBuzzerVar = true; // Panik veya Sesli - hemen cal
     else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi; // Onayli - onaydan sonra cal
-    // mode==2 (Sessiz): konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
+    // mode==2 (Sessiz) ve panik degilse: konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
   }
 
   // Siren + Lamba (ALARM_LED_PIN'deki kucuk LED+buzzer'dan AYRI, gercek role
@@ -1551,7 +1555,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div style="font-size:13px;line-height:1.6">
         <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer). Bu mod artık hem Sudepo Zonu hem Kalburum/Konteyner için ORTAK - Konteyner PIR'ı eskale olup gerçek alarma dönüştüğünde de aynı moda göre davranır (bkz Ayarlar → Konteyner Zonu PIR Ayarları).</p>
         <p><b>Sustur/Sireni Kapat:</b> Alarm koşulu sürse bile röleyi susturur; koşul temizlenince otomatik sıfırlanır.</p>
-        <p><b>Panik:</b> Tetikleyicilerden bağımsız, elle aç/kapat anahtarı gibi çalışır - röleyi zorla açık tutar.</p>
+        <p><b>Panik:</b> Tetikleyicilerden bağımsız, elle aç/kapat anahtarı gibi çalışır - röleyi zorla açık tutar. Konteyner'in siren+lambasını da (Alarm Modu/etkin-pasif durumundan bağımsız) doğrudan tetikler.</p>
         <p><b>Kapı/PIR/Kaçak/Düşük seviye</b> tetikleyicileri ve gündüz/gece + mod bazlı senaryolar ESP8266 panelinin "Alarm" sekmesinden ayarlanır (bu panel sadece görüntüler ve mod/susturma/onay/panik komutlarını iletir).</p>
         <p><b>WiFi:</b> Ayarlar sekmesinden ev ağını tarayıp kaydedebilirsiniz; AP (<code id="ag-ap-bilgi">-</code>) STA bağlantısından bağımsız her zaman açıktır, ağ ayarları NVS'de kalıcıdır.</p>
         <p><b>Hava Durumu / Yağmur Tahmini:</b> Bahçenin sabit konumu için haftalık tahmin, bu cihazın interneti olduğu anda (örn. telefon hotspotu bağlıyken) otomatik çekilip hafızada saklanır. Bahçede kalıcı internet olmadığı için tahmin bayatlayabilir - 7 günden eski ise dikkate alınmaz ve sulama normal devam eder. Yarın yağmur bekleniyorsa bugünkü sulama otomatik atlanır (su israfını önlemek için).</p>
@@ -1590,6 +1594,13 @@ let busySet = new Set();
 const yakinDuzenlenenler = new Map(); // id -> koruma bitis zamani (ms)
 function yakinDuzenlendi(id, ms=2500){ yakinDuzenlenenler.set(id, Date.now()+ms); }
 function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Date.now()<t; }
+
+// Banner butonlari (Sesli/Sessiz(Lamba)/Sustur/Panik Kapat) dinamik olarak
+// innerHTML ile her SSE/poll tikinde yeniden yaziliyor - sabit bir #id'leri
+// yok, bu yuzden busySet/yakinKorumali ile eslesmiyorlar. bannerIslemSuruyor
+// true iken guncelle() banner'i YENIDEN YAZMAZ (bkz asagida), boylece
+// tiklanan butonun 'islemde' gorunumu yanit gelene kadar korunur.
+let bannerIslemSuruyor = false;
 
 // Alarm tetiklendiginde kisa bip - ESP8266 panelindeki ile ayni desen.
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
@@ -1689,14 +1700,22 @@ function renderUI(d){
       }
       let html = '⚠ '+msg;
       if(panikAktif){
-        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="togglePanic()">Panik Kapat</button></div>';
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="bannerAksiyon(this,\'/api/panic\')">Panik Kapat</button></div>';
       } else if(bekliyor){
-        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="alarmOnayla()">Sesli</button><button class="btn btn-warn" onclick="alarmOnaylaLamba()">Sessiz (Lamba)</button></div>';
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="bannerAksiyon(this,\'/api/alarm/onayla\')">Sesli</button><button class="btn btn-warn" onclick="bannerAksiyon(this,\'/api/alarm/onayla_lamba\')">Sessiz (Lamba)</button></div>';
       } else if(anyAlarm){
         const susLabel = (d.alarm && d.alarm.muted) ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
-        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-warn" onclick="alarmMute()">'+susLabel+'</button></div>';
+        html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-warn" onclick="bannerAksiyon(this,\'/api/alarm/mute\')">'+susLabel+'</button></div>';
       }
-      ban.innerHTML = html;
+      // bannerIslemSuruyor: bir banner butonuna basilip yaniti beklenirken
+      // (RS485 komutu + retry birkac saniye surebilir) SSE/poll tetikledigi bu
+      // fonksiyon banner'i YENIDEN YAZMASIN - yoksa kullanicinin az once
+      // tikladigi (disabled/'...' yapilmis) buton, hicbir geri bildirim
+      // vermeden sessizce "eski haline" donup TEKRAR tiklanabilir hale
+      // gelirdi, tepkinin "cok gec" gelmesi hissi buradan kaynaklaniyordu.
+      if(!bannerIslemSuruyor){
+        ban.innerHTML = html;
+      }
       ban.style.display='block';
     } else {
       ban.style.display='none';
@@ -1890,11 +1909,18 @@ function setAlarmMod(){
 function alarmMute(){
   sendCommand('#alarm-mute-btn', '/api/alarm/mute', '#alarm-sonuc');
 }
-function alarmOnayla(){
-  sendCommand(null, '/api/alarm/onayla', '#alarm-sonuc');
-}
-function alarmOnaylaLamba(){
-  sendCommand(null, '/api/alarm/onayla_lamba', '#alarm-sonuc');
+// Banner butonlari icin - bkz bannerIslemSuruyor aciklamasi (guncelle icinde).
+// Tiklanan elemani DOGRUDAN (this ile) alip aninda 'İşleniyor...' gosterir -
+// diger sendCommand() kullanan butonlardan farkli olarak sabit bir #id'ye
+// degil, o an DOM'da bulunan gercek butona yaziyor.
+function bannerAksiyon(btn, path){
+  if(bannerIslemSuruyor) return;
+  bannerIslemSuruyor = true;
+  if(btn){ btn.disabled = true; btn.textContent = 'İşleniyor...'; }
+  api(path).finally(()=>{
+    bannerIslemSuruyor = false;
+    fetch('/api/status').then(r=>r.json()).then(renderUI).catch(()=>{});
+  });
 }
 function otaGuncelle(){
   if(!confirm('GitHub\'daki en son firmware indirilip yazılacak, cihaz yeniden başlayacak. Emin misin?'))return;
