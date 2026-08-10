@@ -48,18 +48,12 @@
 // ============================================================
 
 #define DEBOUNCE_MS     50      // Kapı debounce süresi (ms)
-#define STATUS_INTERVAL 2000    // Periyodik status gönderme aralığı (ms)
 #define SERIAL_BAUD     9600    // Seri haberleşme hızı
-#define CMD_TIMEOUT_MS  100     // Seri komut timeout (ms)
 #define CMD_BUFFER_SIZE 32      // Seri buffer boyutu
 
 // ============================================================
 // I/O Mantığı
 // ============================================================
-
-// Kapı sensörü: HIGH = Açık, LOW = Kapalı (PULLUP)
-#define DOOR_OPEN   HIGH
-#define DOOR_CLOSED LOW
 
 // NOT: Bu degerler artik sadece ILK ACILIS varsayilanidir (EEPROM bos ise
 // kullanilir). Rolenin gercek polaritesi calisma zamaninda SET_RELAY_POLARITY

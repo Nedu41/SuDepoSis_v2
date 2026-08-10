@@ -11,7 +11,6 @@
 // ============================================================
 void readInputs();
 void handleSerialCommand();
-void sendStatusPeriodic();
 
 // ============================================================
 // GLOBAL VERİLER
@@ -21,7 +20,6 @@ bool door2_open = false;
 bool relay_active = false;
 bool lamp_on = false;
 bool moisture_output = false;
-unsigned long last_status_send_ms = 0;
 unsigned long door1_last_change_ms = 0;
 unsigned long door2_last_change_ms = 0;
 
@@ -313,22 +311,6 @@ void handleSerialCommand() {
   }
 }
 
-void sendStatusPeriodic() {
-  // Her 2 saniyede bir durum gönder (opsiyonel)
-  if (millis() - last_status_send_ms >= STATUS_INTERVAL) {
-    last_status_send_ms = millis();
-
-    String status = "STATUS:D0=";
-    status += door1_open ? '1' : '0';
-    status += ",D1=";
-    status += door2_open ? '1' : '0';
-    status += ",RELE=";
-    status += relay_active ? '1' : '0';
-
-    Serial.println(status);
-  }
-}
-
 // ============================================================
 // MAIN LOOP
 // ============================================================
@@ -338,9 +320,6 @@ void loop() {
 
   // Seri komutları dinle
   handleSerialCommand();
-
-  // Periyodik status gönder (opsiyonel)
-  // sendStatusPeriodic();
 
   delay(10);
 }
