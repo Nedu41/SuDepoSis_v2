@@ -179,6 +179,12 @@ bool weatherTahminCek() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
+  // FIX: timeout verilmezse HTTPClient varsayilani (~5sn, ag sikintisinda
+  // daha da uzayabilir) kullanir - bu sure boyunca tek dongulu loop() (ve
+  // onun icindeki tum web/RS485/buton islemesi) tamamen bloke olur. Bu
+  // fonksiyon sadece WEATHER_CHECK_INTERVAL_MS'de bir calistigi icin nadir
+  // ama gercek bir "butonlar bir anda donuyor" hissi yaratabilir.
+  http.setTimeout(5000);
   http.begin(client, url);
   int code = http.GET();
   DEBUG_PRINTLN("[Weather] HTTP kod: " + String(code));
@@ -793,10 +799,6 @@ void rs485_send(const char* data) {
 
 bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms = 1000, uint8_t max_attempts = 2) {
   RS485Kilit kilit; // bkz RS485Kilit tanimi - loop() ile BLE gorevinin hatta ayni anda dokunmasini engeller
-  // GECICI TANI LOGU: genel (BLE'ye ozel olmayan - web dahil) komut gecikmesi
-  // sikayeti icin - her komutun kacinci denemede/ne kadar surede basardigini
-  // gorup gercek darbogazi (retry mi, tek seferlik yavaslik mi) bulmak icin.
-  unsigned long fonksiyon_baslangic_ms = millis();
   for (uint8_t attempt = 0; attempt < max_attempts; attempt++) {
     // Drop any stale data before sending, to avoid reading older lines as the ACK.
     while (Serial1.available()) {
@@ -820,19 +822,6 @@ bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeo
             DEBUG_PRINT("[RS485] ACK reply: ");
             DEBUG_PRINTLN(response);
             if (response.startsWith("ACK:")) {
-              // Sadece yeniden deneme gerektiyse logla - normal (ilk denemede
-              // basarili) durumda gereksiz log gurultusu yaratmasin. ESP8266'nin
-              // istem disi otomatik gonderiminin kaldirilmasindan sonra bu artik
-              // neredeyse hic tetiklenmiyor - tekrar sik gorulmeye baslarsa
-              // RS485 hattinda yeni bir catisma kaynagi olustugunun isaretidir.
-              if (attempt > 0) {
-                DEBUG_PRINT("[RS485_TIMING] yeniden denemeyle basarili, deneme=");
-                DEBUG_PRINT(String(attempt + 1));
-                DEBUG_PRINT("/");
-                DEBUG_PRINT(String(max_attempts));
-                DEBUG_PRINT(", sure_ms=");
-                DEBUG_PRINTLN(String(millis() - fonksiyon_baslangic_ms));
-              }
               return true;
             }
             response = "";
@@ -1820,17 +1809,19 @@ function renderUI(d){
   const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
-  // Nano IO - dashboard
-  $('#d1').textContent=d.nano.door1?'Açık':'Kapalı';
-  $('#d2').textContent=d.nano.door2?'Açık':'Kapalı';
-  $('#rl').textContent=d.nano.relay?'AKTİF':'Pasif';
-  $('#lm').textContent=d.nano.lamp?'Açık':'Kapalı';
+  // Nano IO - dashboard (K1/K2/R/LAMBA hepsi ESP8266'nin tek RS485 mesajinda
+  // geliyor - esp8266Baglı degilse hepsi ayni sekilde bayat kalir, level/
+  // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
+  $('#d1').textContent=esp8266Ok?(d.nano.door1?'Açık':'Kapalı'):'--';
+  $('#d2').textContent=esp8266Ok?(d.nano.door2?'Açık':'Kapalı'):'--';
+  $('#rl').textContent=esp8266Ok?(d.nano.relay?'AKTİF':'Pasif'):'--';
+  $('#lm').textContent=esp8266Ok?(d.nano.lamp?'Açık':'Kapalı'):'--';
   // Nem röle (RS485 Cihaz Durumu)
-  const mr=$('#mr'); if(mr) mr.textContent=(d.moisture&&d.moisture.output)?'Açık':'Kapalı';
+  const mr=$('#mr'); if(mr) mr.textContent=esp8266Ok?((d.moisture&&d.moisture.output)?'Açık':'Kapalı'):'--';
   // === BUTON METİNLERİ - SUNUCUDAN GELIR, local state YOK ===
   // Her buton sadece KENDI komutu surerken (busySet'te ise) atlanir; digerleri
   // her zaman taze veriyle guncellenir (bkz. busySet aciklamasi yukarida).
-  if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (d.nano.lamp ? 'Kapat' : 'Aç');
+  if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
   if(!busySet.has('#konteyner-lamba-btn')){ const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
   if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   if(!busySet.has('#konteyner-alarm-btn')){ const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
@@ -1840,15 +1831,17 @@ function renderUI(d){
   if(!busySet.has('#moisture-settings-toggle-btn')){ const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   if(!busySet.has('#moisture-settings-auto-btn')){ const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
   if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; }
-  // Nem verileri
-  const mkpi=$('#kpi-moisture'); if(mkpi) mkpi.textContent=(mo.percent||0).toFixed(1)+'%';
-  const mraw=$('#moisture-raw'); if(mraw) mraw.textContent=mo.raw||0;
-  const mout=$('#moisture-output'); if(mout) mout.textContent=mo.output?'Açık':'Kapalı';
-  const mmod=$('#moisture-mode'); if(mmod) mmod.textContent=mo.auto?'Otomatik':'Manuel';
+  // Nem verileri - ESP8266 uzerinden geliyor, ayni tazelik esigiyle korunur
+  // (bkz. level/sicaklik icin yukarida yapilan esp8266Baglı fix'i - kullanici
+  // ayni donmus-deger sorununun nem icin de var oldugunu bildirdi)
+  const mkpi=$('#kpi-moisture'); if(mkpi) mkpi.textContent=esp8266Ok?(mo.percent||0).toFixed(1)+'%':'--';
+  const mraw=$('#moisture-raw'); if(mraw) mraw.textContent=esp8266Ok?(mo.raw||0):'--';
+  const mout=$('#moisture-output'); if(mout) mout.textContent=esp8266Ok?(mo.output?'Açık':'Kapalı'):'--';
+  const mmod=$('#moisture-mode'); if(mmod) mmod.textContent=esp8266Ok?(mo.auto?'Otomatik':'Manuel'):'--';
   // Ayarlar sekmesi nem göstergeleri
-  const smv=$('#settings-moisture-val'); if(smv) smv.textContent=(mo.percent||0).toFixed(1)+'%';
-  const smo=$('#settings-moisture-out'); if(smo) smo.textContent=mo.output?'Açık':'Kapalı';
-  const smm=$('#settings-moisture-mod'); if(smm) smm.textContent=mo.auto?'Otomatik':'Manuel';
+  const smv=$('#settings-moisture-val'); if(smv) smv.textContent=esp8266Ok?(mo.percent||0).toFixed(1)+'%':'--';
+  const smo=$('#settings-moisture-out'); if(smo) smo.textContent=esp8266Ok?(mo.output?'Açık':'Kapalı'):'--';
+  const smm=$('#settings-moisture-mod'); if(smm) smm.textContent=esp8266Ok?(mo.auto?'Otomatik':'Manuel'):'--';
   const sml=$('#moisture-settings-low'); if(sml&&!sml.matches(':focus')&&!yakinKorumali('moisture-settings-low')) sml.value=mo.low||0;
   const smh=$('#moisture-settings-high'); if(smh&&!smh.matches(':focus')&&!yakinKorumali('moisture-settings-high')) smh.value=mo.high||0;
   // Bilgiler sekmesi - sistem bilgileri
