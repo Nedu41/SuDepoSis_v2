@@ -1177,25 +1177,6 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .subdet summary::-webkit-details-marker{display:none}
 .subdet summary::before{content:'▸';display:inline-block;font-size:11px;color:var(--muted);transition:transform .15s}
 .subdet[open]>summary::before{transform:rotate(90deg)}
-.remote-body{background:linear-gradient(180deg,var(--card),var(--bg));border:1px solid var(--border);border-radius:20px;padding:20px 12px;max-width:340px;margin:12px auto 0}
-.remote-key{width:56px;height:56px;border-radius:50%;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.1;padding:2px}
-.remote-key:hover{border-color:var(--primary)}
-.remote-key.power{background:#dc2626;border-color:#dc2626;color:#fff}
-.remote-key.assigned{border-color:var(--accent);box-shadow:0 0 0 2px rgba(16,185,129,.35)}
-.remote-key.active-learning{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.4);animation:pulse 1s infinite}
-.remote-top{display:flex;justify-content:center;gap:28px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
-.remote-left-col{display:flex;flex-direction:column;gap:10px;align-items:center}
-.remote-dpad{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,56px);gap:6px}
-.remote-dpad .rk-chp{grid-column:2;grid-row:1}
-.remote-dpad .rk-volm{grid-column:1;grid-row:2}
-.remote-dpad .rk-menu{grid-column:2;grid-row:2}
-.remote-dpad .rk-volp{grid-column:3;grid-row:2}
-.remote-dpad .rk-chm{grid-column:2;grid-row:3}
-.remote-numpad{display:grid;grid-template-columns:repeat(4,56px);gap:8px;justify-content:center;margin-top:16px}
-.remote-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--muted)}
-.remote-legend span{display:inline-flex;align-items:center;gap:5px}
-.remote-legend i{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid var(--border)}
-.remote-legend i.assigned-dot{border-color:var(--accent);box-shadow:0 0 0 2px rgba(16,185,129,.35)}
 .kpi{font-size:28px;font-weight:700}
 .kpi small{font-size:12px;color:var(--muted);font-weight:400}
 .bar{background:var(--border);height:18px;border-radius:999px;overflow:hidden;margin-top:8px}
@@ -1512,51 +1493,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
   <div id="kumanda" class="section">
     <details class="card zone-konteyner" open>
-      <summary>🎛️ Kumanda Haritası</summary>
-      <p style="font-size:12px;color:var(--muted)">Aşağıdaki görsel, örnek bir evrensel kumandanın tuş düzenini gösterir - gerçek kumandanız farklı görünse de sorun değil. Bir tuşa tıklayın, sonra GERÇEK kumandanızda karşılık gelen tuşa basın: <b>tıklama IR sinyali göndermez</b>, sadece hangi tuşu öğrettiğinizi işaretlemenin bir yolu.</p>
-      <div class="remote-body">
-        <div class="remote-top">
-          <div class="remote-left-col">
-            <button class="remote-key power" data-key="POWER" onclick="irTusaTikla('POWER')">POWER</button>
-            <button class="remote-key" data-key="MUTE" onclick="irTusaTikla('MUTE')">🔇</button>
-            <button class="remote-key" data-key="AV/TV" onclick="irTusaTikla('AV/TV')">AV/TV</button>
-          </div>
-          <div class="remote-dpad">
-            <button class="remote-key rk-chp" data-key="CH+" onclick="irTusaTikla('CH+')">CH+</button>
-            <button class="remote-key rk-volm" data-key="VOL-" onclick="irTusaTikla('VOL-')">VOL-</button>
-            <button class="remote-key rk-menu" data-key="MENU" onclick="irTusaTikla('MENU')">MENU</button>
-            <button class="remote-key rk-volp" data-key="VOL+" onclick="irTusaTikla('VOL+')">VOL+</button>
-            <button class="remote-key rk-chm" data-key="CH-" onclick="irTusaTikla('CH-')">CH-</button>
-          </div>
-        </div>
-        <div class="remote-numpad">
-          <button class="remote-key" data-key="1" onclick="irTusaTikla('1')">1</button>
-          <button class="remote-key" data-key="2" onclick="irTusaTikla('2')">2</button>
-          <button class="remote-key" data-key="3" onclick="irTusaTikla('3')">3</button>
-          <button class="remote-key" data-key="4" onclick="irTusaTikla('4')">4</button>
-          <button class="remote-key" data-key="5" onclick="irTusaTikla('5')">5</button>
-          <button class="remote-key" data-key="6" onclick="irTusaTikla('6')">6</button>
-          <button class="remote-key" data-key="7" onclick="irTusaTikla('7')">7</button>
-          <button class="remote-key" data-key="8" onclick="irTusaTikla('8')">8</button>
-          <button class="remote-key" data-key="9" onclick="irTusaTikla('9')">9</button>
-          <button class="remote-key" data-key="0" onclick="irTusaTikla('0')">0</button>
-          <button class="remote-key" data-key="-/--" onclick="irTusaTikla('-/--')">-/--</button>
-          <button class="remote-key" data-key="AUTO" onclick="irTusaTikla('AUTO')">AUTO</button>
-        </div>
-      </div>
-      <div class="remote-legend">
-        <span><i class="assigned-dot"></i> Atanmış tuş</span>
-        <span><i></i> Boş tuş</span>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:8px">Önerilen eşleşmeler: POWER=Alarm Aç/Kapat, MUTE=Sustur, AV/TV=Panik, CH+=Lamba Aç, CH-=Lamba Kapat, VOL+=Kapı Aç, VOL-=Kapı Kapat, MENU=Kapı Aç/Kapat, 1/2/3=Mod Sesli/Sessiz/Onaylı, 0=Onayla, AUTO=Lamba Aç/Kapat. Öğrenirken açılan listede bu öneri otomatik seçili gelir, dilerseniz değiştirebilirsiniz. Boş kalan tuşlar (4-9, -/--) ileride ek komutlar için serbesttir.</p>
-    </details>
-
-    <details class="card zone-konteyner" open>
-      <summary>📡 Tanımlı Tuşlar</summary>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - yukarıdaki haritadan bir tuşa tıklayın ya da doğrudan "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basın, sonra hangi komutu çalıştıracağını seçin. Birden fazla kumanda eklenebilir.</p>
+      <summary>📡 Konteyner Zonu - IR Kumanda</summary>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa bas, sonra hangi komutu çalıştıracağını seç. Birden fazla kumanda eklenebilir.</p>
       <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
       <div class="row" style="margin-top:10px">
-        <button class="btn btn-primary" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren (haritasız)</button>
+        <button class="btn btn-primary" onclick="irOgrenBaslat()">➕ Yeni Tuş Öğren</button>
       </div>
       <div id="ir-ogren-durum" style="margin-top:8px;font-size:13px"></div>
     </details>
@@ -1641,7 +1582,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <p><b>Hava Durumu / Yağmur Tahmini:</b> Bahçenin sabit konumu için haftalık tahmin, bu cihazın interneti olduğu anda (örn. telefon hotspotu bağlıyken) otomatik çekilip hafızada saklanır. Bahçede kalıcı internet olmadığı için tahmin bayatlayabilir - 7 günden eski ise dikkate alınmaz ve sulama normal devam eder. Yarın yağmur bekleniyorsa bugünkü sulama otomatik atlanır (su israfını önlemek için).</p>
         <p><b>Telegram Bildirimleri:</b> Bir alarm YENİ tetiklendiğinde (panik, kapı, PIR, kaçak, sensör hatası) sayfa açık olmasa bile telefona Telegram mesajı gider - yalnızca cihazın o an interneti varsa (hotspot bağlıyken) çalışır, aksi halde birkaç dakika tekrar denenir. Bot token/chat ID <code>secrets.h</code> içinde saklanır.</p>
         <p><b>Mimari:</b> Nano (kapı/röle/lamba/PIR/nem çıkışı) ⇄ ESP8266 (sensörler + web) ⇄ RS485 ⇄ ESP32 (bu panel, MQTT yayını). Nano firmware'i genel amaçlı GPIO komutlarıyla (PIN_MODE/WRITE/READ) çalıştığı için donanım eklemelerinde çoğunlukla yeniden flaşlanması gerekmez.</p>
-        <p><b>Kumanda:</b> IR kumanda tuş eşleştirmesi ayrı "Kumanda" sekmesinde - görsel kumanda üzerinden tuşa tıklamak IR sinyali göndermez, sadece hangi tuşu öğrettiğinizi işaretler; kod gerçek kumandada o tuşa basılınca yakalanır.</p>
+        <p><b>Kumanda:</b> IR kumanda tuş eşleştirmesi ayrı "Kumanda" sekmesinde - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basılınca kod yakalanır, sonra hangi komutu çalıştıracağı seçilir.</p>
       </div>
     </details>
   </div>
@@ -2221,45 +2162,21 @@ setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
 const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
-// Kumanda Haritası'ndaki tuşlar icin onerilen (sadece on-dolgu, degistirilebilir) komut
-const irOnerilenKomut={'POWER':'ALARM_TOGGLE','MUTE':'ALARM_SUSTUR','AV/TV':'PANIK','CH+':'LAMBA_AC','CH-':'LAMBA_KAPAT','VOL+':'KAPI_AC','VOL-':'KAPI_KAPAT','MENU':'KAPI_TOGGLE','1':'ALARM_MOD=1','2':'ALARM_MOD=2','3':'ALARM_MOD=3','0':'ALARM_ONAYLA','AUTO':'LAMBA_TOGGLE'};
 let irOgrenPolling=null;
-let irSeciliTusAdi=null; // Kumanda Haritasi'ndan secilen tus (haritasiz ogrenmede null kalir)
 function irListesiYukle(){
   fetch('/api/ir/liste').then(r=>r.json()).then(list=>{
     const el=$('#ir-liste'); if(!el) return;
-    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; }
-    else {
-      el.innerHTML=list.map(e=>
-        '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
-        +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
-        +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
-      ).join('');
-    }
-    // Kumanda Haritasi'nda atanmis tuslari isaretle - etiket "Komut — TUS" formatinda
-    // kaydedildiginde (bkz irKodAtamaFormuGoster/irKaydet) son parca tus adiyla eslesir.
-    document.querySelectorAll('.remote-key[data-key]').forEach(b=>{ b.classList.remove('assigned'); b.title=''; });
-    (Array.isArray(list)?list:[]).forEach(e=>{
-      const parts=(e.etiket||'').split(' — ');
-      const tus = parts.length>1 ? parts[parts.length-1] : null;
-      if(!tus) return;
-      const btn=document.querySelector('.remote-key[data-key="'+tus+'"]');
-      if(btn){ btn.classList.add('assigned'); btn.title=e.etiket; }
-    });
+    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; return; }
+    el.innerHTML=list.map(e=>
+      '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
+      +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
+      +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
+    ).join('');
   }).catch(()=>{});
 }
-function irTusaTikla(tus){
-  document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
-  const btn=document.querySelector('.remote-key[data-key="'+tus+'"]');
-  if(btn) btn.classList.add('active-learning');
-  irOgrenBaslat(tus);
-}
-function irOgrenBaslat(tusAdi){
-  irSeciliTusAdi = tusAdi || null;
+function irOgrenBaslat(){
   fetch('/api/ir/ogren_baslat').then(()=>{
-    $('#ir-ogren-durum').innerHTML = irSeciliTusAdi
-      ? ('Kumandanızda <b>'+irSeciliTusAdi+'</b> tuşuna basın... (20sn içinde)')
-      : 'Kumandada bir tuşa basın... (20sn içinde)';
+    $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)';
     if(irOgrenPolling) clearInterval(irOgrenPolling);
     irOgrenPolling=setInterval(irOgrenKontrolEt, 800);
   }).catch(()=>{});
@@ -2272,7 +2189,6 @@ function irOgrenKontrolEt(){
     } else if(d.zamanAsimi){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
       $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.';
-      document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
     }
   }).catch(()=>{});
 }
@@ -2281,10 +2197,8 @@ function irKodAtamaFormuGoster(kod){
   for(const k in irKomutAdlari) secenekler+='<option value="'+k+'">'+irKomutAdlari[k]+'</option>';
   $('#ir-ogren-durum').innerHTML='Kod alındı: <b>0x'+kod+'</b><br>'
     +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select><br>'
-    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px" value="'+(irSeciliTusAdi||'')+'">'
+    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px">'
     +'<br><button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
-  const onerilen = irSeciliTusAdi && irOnerilenKomut[irSeciliTusAdi];
-  if(onerilen){ const sel=$('#ir-komut-sec'); if(sel) sel.value=onerilen; }
 }
 function irKaydet(kod){
   const sel=$('#ir-komut-sec'); const komut=sel.value; const komutAdi=sel.options[sel.selectedIndex].text;
@@ -2292,8 +2206,6 @@ function irKaydet(kod){
   const etiket=not_?(komutAdi+' — '+not_):komutAdi;
   fetch('/api/ir/kaydet?kod='+kod+'&komut='+encodeURIComponent(komut)+'&etiket='+encodeURIComponent(etiket)).then(()=>{
     $('#ir-ogren-durum').innerHTML='Kaydedildi ✓';
-    irSeciliTusAdi=null;
-    document.querySelectorAll('.remote-key').forEach(b=>b.classList.remove('active-learning'));
     irListesiYukle();
   }).catch(()=>{});
 }
