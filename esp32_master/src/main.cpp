@@ -1606,13 +1606,6 @@ const $=s=>document.querySelector(s);
 // Butonlar sadece "işlem sürüyor" sırasında '...' gösterir,
 // sonra guncelle() doğru metni yazar.
 
-// Global kilit yerine buton-bazli kilit: bir komut surerken sadece o buton
-// kilitlenir, digerleri kullanilabilir kalir. RS485 gercek gonderimi zaten
-// ESP32 tarafinda (RS485Kilit mutex) tek seferde bir komutla sinirlanir, bu
-// yuzden ayni anda iki buton basilsa bile fiziksel komutlar siraya girer -
-// UI'da hepsini kilitlemeye gerek yok.
-let busySet = new Set();
-
 // Bir input "Kaydet" butonu olmadan onchange ile otomatik kaydedilince, kayit
 // butonuna tiklamanin aksine input BLUR olur (odak kaybolur) - tam o anda
 // gelen bir periyodik guncelleme (SSE/poll) sunucunun henuz eski degerini
@@ -1624,13 +1617,6 @@ let busySet = new Set();
 const yakinDuzenlenenler = new Map(); // id -> koruma bitis zamani (ms)
 function yakinDuzenlendi(id, ms=2500){ yakinDuzenlenenler.set(id, Date.now()+ms); }
 function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Date.now()<t; }
-
-// Banner butonlari (Sesli/Sessiz(Lamba)/Sustur/Panik Kapat) dinamik olarak
-// innerHTML ile her SSE/poll tikinde yeniden yaziliyor - sabit bir #id'leri
-// yok, bu yuzden busySet/yakinKorumali ile eslesmiyorlar. bannerIslemSuruyor
-// true iken guncelle() banner'i YENIDEN YAZMAZ (bkz asagida), boylece
-// tiklanan butonun 'islemde' gorunumu yanit gelene kadar korunur.
-let bannerIslemSuruyor = false;
 
 // Alarm tetiklendiginde kisa bip - ESP8266 panelindeki ile ayni desen.
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
@@ -1753,15 +1739,7 @@ function renderUI(d){
         const susLabel = (d.alarm && d.alarm.muted) ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
         html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-warn" onclick="bannerAksiyon(this,\'/api/alarm/mute\')">'+susLabel+'</button></div>';
       }
-      // bannerIslemSuruyor: bir banner butonuna basilip yaniti beklenirken
-      // (RS485 komutu + retry birkac saniye surebilir) SSE/poll tetikledigi bu
-      // fonksiyon banner'i YENIDEN YAZMASIN - yoksa kullanicinin az once
-      // tikladigi (disabled/'...' yapilmis) buton, hicbir geri bildirim
-      // vermeden sessizce "eski haline" donup TEKRAR tiklanabilir hale
-      // gelirdi, tepkinin "cok gec" gelmesi hissi buradan kaynaklaniyordu.
-      if(!bannerIslemSuruyor){
-        ban.innerHTML = html;
-      }
+      ban.innerHTML = html;
       ban.style.display='block';
     } else {
       ban.style.display='none';
@@ -1820,17 +1798,18 @@ function renderUI(d){
   // Nem röle (RS485 Cihaz Durumu)
   const mr=$('#mr'); if(mr) mr.textContent=esp8266Ok?((d.moisture&&d.moisture.output)?'Açık':'Kapalı'):'--';
   // === BUTON METİNLERİ - SUNUCUDAN GELIR, local state YOK ===
-  // Her buton sadece KENDI komutu surerken (busySet'te ise) atlanir; digerleri
-  // her zaman taze veriyle guncellenir (bkz. busySet aciklamasi yukarida).
-  if(!busySet.has('#lamba-btn')) $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
-  if(!busySet.has('#konteyner-lamba-btn')){ const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
-  if(!busySet.has('#alarm-btn')) $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
-  if(!busySet.has('#konteyner-alarm-btn')){ const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
-  if(!busySet.has('#panic-btn')){ const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
-  if(!busySet.has('#alarm-mod-sel')){ const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
-  if(!busySet.has('#alarm-mute-btn')){ const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
-  if(!busySet.has('#moisture-settings-toggle-btn')){ const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
-  if(!busySet.has('#moisture-settings-auto-btn')){ const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
+  // Her buton her zaman taze sunucu verisiyle guncellenir - eskiden busySet
+  // ile "islemde" butonlar atlaniyordu, bu da tepkinin gec/tikanik hissi
+  // vermesine neden oluyordu (kullanici bildirdi), kaldirildi.
+  $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
+  { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
+  $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
+  { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
+  { const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
+  { const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
+  { const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
+  { const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
+  { const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
   if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; }
   // Nem verileri - ESP8266 uzerinden geliyor, ayni tazelik esigiyle korunur
   // (bkz. level/sicaklik icin yukarida yapilan esp8266Baglı fix'i - kullanici
@@ -1965,16 +1944,12 @@ function setAlarmMod(){
 function alarmMute(){
   sendCommand('#alarm-mute-btn', '/api/alarm/mute', '#alarm-sonuc');
 }
-// Banner butonlari icin - bkz bannerIslemSuruyor aciklamasi (guncelle icinde).
-// Tiklanan elemani DOGRUDAN (this ile) alip aninda 'İşleniyor...' gosterir -
-// diger sendCommand() kullanan butonlardan farkli olarak sabit bir #id'ye
-// degil, o an DOM'da bulunan gercek butona yaziyor.
+// Banner butonlari icin - lamba/alarm butonlarindaki ayni gecikme-hissi
+// sorunu (disable + tekrar-tiklama engeli) burada da vardi, ayni sekilde
+// kaldirildi - RS485/durum tarafinda gercek koruma zaten mutex+idempotent
+// komutlarla saglaniyor (bkz sendCommand aciklamasi).
 function bannerAksiyon(btn, path){
-  if(bannerIslemSuruyor) return;
-  bannerIslemSuruyor = true;
-  if(btn){ btn.disabled = true; btn.textContent = 'İşleniyor...'; }
   api(path).finally(()=>{
-    bannerIslemSuruyor = false;
     fetch('/api/status').then(r=>r.json()).then(renderUI).catch(()=>{});
   });
 }
