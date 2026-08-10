@@ -421,6 +421,15 @@ void konteynerAlarmAyarYukle() {
 }
 void konteynerAlarmAyarKaydet(bool etkin) {
   konteynerAlarmEtkin = etkin;
+  // Alarm kapatilirken bekleyen/verilmis onay bayraklari da temizlenir -
+  // aksi halde PIR hala aktif oldugu surece (bkz konteynerSensorleriOku
+  // sifirlama kosulu) konteynerLambaOnayVerildi eskiden true kalmissa
+  // lamba, alarm devre disi birakilsa bile yanik kaliyordu.
+  if (!etkin) {
+    konteynerOnayBekleniyor = false;
+    konteynerOnayVerildi = false;
+    konteynerLambaOnayVerildi = false;
+  }
   ayarPrefs.begin("ayarlar", false);
   ayarPrefs.putBool("k_alarm_en", etkin);
   ayarPrefs.end();
@@ -1887,15 +1896,12 @@ function api(p){
     .catch(()=>({basarili:false,mesaj:'Bağlantı hatası'}));
 }
 
-// sendCommand: sadece KENDI butonunu kilitler (busySet), digerleri serbest
-// kalir. RS485 komutunun kendisi (retry dahil) ESP32 tarafinda degismedi -
-// guvenilirlik icin orada birakildi, burada sadece UI'nin gereksiz yere
-// tum butonlari kilitlemesi kaldirildi.
+// sendCommand: butonu KİLİTLEMİYOR/disable etmiyor artık - tekrar basma
+// engeli, komut surerken butonda gorunen "yasak/dur" imleci gibi UI
+// surtunmesi gecikme hissi yaratiyordu. RS485 tarafinda gercek komut zaten
+// mutex ile guvenli sekilde siraya giriyor (bkz RS485Kilit), SET_* komutlari
+// da idempotent (PANIC/ALARM_MUTE dahil) - art arda hizli tiklamak zararsiz.
 function sendCommand(btnId, path, resultId, label){
-  if(btnId && busySet.has(btnId)) return;
-  if(btnId) busySet.add(btnId);
-  const b = btnId ? $(btnId) : null;
-  if(b){ b.textContent='...'; b.disabled=true; }
   api(path).then(d=>{
     if(resultId){ const el=$(resultId); if(el) el.textContent=d.mesaj||''; }
   }).finally(()=>{
@@ -1905,7 +1911,6 @@ function sendCommand(btnId, path, resultId, label){
       .then(d=>{ renderUI(d); })
       .catch(()=>{})
       .finally(()=>{
-        if(btnId){ busySet.delete(btnId); if(b) b.disabled=false; }
         // Sonucu birkaç saniye göster sonra temizle
         if(resultId) setTimeout(()=>{ const el=$(resultId); if(el) el.textContent=''; }, 4000);
       });
@@ -2669,6 +2674,15 @@ void handleAPI_KonteynerLamba() {
     return;
   }
   konteynerLambaManuel = (server.arg("durum").toInt() == 1);
+  // FIX: "Kapat" sadece konteynerLambaManuel'i false yapiyordu - lamba
+  // konteynerLambaAktif = konteynerBuzzerVar || konteynerLambaOnayVerildi ||
+  // konteynerLambaManuel OR'una bagli oldugundan, "Sessiz (Lamba)" onayi
+  // (konteynerLambaOnayVerildi) eskiden verilip PIR hala aktif oldugu icin
+  // henuz sifirlanmamissa (bkz konteynerSensorleriOku - sadece PIR/kapi
+  // tamamen bittiginde temizlenir) kullanicinin "Kapat" tiklamasi hicbir
+  // sey yapmiyordu, lamba yanik kaliyordu. "Kapat" artik bu otomatik
+  // onay bayragini da temizleyip gercek bir zorla-kapatma davranisi.
+  if (!konteynerLambaManuel) konteynerLambaOnayVerildi = false;
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(konteynerLambaManuel ? "Lamba Acik" : "Lamba Kapali") + "\"}");
 }
 
