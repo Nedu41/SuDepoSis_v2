@@ -493,9 +493,12 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
-  // INPUT_PULLDOWN: duz INPUT, PIR modulu cikisini aktif surmedigi anlarda
-  // pini float/belirsiz birakip yanlis HIGH okutabiliyordu.
-  pinMode(PIR2_PIN, INPUT_PULLDOWN);
+  // INPUT_PULLDOWN denendi (float pin teorisiyle) ama kablo saglam oldugu
+  // halde gercek hareketi de algilamaz hale getirdi (muhtemelen sensorun
+  // zayif suruculu ciktisiyla dahili pull-down'in gerilim bolucu gibi
+  // calismasi) - geri alindi, duz INPUT gercek hareketi guvenilir sekilde
+  // yakaliyordu.
+  pinMode(PIR2_PIN, INPUT);
   // Reed switch: kablolamaya gore kapali/acik seviyesi degisebilir -
   // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
   // gozlemleyip gerekirse asagidaki karsilastirmayi (==HIGH) ters cevir.
@@ -3098,11 +3101,11 @@ void handleAPI_KonteynerLamba() {
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
-  // Alarm banner/kontrol butonlari icin en hizli tepki hedeflendiginden
-  // (bkz asagidaki alarmSustur/alarmOnayla/panik ayni degisiklik) timeout
-  // dusuruldu - normal ACK suresi 9600 baud'da birkac ms/onlarca ms, 1000ms
-  // sadece hat sorunu durumunda gereksiz uzun bekletiyordu.
-  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 400, 2);
+  // NOT: timeout/deneme sayisi bir ara 400ms/2'ye dusurulmustu (banner
+  // butonlarini hizlandirmak icin) ama bu projede RS485 hat cakismasi daha
+  // once gercek bir sorun oldugundan (bkz proje notlari) komutlarin
+  // ulasmasini guvenilmez hale getirdi - 1000ms/3'e geri alindi.
+  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
   if (ok) { alarmStatus.enabled = aktif; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -3119,7 +3122,7 @@ void handleAPI_Alarm() {
 }
 
 bool alarmModAyarla(uint8_t mod, String& reply) {
-  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 400, 2);
+  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
   if (ok) {
     alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis();
     // Konteyner'in yerel onay bayraklarini da mod degisince temizle - ONCEDEN
@@ -3160,7 +3163,7 @@ bool alarmSustur(String& reply) {
   // OR'una gore (yoksa sadece biri susturulmusken buton kilitli kalirdi).
   bool hedef = !(alarmStatus.muted || konteynerSusturuldu);
   konteynerSusturuldu = hedef; // RS485/ESP8266 sonucundan bagimsiz hemen uygulanir
-  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
+  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -3172,7 +3175,7 @@ void handleAPI_AlarmMute() {
 }
 
 bool alarmOnayla(String& reply) {
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 400, 2);
+  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
   // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin. ONCEDEN BUG:
@@ -3197,7 +3200,7 @@ void handleAPI_AlarmOnayla() {
 
 void handleAPI_AlarmOnaylaLamba() {
   String reply;
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 400, 2);
+  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
   // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
@@ -3364,7 +3367,7 @@ void handleAPI_SudepoAyarlarKaydet() {
 // ESP8266 ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
 bool panikTetikle(bool& panicActive, String& reply) {
   bool hedef = !alarmStatus.panic_mode;
-  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
+  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
 
   // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
   panicActive = false;
