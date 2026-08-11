@@ -662,8 +662,17 @@ void konteynerSensorleriOku() {
 // ardindan irKomutIsleVeCalistir()'i cagirir.
 volatile bool irYeniKodVar = false;
 uint32_t irSonKod = 0;
+// TESHIS AMACLI: filtrelensin/filtrelenmesin HER decode denemesinin protokol
+// adi + sayaci - kullaniciya seri kabloya ihtiyac olmadan web'den ("Kumanda"
+// sekmesi ogrenme durumu) "gercekten UNKNOWN mi geliyor yoksa hic decode
+// olmuyor mu" sorusunu cevaplamak icin (bkz kullanici sikayeti: "simdi hic
+// adres almiyor" - UNKNOWN filtresi eklendikten sonra).
+String irSonDenemeProtokol = "-";
+uint32_t irDenemeSayaci = 0;
 void irKumandaIsle() {
   if (!IrReceiver.decode()) return;
+  irDenemeSayaci++;
+  irSonDenemeProtokol = getProtocolString(IrReceiver.decodedIRData.protocol);
   // ONEMLI BUG DUZELTMESI: NEC protokolu (bu kumandalarin cogu) bir tusa
   // basili tutulurken ~108ms'de bir "repeat" (tekrar) karesi gonderir - bu,
   // IrReceiver.decode()'un AYRI bir basarili decode olarak donmesine neden
@@ -2477,12 +2486,15 @@ function irOgrenBaslat(){
 }
 function irOgrenKontrolEt(){
   fetch('/api/ir/ogren_durum').then(r=>r.json()).then(d=>{
+    const teshis=' <span class="muted" style="font-size:11px">(teşhis: '+d.denemeSayisi+' deneme, son protokol: '+d.sonProtokol+')</span>';
     if(d.hazir){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
       irKodAtamaFormuGoster(d.kod);
     } else if(d.zamanAsimi){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
-      $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.';
+      $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.'+(d.denemeSayisi>0?' (Kumanda algılandı ama protokolü tanınamadı - "'+d.sonProtokol+'" olarak geldi, bu genelde desteklenmeyen/bozuk sinyal demektir.)':' (Hiç IR sinyali algılanmadı - alıcıya doğru mu tutuyorsunuz?)');
+    } else {
+      $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)'+teshis;
     }
   }).catch(()=>{});
 }
@@ -3455,7 +3467,9 @@ void handleAPI_IrOgrenDurum() {
                       millis() - irOgrenmeBaslangicMs > IR_OGRENME_TIMEOUT_MS);
   String json = "{\"hazir\":" + String(irOgrenmeKodHazir ? "true" : "false") +
     ",\"kod\":\"" + String(irOgrenmeYakalananKod, HEX) + "\"" +
-    ",\"zamanAsimi\":" + String(zamanAsimi ? "true" : "false") + "}";
+    ",\"zamanAsimi\":" + String(zamanAsimi ? "true" : "false") +
+    ",\"sonProtokol\":\"" + irSonDenemeProtokol + "\"" +
+    ",\"denemeSayisi\":" + String(irDenemeSayaci) + "}";
   server.send(200, "application/json", json);
 }
 
