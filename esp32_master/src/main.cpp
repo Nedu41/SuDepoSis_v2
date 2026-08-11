@@ -567,7 +567,10 @@ void alarmLedGuncelle() {
     }
   }
   if (onBipAktif) {
-    if (millis() - onBipBaslangicMs >= 1000) {
+    // FIX: 1000ms "kisa bip" kullanicinin bahcede gozlemledigi kadar (~4-5sn)
+    // uzun degildi ama yine de "tek kisa bip" hissi vermiyordu - 150ms'e
+    // indirildi, gercek bir "bip" gibi hissettirsin, uzatilmis buzz gibi degil.
+    if (millis() - onBipBaslangicMs >= 150) {
       onBipAktif = false;
       if (!alarmVar) digitalWrite(ALARM_LED_PIN, LOW);
     } else if (!alarmVar) {
