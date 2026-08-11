@@ -87,10 +87,32 @@
 #define MPPT_UART_NUM 2         // UART2
 #define MPPT_BAUDRATE 9600      // DOGRULA - cihazin kendi ayari farkli olabilir
 #define MPPT_SLAVE_ID 1         // DOGRULA - Modbus slave adresi
-#define MPPT_REG_BATTERY_VOLTAGE 0x331A       // DOGRULA - aku voltaji register adresi
-#define MPPT_REG_BATTERY_VOLTAGE_SCALE 0.01f  // DOGRULA - ham_deger * olcek = Volt
+// Register bloklari - EPEVER B-series/Tracer "real-time data" haritasindan
+// (yaygin dokumante edilmis, aggsoft/ESPHome/Home Assistant entegrasyonlarinda
+// da ayni adresler kullanilir - onceki 0x331A tahmininden daha guvenilir
+// bir kaynak). 0x3100-0x310F ARALIKSIZ TEK OKUMAYLA (16 register) alinir.
+#define MPPT_REG_BLOCK_START 0x3100
+#define MPPT_REG_BLOCK_COUNT 16
+#define MPPT_REG_OFS_PV_VOLTAGE 0        // 0x3100, x0.01V
+#define MPPT_REG_OFS_PV_CURRENT 1        // 0x3101, x0.01A
+#define MPPT_REG_OFS_PV_POWER_L 2        // 0x3102 (32-bit L, x0.01W)
+#define MPPT_REG_OFS_PV_POWER_H 3        // 0x3103 (32-bit H)
+#define MPPT_REG_OFS_BATTERY_VOLTAGE 4   // 0x3104 "sarj cikis voltaji" = pratikte aku voltaji, x0.01V
+#define MPPT_REG_OFS_LOAD_VOLTAGE 12     // 0x310C, x0.01V
+#define MPPT_REG_OFS_LOAD_CURRENT 13     // 0x310D, x0.01A
+#define MPPT_REG_OFS_LOAD_POWER_L 14     // 0x310E (32-bit L, x0.01W)
+#define MPPT_REG_OFS_LOAD_POWER_H 15     // 0x310F (32-bit H)
+#define MPPT_REG_BATTERY_SOC 0x311A      // Aku doluluk yuzdesi (%), MPPT'nin kendi tahmini
+#define MPPT_REG_SCALE 0.01f             // DOGRULA - ham_deger * olcek = Volt/Amper/Watt
 #define MPPT_POLL_INTERVAL_MS 5000
 #define MPPT_STALE_MS 15000
+
+// ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
+// 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
+// (README - "2x12V 100A jel aku"). DOGRULA - farkliysa sadece burasi degisir.
+#define BATTERY_CAPACITY_AH 100.0f
+#define BATTERY_NOMINAL_VOLTAGE 24.0f
+#define BATTERY_CAPACITY_WH (BATTERY_CAPACITY_AH * BATTERY_NOMINAL_VOLTAGE)
 
 // ===== Konteyner Donanimi (IR alici, alarm LED, PIR) =====
 // ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti

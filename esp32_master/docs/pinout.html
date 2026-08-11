@@ -78,10 +78,10 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 
 <div class="section">
 <h2>Modül 4: MPPT Şarj Kontrolcü (Modbus RTU, "victor NML 3200-24")</h2>
-<p><strong>UYARI:</strong> Register adresi/ölçek FAZ 1'de multimetreyle doğrulanana kadar TAHMİNİ
-— bkz <code>esp32_master/include/config.h</code>'daki <code>MPPT_REG_BATTERY_VOLTAGE</code> yanındaki
-not. Model gerçek Victron ürün adlandırmasıyla uyuşmuyor, muhtemelen jenerik/OEM bir RS485+Modbus
-RTU cihaz.</p>
+<p><strong>UYARI:</strong> Register adresleri/ölçek sahada multimetreyle doğrulanana kadar TAHMİNİ
+— bkz <code>esp32_master/include/config.h</code>'daki <code>MPPT_REG_*</code> tanımları yanındaki
+notlar. Model gerçek Victron ürün adlandırmasıyla uyuşmuyor, muhtemelen jenerik/OEM bir RS485+Modbus
+RTU cihaz — EPEVER B-series/Tracer ailesinin yaygın register haritası tahmin olarak kullanıldı.</p>
 <table>
 <tr><th>2. MAX485 Pin</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
 <tr><td>RO</td><td>10</td><td>Data Output (MAX → ESP32 RX)</td></tr>
@@ -91,6 +91,18 @@ RTU cihaz.</p>
 </table>
 <p>Baudrate: <code>9600</code> (DOĞRULA). Bu bus, ESP8266 RS485 hattından (UART1) tamamen ayrı
 çalışır — aynı fiziksel hatta bağlanamaz.</p>
+<p><strong>Okunan register'lar</strong> (input registers, FC04):</p>
+<table>
+<tr><th>Adres</th><th>Alan</th><th>Ölçek</th></tr>
+<tr><td>0x3100</td><td>PV giriş voltajı</td><td>x0.01 V</td></tr>
+<tr><td>0x3101</td><td>PV giriş akımı</td><td>x0.01 A</td></tr>
+<tr><td>0x3102-0x3103</td><td>PV giriş gücü (32-bit L/H)</td><td>x0.01 W</td></tr>
+<tr><td>0x3104</td><td>Akü voltajı (şarj çıkış voltajı)</td><td>x0.01 V</td></tr>
+<tr><td>0x310C</td><td>Yük çıkış voltajı</td><td>x0.01 V</td></tr>
+<tr><td>0x310D</td><td>Yük çıkış akımı</td><td>x0.01 A</td></tr>
+<tr><td>0x310E-0x310F</td><td>Yük çıkış gücü (32-bit L/H)</td><td>x0.01 W</td></tr>
+<tr><td>0x311A</td><td>Akü doluluk yüzdesi (SOC)</td><td>% (ölçeksiz)</td></tr>
+</table>
 </div>
 
 <div class="section">
