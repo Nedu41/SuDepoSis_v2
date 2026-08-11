@@ -366,17 +366,10 @@ bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
 bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
 unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an - 0 = HENUZ HIC true olmadi (sentinel, gercek bir zaman degil)
 
-// Boot sonrasi HC-SR505'in isinma/kalibrasyon suresi boyunca cikisi
-// kararsiz/rastgele HIGH verebilir (bu sensor tipinin bilinen davranisi,
-// bkz asagidaki HC-SR505 aciklamasi) - bu sure icinde gercek bir eskalasyon
-// (siren/lamba/Telegram) TETIKLENMEZ, sadece yerel on-bip gorulebilir.
-// "Kalburum acilista surekli PIR alarmi veriyor" sikayetinin kok nedeni.
-// NOT: ilk denemede 30sn secilmisti, ama gercek cihazda reboot sonrasi
-// "Hareket: Var" (ham okuma) birkac dakika boyunca surebiliyor - HC-SR505
-// warm-up'i bazen 30sn'den uzun suruyor. Guvenli tarafta kalmak icin 90sn'e
-// cikarildi (ham "Hareket" alani bu sureden BAGIMSIZ, o her zaman anlik pin
-// durumunu gosterir - sadece siren/lamba/Telegram ESKALASYONU bu kadar
-// erteleniyor).
+// Boot sonrasi HC-SR505'in isinma suresi boyunca cikisi kararsiz/rastgele
+// HIGH verebilir - bu sure icinde eskalasyon (siren/lamba/Telegram)
+// TETIKLENMEZ. Ham "Hareket" okuma alani bu sureden bagimsiz, her zaman
+// anlik pin durumunu gosterir.
 #define KONTEYNER_PIR_BOOT_GRACE_MS 90000UL
 
 // PIR HASSASIYET (2 kademeli) - HC-SR505'in potansiyometresi olmadigindan
@@ -393,15 +386,9 @@ bool konteynerOnBipCiksin = false;         // loop'a "yeni bolum basladi, on bip
 bool konteynerOnayBekleniyor = false;      // mode==3 + eskalasyon oldu + henuz onaylanmadi
 bool konteynerOnayVerildi = false;         // mode==3 + bu bolum icin onaylandi (Sesli onay ile)
 bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (Lamba)" onayi verildi
-// BUG (kullanici bulgusu): Konteyner sireni onceden dogrudan alarmStatus.muted
-// okuyordu, ama o degisken HER ESP8266 RS485 durum mesajinda (~600ms'de bir)
-// ESP8266'nin KENDI ALARM_MUTE alaniyla EZILIYOR (bkz "TRIG_MASK" parse
-// blogu) - ESP8266'nin Konteyner'le hicbir ilgisi olmadigindan (o an
-// susturulmus/tetiklenmis degilse) bir sonraki pollde muted=false'a geri
-// donuyor, "sustur bir anlik kapatiyor sonra alarm hemen geri aciliyor"
-// sikayetine yol aciyordu. Konteyner tamamen YEREL calismali (bkz yukaridaki
-// PIR2 aciklamasi) - bu yuzden kendi ayri, RS485'ten hic etkilenmeyen
-// susturma bayragi.
+// alarmStatus.muted KULLANILAMAZ: o alan her ESP8266 RS485 durum mesajinda
+// (~600ms) ESP8266'nin kendi mute alaniyla eziliyor. Konteyner yerel
+// calistigindan (bkz PIR2 aciklamasi) kendi ayri, RS485'ten bagimsiz bayragi.
 bool konteynerSusturuldu = false;
 bool konteynerLambaManuel = false;         // Kontrol sekmesinden elle acilan/kapanan lamba - alarm/siren'den BAGIMSIZ, otomatik davranisla OR'lanir (bkz alarmLedGuncelle)
 bool konteynerSirenAktif = false;          // KONTEYNER_SIREN_PIN'in guncel durumu (durumJson icin)
@@ -506,12 +493,8 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
-  // Kullanici bulgusu: reset sonrasi hic hareket olmadan "Hareket: Var"
-  // takilip kaliyordu (sadece ilk acilis isinma penceresiyle aciklanamayacak
-  // kadar - reset attiktan hemen sonra, hicbir gecikme olmadan basliyordu).
-  // Duz INPUT pin, PIR modulunun cikisini aktif surmedigi/gecis anlarinda
-  // float/belirsiz birakabilir - dahili pull-down ile HIGH'in SADECE modul
-  // gercekten sinyal verdiginde okunmasi garanti edilir.
+  // INPUT_PULLDOWN: duz INPUT, PIR modulu cikisini aktif surmedigi anlarda
+  // pini float/belirsiz birakip yanlis HIGH okutabiliyordu.
   pinMode(PIR2_PIN, INPUT_PULLDOWN);
   // Reed switch: kablolamaya gore kapali/acik seviyesi degisebilir -
   // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
@@ -543,13 +526,7 @@ void alarmLedGuncelle() {
   bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && (konteynerPirEskalasyonOldu || kapi2Acik));
   bool konteynerBuzzerVar = false;
   if (konteynerEskaleVar) {
-    // BUG (kullanici bulgusu): "Sustur/Sireni Kapat" banner butonu buraya hic
-    // bakilmadigindan Konteyner sirenini SUSTURAMIYORDU. Ilk duzeltmede
-    // alarmStatus.muted kullanilmisti ama o RS485 durum mesajlariyla surekli
-    // ezildigi icin sustur bir anlik calisip hemen geri aciliyordu - artik
-    // tamamen yerel/RS485'ten bagimsiz konteynerSusturuldu kullanilyor (bkz
-    // yukarida tanim yorumu). Panik HALA mute'tan bagimsiz (elle ac/kapat
-    // anahtari gibi, yukaridaki yorum).
+    // Panik mute'tan bagimsiz (yukaridaki yorum); Sesli/Onayli konteynerSusturuldu'ya bakar (bkz tanimi).
     if (alarmStatus.panic_mode) konteynerBuzzerVar = true; // Panik - susturmadan bagimsiz
     else if (alarmStatus.mode == 1) konteynerBuzzerVar = !konteynerSusturuldu; // Sesli - susturulmadiysa hemen cal
     else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi && !konteynerSusturuldu; // Onayli - onaydan sonra, susturulmadiysa cal
@@ -644,14 +621,12 @@ void konteynerSensorleriOku() {
   // sonlanmayi tolere eder).
   if (pir2HareketVar) konteynerPirSonHareketMs = millis();
   unsigned long tutmaMs = (unsigned long)konteynerPirTutmaSaniye * 1000UL;
-  // konteynerPirSonHareketMs==0 => hic hareket gorulmedi (sentinel) - bu
-  // durumu "0 aninda hareket gorulmus gibi" yorumlayip tutmaMs suresince
-  // yanlislikla alarmVar=true yapmayi ONLEMEK icin acikca kontrol ediyoruz.
+  // konteynerPirSonHareketMs==0 => sentinel (hic hareket gorulmedi), 0'i
+  // gercek bir zaman gibi yorumlamamak icin acikca kontrol ediliyor.
   konteynerPirAlarmVar = pir2HareketVar || (konteynerPirSonHareketMs != 0 && (millis() - konteynerPirSonHareketMs <= tutmaMs));
 
-  // ESKALASYON: bolum, Onay Suresi'ni kesintisiz astiysa artik GERCEK alarm.
-  // Boot-grace penceresi icinde eskalasyon bilerek engellenir (yukarida
-  // KONTEYNER_PIR_BOOT_GRACE_MS aciklamasina bkz).
+  // ESKALASYON: bolum, Onay Suresi'ni kesintisiz astiysa artik GERCEK alarm
+  // (boot-grace penceresi icinde bilerek engellenir).
   if (konteynerPirAlarmVar && konteynerPirBolumBaslangicMs != 0 && !konteynerPirEskalasyonOldu) {
     unsigned long onaySuresiMs = (unsigned long)konteynerPirOnaySaniye * 1000UL;
     if (millis() - konteynerPirBolumBaslangicMs > onaySuresiMs && millis() >= KONTEYNER_PIR_BOOT_GRACE_MS) {
@@ -674,10 +649,7 @@ void konteynerSensorleriOku() {
     konteynerOnayBekleniyor = false;
     konteynerOnayVerildi = false;
     konteynerLambaOnayVerildi = false;
-    // Susturma da bu "bolum" ile birlikte biter - aksi halde bir onceki
-    // alarmda basilan Sustur, bir SONRAKI tamamen ayri/yeni bir tetiklenmeyi
-    // de sessiz birakirdi.
-    konteynerSusturuldu = false;
+    konteynerSusturuldu = false; // susturma da bolumle birlikte biter, sonraki tetiklenme sessiz kalmasin
   }
 }
 
@@ -1991,11 +1963,7 @@ function bipSesi(){
   }catch(e){}
 }
 
-// Her tetikleyicinin hangi bolgeye (Sudepo/Konteyner) ait oldugu banner ve
-// durum metinlerinde ayirt edilebilsin diye acikca on ek olarak eklendi -
-// onceden sadece Konteyner tarafindakiler etiketliydi, Sudepo tarafindakiler
-// (kapi/PIR/su seviyesi/kacak/sensor) hangi cihaza ait oldugu belirtilmeden
-// gosteriliyordu.
+// Her ad hangi cihaza (Sudepo/Konteyner) ait oldugunu belirtir.
 const tetikleyiciAdlari=['Sudepo: Sol Kapı','Sudepo: Sağ Kapı','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
 function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi){
   if(panicAktif) return 'Panik (elle açıldı)';
@@ -2088,9 +2056,7 @@ function renderUI(d){
       // sadece "Panik Kapat" gosterilir. Bkz esp8266_slave data/app.js (ayni
       // duzeltme orada da yapildi, iki panel tutarli olsun diye).
       let msg = panikAktif ? at : (bekliyor ? ('ONAY BEKLIYOR - '+at) : at);
-      // Konteyner'in kendi (RS485'ten bagimsiz, yerel) susturma bayragi -
-      // d.alarm.muted SADECE ESP8266/Sudepo tarafini yansitir, ikisi ayri
-      // (bkz konteynerSusturuldu tanim yorumu main.cpp).
+      // d.alarm.muted sadece Sudepo/ESP8266'yi yansitir, Konteyner ayri (bkz konteynerSusturuldu, main.cpp).
       const konteynerSusturulduMu = !!(d.konteyner && d.konteyner.susturuldu);
       const herhangiSusturulmus = (d.alarm && d.alarm.muted) || konteynerSusturulduMu;
       if(!panikAktif){
@@ -3190,17 +3156,10 @@ bool alarmSustur(String& reply) {
   // tetiklenip ESKI haline donebiliyordu. Artik ESP32 istenen HEDEF degeri
   // hesaplayip acikca gonderiyor - kac kere tekrar gonderilirse gonderilsin
   // sonuc ayni (idempotent).
-  // Tek buton iki BAGIMSIZ susturma bayragini birden kontrol ediyor
-  // (alarmStatus.muted -> Sudepo/ESP8266, konteynerSusturuldu -> Kalburum
-  // yerel). Toggle hedefi ikisinin "OR"una gore belirlenir - aksi halde
-  // sadece biri susturulmusken (orn. Konteyner susturulmus, Sudepo hic
-  // tetiklenmemisti) butona tekrar basmak yanlislikla "tekrar sustur"
-  // olarak yorumlanip acmak yerine kilitli kalirdi.
+  // Tek buton iki bagimsiz bayragi kontrol eder, toggle hedefi ikisinin
+  // OR'una gore (yoksa sadece biri susturulmusken buton kilitli kalirdi).
   bool hedef = !(alarmStatus.muted || konteynerSusturuldu);
-  // Konteyner'in kendi susturmasi RS485/ESP8266 sonucundan BAGIMSIZ hemen
-  // uygulanir (bkz konteynerSusturuldu tanim yorumu) - ESP8266 offline olsa
-  // bile Kalburum'daki sireni susturabilmek icin.
-  konteynerSusturuldu = hedef;
+  konteynerSusturuldu = hedef; // RS485/ESP8266 sonucundan bagimsiz hemen uygulanir
   bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
