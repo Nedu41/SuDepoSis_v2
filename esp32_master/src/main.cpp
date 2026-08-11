@@ -677,6 +677,17 @@ void irKumandaIsle() {
     IrReceiver.resume();
     return;
   }
+  // IrReceiver.decode() gercek bir kumanda kodu DISINDA, hicbir bilinen
+  // protokole uymayan ortam IR gurultusunu (gunes isigi, floresan, baska
+  // bir kumanda) de "UNKNOWN" protokol olarak basarili decode sayip true
+  // donuyor - bu durumda decodedRawData HER ZAMAN 0'dir (ham zamanlama
+  // verisi var, 32-bit kod yok). Bu filtre olmadan, kumandaya hic
+  // basilmadan "0x0 kod alindi" yanlis pozitifi olusuyordu (bkz kullanici
+  // sikayeti: "daha kumandaya basmadan 0x0 alindi diyor").
+  if (IrReceiver.decodedIRData.protocol == UNKNOWN) {
+    IrReceiver.resume();
+    return;
+  }
   irSonKod = IrReceiver.decodedIRData.decodedRawData;
   irYeniKodVar = true;
   DEBUG_PRINT("[IR] Kod alindi: 0x");
@@ -3757,6 +3768,15 @@ void wifi_connect() {
   DEBUG_PRINTLN(ssid);
 
   WiFi.mode(WIFI_AP_STA);
+  // WiFi.setSleep(false) BILEREK KULLANILMIYOR: modem-sleep'i kapatmak WiFi
+  // radyosunu SUREKLI tam guc/aktif modda tutar (normalde sinyal araliklarinda
+  // kisilip ortalama akimi dusurur) - bu kartin besleme kaynagi zaten marjinal
+  // oldugu sahada dogrulandi (bkz proje hafizasi: USB'de acilis brownout'u,
+  // orijinal DC beslemede "anlik dusus sonra duzeldi"). Sureki yuksek WiFi
+  // akimi bu marjinal kaynakta kalici/tekrar eden brownout'u tetikleyebilir -
+  // bir kez denenip bu riskten dolayi geri alindi. Besleme guclendirilirse
+  // (kondansator/daha iyi adaptor) IR zamanlama iyilestirmesi icin tekrar
+  // denenebilir, ama o zamana kadar KAPALI kalmali.
   WiFi.softAP(AP_SSID, AP_PASSWORD, 6, 0, 4);
   WiFi.softAPConfig(
     IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
