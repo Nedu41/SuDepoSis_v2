@@ -644,8 +644,7 @@ void konteynerSensorleriOku() {
 // tikanma, basili tutunca "tanıyor", birakinca kayboluyor - kutuphanenin
 // ic "son protokol" hafizasindan kalintı). Ayrica bu kartta IRremote'un
 // LED-feedback pini gecersiz bir GPIO'ya (0xFF) dusup DAHA ONCE de
-// tekrarlayan brownout resetlerine yol acmisti (bkz konteynerDonanimiInit
-// eski yorumu). Kullanicinin acik talebiyle kutuphane tamamen kaldirildi,
+// tekrarlayan brownout resetlerine yol acmisti. Kullanicinin acik talebiyle kutuphane tamamen kaldirildi,
 // yerine cok daha basit/seffaf bir yontem geldi: NEC/RC5/SIRC gibi HERHANGI
 // bir protokolu "cozmeye" calismadan, IR alicinin sinyal pininde HER
 // seviye degisimini (kenar) bir donanim interrupt'i ile mikrosaniye
