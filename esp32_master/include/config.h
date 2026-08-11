@@ -134,6 +134,13 @@
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
 #define KAPI_REED_PIN 7   // GPIO7 - Konteyner kapisi reed (manyetik) switch, digital (INPUT_PULLUP)
+// Swan Quad PET PIR (ticari alarm dedektoru) - NC/COM role kontagi, reed
+// switch ile AYNI mantik (INPUT_PULLUP): kontak kapaliyken (hareket/kurcalama
+// yok) pin GND'ye baglanip LOW okunur, kontak acilinca (hareket VEYA kablo
+// kesilirse/guc giderse - NC'nin fail-safe avantaji) pin pull-up ile HIGH'e
+// cikar. 12V besleme SIREN/LAMBA ile AYNI harici hattan verilir, ESP32'nin
+// 3.3V/5V ciktilarindan DEGIL.
+#define SWAN_PIR_PIN 15   // GPIO15 - Swan Quad PET PIR NC/COM kontagi
 // Siren/Lamba: ALARM_LED_PIN'den AYRI, gercek role modulu uzerinden calisan
 // donanim (Sudepo Zonu'ndaki Nano "Alarm Rolesi"/"Depo Ici Lamba Rolesi" ile
 // ayni role). Varsayilan HIGH=aktif - role modulunuz aktif-LOW ise (kablolama
