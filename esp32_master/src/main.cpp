@@ -17,25 +17,9 @@
 #include <esp_system.h>
 #include <ModbusMaster.h>
 
-// NOT: IRremote.hpp kendi ic basliklarinda DEBUG_PRINT/DEBUG_PRINTLN adinda
-// makrolar tanimlayip config.h'daki (asagida include edilen) bizim
-// makrolarimizin UZERINE yaziyordu - butun dosyada bu makrolar tanimsiz hale
-// geliyordu. IRremote.hpp'yi config.h'dan ONCE include ederek bizim
-// tanimlarimizin (config.h) son/gecerli olanlar olmasini garantiliyoruz.
-//
-// BUG DUZELTMESI: kutuphane varsayilan olarak, bilinen hicbir protokole
-// (NEC vb.) uymayan sinyaller icin de "evrensel/hash" bir yedek cozucu
-// calistirir - bu, kumandaya HIC BASILMADAN bile ortamdaki IR gurultusunu
-// (gunes isigi, floresan/LED aydinlatma, elektriksel parazit) "basarili"
-// bir kod gibi decode edip "Kod alindi: 0x0" veya rastgele sayilar
-// gostermesine yol aciyordu. EXCLUDE_UNIVERSAL_PROTOCOLS bu gurultuye-acik
-// yedek cozucuyu kapatir - sadece GERCEK/bilinen protokoller (bu
-// kumandalarin neredeyse hepsinde NEC) decode edilir, include'dan ONCE
-// tanimlanmasi sart (kutuphanenin kendi kosullu derlemesini etkiliyor).
-#define EXCLUDE_UNIVERSAL_PROTOCOLS
-#include <IRremote.hpp>
-
 #include "../include/config.h"
+
+void irAliciBaslat(); // asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumunde tanimli
 
 #if ENABLE_BLE
 #include <NimBLEDevice.h>
@@ -504,11 +488,7 @@ void konteynerDonanimiInit() {
   // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
   // gozlemleyip gerekirse asagidaki karsilastirmayi (==HIGH) ters cevir.
   pinMode(KAPI_REED_PIN, INPUT_PULLUP);
-  // ENABLE_LED_FEEDBACK KULLANMA: bu kartta gecerli bir varsayilan LED_BUILTIN
-  // tanimli degil, kutuphane bu durumda USE_DEFAULT_FEEDBACK_LED_PIN=0xFF
-  // (GECERSIZ bir GPIO numarasi) kullanmaya calisiyor - bu, cihazda tekrarlayan
-  // Brownout resetlerine (kararsizliga) yol acti, DISABLE ile duzeldi/dogrulandi.
-  IrReceiver.begin(IR_RECV_PIN, DISABLE_LED_FEEDBACK);
+  irAliciBaslat(); // bkz asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumu
   DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed hazir");
 }
 
@@ -655,85 +635,110 @@ void konteynerSensorleriOku() {
   }
 }
 
-// IR kumanda - HAM YAKALAMA. Gercek eslesme/ogrenme-modu isleme (asagidaki
-// irEslesmeler tablosu ve komutCalistir()) dosyada daha ileride tanimli
-// oldugundan (komutCalistir *Ayarla fonksiyonlarindan sonra gelir), burada
-// sadece kodu paylasilan degiskenlere yazip birakiyor - loop() hemen
-// ardindan irKomutIsleVeCalistir()'i cagirir.
+// ============================================================
+// IR KUMANDA - HAM KENAR YAKALAMA (kutuphanesiz, kendi yazdigimiz)
+// ============================================================
+// GECMIS: Once IRremote kutuphanesi kullanildi, ama protokol tanima +
+// "repeat kare" + "UNKNOWN/gurultu" mantigi ust uste birkac farkli
+// kararsizliga yol acti (0x0 yanlis pozitif, tanidigi tus sayisi 2'de
+// tikanma, basili tutunca "tanıyor", birakinca kayboluyor - kutuphanenin
+// ic "son protokol" hafizasindan kalintı). Ayrica bu kartta IRremote'un
+// LED-feedback pini gecersiz bir GPIO'ya (0xFF) dusup DAHA ONCE de
+// tekrarlayan brownout resetlerine yol acmisti (bkz konteynerDonanimiInit
+// eski yorumu). Kullanicinin acik talebiyle kutuphane tamamen kaldirildi,
+// yerine cok daha basit/seffaf bir yontem geldi: NEC/RC5/SIRC gibi HERHANGI
+// bir protokolu "cozmeye" calismadan, IR alicinin sinyal pininde HER
+// seviye degisimini (kenar) bir donanim interrupt'i ile mikrosaniye
+// hassasiyetinde zaman damgalayip bir tampona yaziyoruz. Yeterince uzun
+// bir sessizlik (IR_FRAME_GAP_US) gorulunce "kare bitti" sayilip, tum
+// kenar araliklarindan (protokol ne olursa olsun) kararli bir hash
+// uretiliyor - bu hash, o tusun "kodu" oluyor. Ayni tusun ardisik
+// basimlarindaki birkac-yuz-mikrosaniyelik dogal jitter'i tolere etmek
+// icin araliklar kovalara (200us) yuvarlaniyor.
+#define IR_RAW_MAX 200          // bir karede beklenen en fazla kenar sayisi
+#define IR_FRAME_GAP_US 15000UL // bu kadar sessizlik = kare bitti
+#define IR_MIN_EDGES 10         // bundan az kenar = gercek IR gurultusu, at
+#define IR_LOCKOUT_MS 400       // tusa basili tutarken gelen tekrar darbelerini yut (eski "repeat" filtresiyle ayni amac)
+
+volatile uint16_t irRawBuf[IR_RAW_MAX];
+volatile uint16_t irRawLen = 0;
+volatile uint32_t irSonKenarMicros = 0;
+portMUX_TYPE irMux = portMUX_INITIALIZER_UNLOCKED;
+
+void IRAM_ATTR irKenarISR() {
+  uint32_t simdi = micros();
+  uint32_t fark = simdi - irSonKenarMicros;
+  irSonKenarMicros = simdi;
+  portENTER_CRITICAL_ISR(&irMux);
+  if (fark > IR_FRAME_GAP_US) {
+    irRawLen = 0; // yeni kare basliyor - onceki (anlamsiz uzun) sessizligi kaydetme
+  } else if (irRawLen < IR_RAW_MAX) {
+    irRawBuf[irRawLen++] = (fark > 65535UL) ? 65535 : (uint16_t)fark;
+  }
+  portEXIT_CRITICAL_ISR(&irMux);
+}
+
+void irAliciBaslat() {
+  pinMode(IR_RECV_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(IR_RECV_PIN), irKenarISR, CHANGE);
+}
+
+// Gercek eslesme/ogrenme-modu isleme (asagidaki irEslesmeler tablosu ve
+// komutCalistir()) dosyada daha ileride tanimli oldugundan, burada sadece
+// kodu paylasilan degiskenlere yazip birakiyor - loop() hemen ardindan
+// irKomutIsleVeCalistir()'i cagirir.
 volatile bool irYeniKodVar = false;
 uint32_t irSonKod = 0;
-// TESHIS AMACLI: filtrelensin/filtrelenmesin HER decode denemesinin protokol
-// adi + sayaci - kullaniciya seri kabloya ihtiyac olmadan web'den ("Kumanda"
-// sekmesi ogrenme durumu) "gercekten UNKNOWN mi geliyor yoksa hic decode
-// olmuyor mu" sorusunu cevaplamak icin (bkz kullanici sikayeti: "simdi hic
-// adres almiyor" - UNKNOWN filtresi eklendikten sonra).
+// TESHIS AMACLI: web'den ("Kumanda" sekmesi ogrenme durumu) seri kabloya
+// ihtiyac olmadan neler oldugunu gormek icin.
 String irSonDenemeProtokol = "-";
 uint32_t irDenemeSayaci = 0;
 uint16_t irSonRawlen = 0;
 
-// UNKNOWN protokolde decodedRawData HER ZAMAN 0'dir (32-bit kod yok, sadece
-// ham zamanlama var) - UNKNOWN'i tamamen atmak, kutuphanenin TANIMADIGI
-// (ama gercek) sinyalleri de yok sayiyordu. Iki FARKLI kumandada da "ilk 2
-// tus calisiyor, sonrasi UNKNOWN geliyor" gozlemlendi - yani sorun belirli
-// bir kumandaya/protokole ozgu degil. Cozum: UNKNOWN geldiginde, gercek
-// gurultuyu (cok kisa/az darbeli) elemek icin bir minimum darbe sayisi
-// sarti koyup, bunu gecen sinyalden HAM ZAMANLAMA verisinden kararli bir
-// "parmak izi" (hash) uretip kod olarak kullanmak - boylece protokolu
-// tanimasa da AYNI tusun tekrar basilinca AYNI kodu uretmesini bekleyebiliriz.
-#define IR_HAM_MIN_RAWLEN 10 // bundan az darbe = gercek gurultu, at
-uint32_t irHamSinyalHashHesapla() {
+void irKumandaIsle() {
+  static uint32_t sonIslemMs = 0;
+  static uint16_t localBuf[IR_RAW_MAX];
+  uint16_t localLen;
+
+  portENTER_CRITICAL(&irMux);
+  localLen = irRawLen;
+  for (uint16_t i = 0; i < localLen; i++) localBuf[i] = irRawBuf[i];
+  portEXIT_CRITICAL(&irMux);
+
+  if (localLen == 0) return;
+  if ((micros() - irSonKenarMicros) < IR_FRAME_GAP_US) return; // kare hala devam ediyor, bekle
+
+  portENTER_CRITICAL(&irMux);
+  irRawLen = 0; // kare bitti - tamponu hemen bosalt ki bir sonraki kare biriksin
+  portEXIT_CRITICAL(&irMux);
+
+  irDenemeSayaci++;
+  irSonRawlen = localLen;
+
+  if (millis() - sonIslemMs < IR_LOCKOUT_MS) {
+    irSonDenemeProtokol = "tekrar/kilit";
+    return; // tusa basili tutma sirasindaki tekrar kareleri - yoksay
+  }
+  if (localLen < IR_MIN_EDGES) {
+    irSonDenemeProtokol = "gurultu(kisa)";
+    return; // gercek IR gurultusu (gunes isigi, floresan vb.)
+  }
+
   uint32_t hash = 2166136261UL; // FNV-1a
-  uint16_t rawlen = IrReceiver.decodedIRData.rawlen;
-  for (uint16_t i = 1; i < rawlen; i++) {
-    // /4 (=200us) kovaya yuvarla: ayni tusun ardisik basimlarindaki normal
-    // birkac-onluk-mikrosaniyelik jitter'i tolere etsin, yine de farkli
-    // tuslari ayirt edebilsin.
-    uint8_t kova = IrReceiver.irparams.rawbuf[i] / 4;
+  for (uint16_t i = 0; i < localLen; i++) {
+    uint16_t kova = localBuf[i] / 200; // ~200us kovaya yuvarla, jitter toleransi
     hash ^= kova;
     hash *= 16777619UL;
   }
-  hash ^= rawlen;
+  hash ^= localLen;
   hash *= 16777619UL;
-  return hash;
-}
 
-void irKumandaIsle() {
-  if (!IrReceiver.decode()) return;
-  irDenemeSayaci++;
-  irSonDenemeProtokol = getProtocolString(IrReceiver.decodedIRData.protocol);
-  irSonRawlen = IrReceiver.decodedIRData.rawlen;
-  // ONEMLI BUG DUZELTMESI: NEC protokolu (bu kumandalarin cogu) bir tusa
-  // basili tutulurken ~108ms'de bir "repeat" (tekrar) karesi gonderir - bu,
-  // IrReceiver.decode()'un AYRI bir basarili decode olarak donmesine neden
-  // olur (decodedRawData degismez, ama HER karede irYeniKodVar tekrar true
-  // oluyordu). Bu filtre YOKKEN, normal bir tus basisi (birkac yuz ms surse
-  // bile) TOGGLE komutlarini (Lamba/Alarm/Kapi Ac-Kapat) arka arkaya 2-5 kez
-  // tetikleyip durumu ac-kapa-ac diye rastgele degistiriyordu - "kumanda
-  // sapitiyor" sikayetinin sebebi buydu. Repeat kareleri artik yok sayilir,
-  // sadece YENI/tam kod islenir.
-  if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) {
-    IrReceiver.resume();
-    return;
-  }
-  if (IrReceiver.decodedIRData.protocol == UNKNOWN) {
-    if (IrReceiver.decodedIRData.rawlen < IR_HAM_MIN_RAWLEN) {
-      // cok kisa/az darbe - gercek IR gurultusu (gunes isigi, floresan vb.),
-      // kumandaya basilmadan "0x0 kod alindi" yanlis pozitifinin sebebiydi.
-      IrReceiver.resume();
-      return;
-    }
-    irSonKod = irHamSinyalHashHesapla();
-    irYeniKodVar = true;
-    DEBUG_PRINT("[IR] UNKNOWN protokol, ham hash ile kod uretildi: 0x");
-    DEBUG_PRINTLN(String(irSonKod, HEX));
-    IrReceiver.resume();
-    return;
-  }
-  irSonKod = IrReceiver.decodedIRData.decodedRawData;
+  irSonKod = hash;
+  irSonDenemeProtokol = "HAM(" + String(localLen) + " kenar)";
   irYeniKodVar = true;
-  DEBUG_PRINT("[IR] Kod alindi: 0x");
+  sonIslemMs = millis();
+  DEBUG_PRINT("[IR] Ham kod: 0x");
   DEBUG_PRINTLN(String(irSonKod, HEX));
-  IrReceiver.resume();
 }
 
 // ============ TELEGRAM ALARM BILDIRIMLERI ============
