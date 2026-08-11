@@ -483,7 +483,20 @@ bool yagmurSulamaAtlaGecerli() {
   return yagmurSulamaAtla && (millis() - yagmurSonGuncellemeMs < RAIN_SKIP_STALE_MS);
 }
 
+// Kalburum'un (ESP32) MPPT'den okudugu aku voltaji kritik esigin altina
+// dusunce RS485 ile MASTER:SET_BATTERY_LOW=1 gonderip sulama rolesini
+// zorla kapatir - hem otomatik moda hem elle "ac" isteklerine engel olur
+// (bkz applyMoistureControl ve rs485KomutDinle icindeki SET_MOISTURE=
+// dalı). Voltaj toparlaninca Kalburum SET_BATTERY_LOW=0 gonderip serbest
+// birakir - burada ayrica bir "geri ac" mantigi gerekmez, mevcut otomatik/
+// manuel akis normal calismaya devam eder.
+bool batteryLowOverride = false;
+
 void applyMoistureControl() {
+  if (batteryLowOverride) {
+    if (moistureOutputActive) nanoMoistureKontrol(false);
+    return;
+  }
   if (!ayar.moistureAutomatic) return;
   if (sensorHatasi) return;
   if (moisturePercent <= ayar.moistureThresholdLow && !moistureOutputActive) {
@@ -548,7 +561,7 @@ void masterGonder() {
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     kapi1Acik ? 1 : 0,
@@ -571,7 +584,8 @@ void masterGonder() {
     alarmSusturuldu ? 1 : 0,
     alarmOnayBekliyor ? 1 : 0,
     panicRoleAktif ? 1 : 0,
-    alarmTetikleyenMask
+    alarmTetikleyenMask,
+    batteryLowOverride ? 1 : 0
   );
   rs485Gonder(buf);
 }
@@ -621,7 +635,9 @@ void rs485KomutDinle() {
           response = (ok ? "ACK:" : "NACK:") + komut;
         } else if (komut.startsWith("SET_MOISTURE=")) {
           int durum = komut.substring(13).toInt();
-          bool ok = nanoMoistureKontrol(durum == 1);
+          // Batarya kritikken elle "ac" istegi de reddedilir (sadece
+          // otomatik moda degil) - bkz batteryLowOverride tanimi.
+          bool ok = (durum == 1 && batteryLowOverride) ? false : nanoMoistureKontrol(durum == 1);
           response = (ok ? "ACK:" : "NACK:") + komut;
         } else if (komut.startsWith("SET_MOISTURE_AUTO=")) {
           bool ac = komut.substring(18).toInt() ? true : false;
@@ -646,6 +662,10 @@ void rs485KomutDinle() {
         } else if (komut.startsWith("SET_RAIN_SKIP=")) {
           yagmurSulamaAtla = komut.substring(14).toInt() ? true : false;
           yagmurSonGuncellemeMs = millis();
+          response = "ACK:" + komut;
+        } else if (komut.startsWith("SET_BATTERY_LOW=")) {
+          batteryLowOverride = komut.substring(17).toInt() ? true : false;
+          if (batteryLowOverride && moistureOutputActive) nanoMoistureKontrol(false);
           response = "ACK:" + komut;
         } else if (komut == "GET_KAYITLAR") {
           // Kayit yedekleme: ESP32'ye tum kayitlari tek satirda ('~' ile ayrilmis) gonder.
