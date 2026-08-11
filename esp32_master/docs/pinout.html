@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>ESP32-S3 SuDepoSis v2 (Kalburum) - Pinout</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  h1 { color: #1976d2; }
+  h2 { color: #333; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  .section { margin-bottom: 30px; }
+  code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+  @media print {
+    body { margin: 0; }
+    .no-print { display: none; }
+    table { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<h1>ESP32-S3 SuDepoSis v2 ("Kalburum") — Pinout ve Modül Tablosu</h1>
+<p class="no-print">Yazdırmak için tarayıcınızın yazdırma (Ctrl+P) özelliğini kullanabilirsiniz. ESP8266/Nano tarafı için <a href="../../esp8266_slave/docs/pinout.html">esp8266_slave/docs/pinout.html</a> içine bak.</p>
+
+<div class="section">
+<h2>Genel Bağlantı Şeması (3 kart)</h2>
+<pre>
+                     RS485 (9600 baud, MAX485, CAT5 - A/B twisted pair)
+┌───────────────────────┐   ◄─────────────────────────►   ┌──────────────────────┐
+│  ESP32-S3 "Kalburum"   │                                 │  ESP8266 "Sudepo"     │
+│  (master)               │                                 │  (slave)               │
+│  GPIO37 RX ← MAX485 RO  │                                 │  D7  RX ← MAX485 RO   │
+│  GPIO38 TX → MAX485 DI  │                                 │  D0  TX → MAX485 DI   │
+│  GPIO39    → DE/RE      │                                 │  D3     → DE/RE       │
+│                         │                                 │  + HC-SR04, DS1307 RTC│
+│  + Konteyner Zonu       │                                 └──────────┬────────────┘
+│    (IR, PIR2, kapı reed,│                                            │ UART0 (9600 baud)
+│    siren, lamba - hepsi │                                            │ (470Ω seri + 1kΩ pull-down,
+│    ESP32'ye doğrudan    │                                 ┌──────────▼────────────┐
+│    bağlı, RS485 yok)    │                                 │  Arduino Nano          │
+└───────────────────────┘                                 │  D2/D3  Kapı 1/2       │
+                                                            │  D4     Alarm rölesi   │
+                                                            │  D5     Nem rölesi     │
+                                                            │  D6     PIR (Sudepo)   │
+                                                            │  D13    Depo lambası   │
+                                                            │  A0     Toprak nem     │
+                                                            └────────────────────────┘
+</pre>
+<p><strong>Not:</strong> Konteyner Zonu (Kalburum'un bulunduğu konteynerdeki alarm/aydınlatma donanımı) tamamen
+ESP32-S3'e doğrudan bağlıdır, RS485/ESP8266/Nano'dan bağımsızdır — kendi PIR'ı, kapı reed switch'i, IR alıcısı,
+sireni ve lambası var. "Sudepo Zonu" (depo tarafı: seviye, kapı1/2, alarm rölesi, nem rölesi, "Sudepo" lambası)
+ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
+</div>
+
+<div class="section">
+<h2>ESP32-S3-DevKitC-1 — Kullanılan Pinler</h2>
+<table>
+<tr><th>GPIO</th><th>Modül</th><th>Fonksiyon</th><th>Not</th></tr>
+<tr><td>37</td><td>MAX485 RS485</td><td>RO (Receiver Output) → ESP32 RX</td><td>UART1</td></tr>
+<tr><td>38</td><td>MAX485 RS485</td><td>DI (Data Input) ← ESP32 TX</td><td>UART1</td></tr>
+<tr><td>39</td><td>MAX485 RS485</td><td>DE + RE (Driver/Receiver Enable)</td><td>HIGH = gönderim, LOW = alım</td></tr>
+<tr><td>4</td><td>IR Alıcı</td><td>OUT/sinyal ucu</td><td>VCC/GND ayrı beslenir</td></tr>
+<tr><td>5</td><td>Alarm LED + Buzzer</td><td>Küçük görsel/sesli uyarı (yerel)</td><td>LED (seri dirençli) ve buzzer paralel, aynı sinyali paylaşır</td></tr>
+<tr><td>6</td><td>PIR2 (Konteyner)</td><td>Hareket sensörü OUT</td><td>HC-SR505 — sabit ~8sn HIGH tutar, HC-SR501'den farklı olarak art arda kenar vermez</td></tr>
+<tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
+<tr><td>8</td><td>Konteyner Sireni</td><td>Röle çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
+<tr><td>9</td><td>Konteyner Lambası</td><td>Röle çıkışı (uyarı lambası/flaşör)</td><td>Varsayılan HIGH=aktif; siren ile birlikte VEYA tek başına (Onaylı mod "Sessiz (Lamba)" onayı, ya da Kontrol sekmesinden elle) aktif olabilir</td></tr>
+<tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
+<tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (9600 baud)</td><td>PC'ye USB üzerinden</td></tr>
+<tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Quad Flash)</td><td>Bu karttaki flash için ayrılmış</td></tr>
+<tr><td>2, 10-18, 21, 33, 34, 36, 40-42, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>—</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 1: MAX485 RS485 (ESP8266 "Sudepo" Haberleşmesi)</h2>
+<table>
+<tr><th>MAX485 Pin</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
+<tr><td>RO</td><td>37</td><td>Data Output (MAX → ESP32 RX)</td></tr>
+<tr><td>DI</td><td>38</td><td>Data Input (ESP32 TX → MAX)</td></tr>
+<tr><td>DE + RE</td><td>39</td><td>Ortak Enable — HIGH: gönderim, LOW: alım</td></tr>
+<tr><td>VCC</td><td>—</td><td>5V (3.3V de çalışır)</td></tr>
+<tr><td>GND</td><td>—</td><td>Ortak toprak</td></tr>
+<tr><td>A / B</td><td>—</td><td>ESP8266 tarafındaki MAX485'in A/B'sine twisted pair (CAT5) ile, A↔A B↔B</td></tr>
+</table>
+<p>Baudrate: <code>9600</code>. Protokol detayı için kök dizindeki <code>README.md</code>'ye ve
+<a href="../README.md">esp32_master/README.md</a>'ye bak.</p>
+</div>
+
+<div class="section">
+<h2>Modül 2: IR Alıcı (Konteyner Kumanda)</h2>
+<table>
+<tr><th>IR Alıcı Pin</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
+<tr><td>OUT/sinyal</td><td>4</td><td>NEC protokolü (IRremote kütüphanesi) — kumanda tuşları öğrenilip Kontrol/Kumanda sekmesinden komuta eşlenir</td></tr>
+<tr><td>VCC</td><td>3.3V</td><td>Modüle göre değişebilir, çoğu 3.3-5V toleranslı</td></tr>
+<tr><td>GND</td><td>GND</td><td>Ortak toprak</td></tr>
+</table>
+</div>
+
+<div class="section">
+<h2>Modül 3: Konteyner Alarm Donanımı (PIR2, Kapı Reed, LED+Buzzer, Siren, Lamba)</h2>
+<table>
+<tr><th>Parça</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
+<tr><td>PIR2 (HC-SR505)</td><td>6</td><td>OUT dijital, HIGH=hareket. Sabit ~8sn HIGH tutar (potansiyometre/jumper yok) — debounce "min tetiklenme" ayarı en az 1 olmalı, 2+ hiç tetiklenmez</td></tr>
+<tr><td>Kapı Reed Switch</td><td>7</td><td>INPUT_PULLUP, manyetik switch açılınca alarm eskalasyonuna girer (Alarm Modu'na göre)</td></tr>
+<tr><td>Alarm LED + Buzzer</td><td>5</td><td>Küçük yerel gösterge — gerçek alarm çalmıyorsa PIR bölümü başladığında 1sn'lik "ön uyarı" darbesi de verir</td></tr>
+<tr><td>Siren Rölesi</td><td>8</td><td>Gerçek fiziksel siren/alarm çıkışı — Sesli modda hemen, Onaylı modda onaydan sonra aktif</td></tr>
+<tr><td>Lamba Rölesi</td><td>9</td><td>Uyarı lambası/flaşör — siren ile birlikte VEYA Onaylı+"Sessiz (Lamba)" onayında VEYA Kontrol sekmesinden elle tek başına aktif olabilir</td></tr>
+</table>
+<p><strong>Not:</strong> Röle modülleriniz aktif-LOW ise (kablolama tersse), <code>main.cpp</code> içindeki
+<code>alarmLedGuncelle()</code> fonksiyonundaki ilgili <code>digitalWrite(...)</code> satırlarını ters
+çevirmeniz yeterli — reed switch'teki gibi tek satırlık bir düzeltme, reflash gerektirir ama donanım
+değişikliği gerektirmez.</p>
+</div>
+
+<div class="section">
+<h2>WiFi / Ağ Konfigürasyonu</h2>
+<table>
+<tr><th>Mod</th><th>SSID</th><th>Şifre</th><th>IP</th></tr>
+<tr><td>AP</td><td>kalburum</td><td>include/secrets.h → AP_PASSWORD</td><td>192.168.4.1</td></tr>
+<tr><td>STA</td><td>Kullanıcı tanımlı (web arayüzünden)</td><td>Kullanıcı tanımlı</td><td>Statik: 192.168.1.50 (config.h)</td></tr>
+</table>
+<p><strong>mDNS:</strong> http://kalburum.local &nbsp;|&nbsp; <strong>OTA Şifre:</strong> include/secrets.h → OTA_PASSWORD
+(bu dosyaya gerçek şifre asla yazılmaz) &nbsp;|&nbsp; <strong>OTA Portu:</strong> 3232</p>
+</div>
+
+<div class="section">
+<h2>Kablaj Özeti</h2>
+<pre>
+ESP32-S3         MAX485 (RS485, ESP8266'ya)
+GPIO37 (RX) ← RO
+GPIO38 (TX) → DI
+GPIO39      → DE + RE
+GND        → GND
+A ↔ A, B ↔ B (twisted pair, CAT5)
+
+ESP32-S3         IR Alıcı
+GPIO4  ← OUT (sinyal)
+3.3V   → VCC
+GND    → GND
+
+ESP32-S3         Konteyner Alarm Donanımı
+GPIO5  → LED + Buzzer (paralel)
+GPIO6  ← PIR2 (HC-SR505) OUT
+GPIO7  ← Kapı Reed (INPUT_PULLUP)
+GPIO8  → Siren Rölesi IN
+GPIO9  → Lamba Rölesi IN
+</pre>
+</div>
+
+</body>
+</html>

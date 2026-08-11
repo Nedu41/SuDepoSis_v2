@@ -13,24 +13,25 @@ Gece enerji kısıtlı olduğundan firmware bu kısıtı gözetecek şekilde tas
 │   "master"         │                        │   "slave"           │
 │  - WiFi/MQTT/OTA   │                        │  - HC-SR04 seviye   │
 │  - Web arayuzu     │                        │  - Alarm/panik      │
-│  - (Yakinda) hava  │                        │  - Nem otomasyonu   │
-│    durumu sorgusu  │                        │  - Web paneli (AP)  │
-└──────────────────┘                        └─────────┬─────────┘
-                                                         │ UART0 (9600)
-                                                  ┌───────▼─────────┐
-                                                  │  Arduino Nano     │
-                                                  │  - Kapi sensorleri │
-                                                  │  - Alarm rolesi    │
-                                                  │  - Nem/sulama rol. │
-                                                  │  - PIR + genel GPIO│
-                                                  └─────────────────┘
+│  - BLE (telefon)   │                        │  - Nem otomasyonu   │
+│  - Telegram        │                        │  - Web paneli (AP)  │
+│  - Hava durumu     │                        └─────────┬─────────┘
+│                    │                                    │ UART0 (9600)
+│  ── Konteyner ──   │                            ┌───────▼─────────┐
+│  Zonu (ESP32'ye    │                            │  Arduino Nano     │
+│  dogrudan bagli,   │                            │  - Kapi sensorleri │
+│  RS485 yok):        │                            │  - Alarm rolesi    │
+│  - IR kumanda      │                            │  - Nem/sulama rol. │
+│  - PIR2 + kapi reed│                            │  - PIR + genel GPIO│
+│  - Siren + lamba   │                            └─────────────────┘
+└──────────────────┘
 ```
 
-Üç kart da bu tek repoda ayrı PlatformIO projeleri olarak durur — her birinin kendi `platformio.ini`, `include/`, `src/` klasörü var. Ayrıntılar için her klasördeki kendi `README.md`'sine bak:
+Üç kart da bu tek repoda ayrı PlatformIO projeleri olarak durur — her birinin kendi `platformio.ini`, `include/`, `src/` klasörü var. Ayrıntılar için her klasördeki kendi `README.md`'sine, tam pin şeması için `docs/pinout.html` dosyalarına bak; genel mimari/protokol özeti için [SISTEM_MIMARISI.md](SISTEM_MIMARISI.md):
 
-- [`esp32_master/`](esp32_master/README.md) — ESP32-S3, sistemin "beyni": WiFi, MQTT, OTA, web arayüzü, RS485 master.
-- [`esp8266_slave/`](esp8266_slave/README.md) — ESP8266, sensör + alarm/panik + sulama otomasyonu, RS485 slave.
-- [`nano_io/`](nano_io/README.md) — Arduino Nano, fiziksel I/O (kapı, röle, PIR).
+- [`esp32_master/`](esp32_master/README.md) — ESP32-S3, sistemin "beyni": WiFi, MQTT, OTA, BLE, Telegram, web arayüzü, RS485 master, Konteyner Zonu (IR/PIR/siren/lamba). Pinout: [esp32_master/docs/pinout.html](esp32_master/docs/pinout.html).
+- [`esp8266_slave/`](esp8266_slave/README.md) — ESP8266, sensör + alarm/panik + sulama otomasyonu, RS485 slave. Pinout: [esp8266_slave/docs/pinout.html](esp8266_slave/docs/pinout.html).
+- [`nano_io/`](nano_io/README.md) — Arduino Nano, fiziksel I/O (kapı, röle, PIR, nem, lamba).
 
 VS Code'da hepsini birden açmak için kök dizindeki `sudeposis_v2.code-workspace` dosyasını kullan.
 
@@ -83,16 +84,24 @@ Reflaş için USB'ye gerek yok, iki yöntem var (her ikisi de esp32_master ve es
 ## Öne çıkan özellikler
 
 - **Depo seviyesi:** HC-SR04 ultrasonik sensör, yatay silindirik/dikey depo desteği, litre/yüzde hesaplama.
-- **Alarm sistemi:** Kapı, PIR (hareket), su seviyesi düşük, kaçak tespiti — 3 mod (sesli/sessiz/onaylı),
-  susturma, panik butonu. Gece de dahil her zaman anlık çalışır — bkz. "Gece enerji politikası" aşağıda.
+- **Alarm sistemi (Sudepo Zonu):** Kapı, PIR (hareket), su seviyesi düşük, kaçak tespiti — 3 mod
+  (sesli/sessiz/onaylı), susturma, panik butonu. Gece de dahil her zaman anlık çalışır — bkz. "Gece
+  enerji politikası" aşağıda. Panik/susturma komutları idempotent (toggle değil explicit-set), retry
+  ile çift-tetikleme riski yok.
+- **Konteyner Zonu (Kalburum):** ESP32-S3'ün bulunduğu konteynerde, RS485'ten bağımsız kendi PIR'ı,
+  kapı reed switch'i, IR kumanda alıcısı, sireni ve lambası — Sudepo'daki alarm modunu referans alır
+  ama bağımsız açılıp kapatılabilir. Detay: [esp32_master/README.md](esp32_master/README.md#konteyner-zonu-kalburumun-kendi-alarmaydınlatma-donanımı).
 - **Toprak nemine göre otomatik sulama:** Eşik bazlı (düşük/yüksek nem), gece kısıtlaması yok (nem her an
   aynı hassasiyetle kontrol edilir).
 - **Yağmur tahminine göre sulama atlama:** ESP8266, master'dan `SET_RAIN_SKIP=1` geldiğinde otomatik
   sulamanın yeni bir döngü başlatmasını engeller (bkz. `esp8266_slave/src/main.cpp` `applyMoistureControl()`).
   Hava durumu sorgusunun kendisi ESP32-S3 master'da yapılır — bkz. [esp32_master/README.md](esp32_master/README.md#hava-durumu--yagmur-tahmini).
+- **BLE + Telegram:** Eşleşmiş Android uygulaması WiFi'ye girmeden BLE ile lamba/alarm/panik kontrolü
+  yapabilir; alarm tetiklenince Telegram'a bildirim gider (ikisi de opsiyonel, `secrets.h`'da tanımlı).
 - **MQTT:** ESP32-S3, yerel bir Mosquitto broker'a (`127.0.0.1:1883`) `sudeposis/level` vb. topic'lere yayın yapar.
-- **Web arayüzü:** Her iki WiFi'li kartın kendi web paneli var (ESP8266: LittleFS'ten servis edilen
-  `data/index.html`+`app.js`; ESP32: koda gömülü HTML).
+- **Web arayüzü:** Her iki WiFi'li kartın kendi web paneli var — ikisi de artık derleme zamanında
+  firmware'e gömülü (ESP8266: `web/index.html`+`app.js` → `web_content.h`; ESP32: koda gömülü HTML),
+  ayrı bir dosya sistemi yükleme adımı gerekmez.
 
 ## Gece enerji politikası
 
