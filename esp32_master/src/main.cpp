@@ -390,6 +390,9 @@ bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (L
 // (~600ms) ESP8266'nin kendi mute alaniyla eziliyor. Konteyner yerel
 // calistigindan (bkz PIR2 aciklamasi) kendi ayri, RS485'ten bagimsiz bayragi.
 bool konteynerSusturuldu = false;
+unsigned long konteynerSirenBaslangicMs = 0; // 0 = siren su an surekli calmiyor
+#define KONTEYNER_SIREN_MAX_MS (2UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi) otomatik susturulur
+bool konteynerOtoSusturBildirimBekliyor = false; // yukaridaki oto-sustur tetiklendiginde Telegram fonksiyonuna sinyal
 bool konteynerLambaManuel = false;         // Kontrol sekmesinden elle acilan/kapanan lamba - alarm/siren'den BAGIMSIZ, otomatik davranisla OR'lanir (bkz alarmLedGuncelle)
 bool konteynerSirenAktif = false;          // KONTEYNER_SIREN_PIN'in guncel durumu (durumJson icin)
 bool konteynerLambaAktif = false;          // KONTEYNER_LAMBA_PIN'in guncel durumu (durumJson icin)
@@ -527,13 +530,31 @@ void alarmLedGuncelle() {
   // "her seyin onunde calisir, elle ac/kapat anahtari gibi" davranisiyla
   // Konteyner siren+lambasini da dogrudan (Sesli gibi) tetikler.
   bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && (konteynerPirEskalasyonOldu || kapi2Acik));
-  bool konteynerBuzzerVar = false;
+  // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
+  // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
+  // siren'i kessin, lamba yansin").
+  bool konteynerCikisIstenir = false;
   if (konteynerEskaleVar) {
-    // Panik mute'tan bagimsiz (yukaridaki yorum); Sesli/Onayli konteynerSusturuldu'ya bakar (bkz tanimi).
-    if (alarmStatus.panic_mode) konteynerBuzzerVar = true; // Panik - susturmadan bagimsiz
-    else if (alarmStatus.mode == 1) konteynerBuzzerVar = !konteynerSusturuldu; // Sesli - susturulmadiysa hemen cal
-    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi && !konteynerSusturuldu; // Onayli - onaydan sonra, susturulmadiysa cal
-    // mode==2 (Sessiz) ve panik degilse: konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
+    if (alarmStatus.panic_mode) konteynerCikisIstenir = true; // Panik - susturmadan bagimsiz
+    else if (alarmStatus.mode == 1) konteynerCikisIstenir = true; // Sesli
+    else if (alarmStatus.mode == 3) konteynerCikisIstenir = konteynerOnayVerildi; // Onayli - onaydan sonra
+    // mode==2 (Sessiz) ve panik degilse: false kalir, Telegram/banner yine de calisir
+  }
+  // Siren: hedef durum VAR ve (panik VEYA susturulmamis).
+  bool konteynerBuzzerVar = konteynerCikisIstenir && (alarmStatus.panic_mode || !konteynerSusturuldu);
+
+  // Sensor arizasi/unutulmus tetiklenmede siren SINIRSIZ calmasin diye
+  // kesintisiz KONTEYNER_SIREN_MAX_MS'i asarsa otomatik susturulur (panik
+  // haric - o elle ac/kapat, kullanicinin kendi muhakemesine birakilir).
+  if (konteynerBuzzerVar && !alarmStatus.panic_mode) {
+    if (konteynerSirenBaslangicMs == 0) konteynerSirenBaslangicMs = millis();
+    else if (millis() - konteynerSirenBaslangicMs > KONTEYNER_SIREN_MAX_MS) {
+      konteynerSusturuldu = true;
+      konteynerBuzzerVar = false;
+      konteynerOtoSusturBildirimBekliyor = true;
+    }
+  } else {
+    konteynerSirenBaslangicMs = 0;
   }
 
   // Siren + Lamba (ALARM_LED_PIN'deki kucuk LED+buzzer'dan AYRI, gercek role
@@ -553,7 +574,7 @@ void alarmLedGuncelle() {
   // KASITLI OLARAK dokunulmuyor, her kosulda calismaya devam eder. Voltaj
   // toparlaninca bir sonraki dongude otomatik geri acilir - ayri bir "geri
   // ac" mantigi gerekmez, konteynerLambaManuel'e de dokunulmaz.
-  konteynerLambaAktif = (konteynerBuzzerVar || konteynerLambaOnayVerildi || konteynerLambaManuel) && !bateryaKritik;
+  konteynerLambaAktif = (konteynerCikisIstenir || konteynerLambaOnayVerildi || konteynerLambaManuel) && !bateryaKritik;
   digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
   digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaAktif ? HIGH : LOW);
 
@@ -919,6 +940,30 @@ void telegramBateryaKontrolEt() {
     bekliyor = true; ilkDenemeMs = millis();
   }
   oncekiKritik = bateryaKritik;
+
+  if (bekliyor) {
+    if (telegramMesajGonder(metin)) {
+      bekliyor = false;
+    } else if (millis() - ilkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
+      bekliyor = false;
+    }
+  }
+}
+
+// Konteyner sireni KONTEYNER_SIREN_MAX_MS'i asip otomatik susturuldugunda
+// bir kez bildirim gonderir - ayni bekle/retry deseni telegramBateryaKontrolEt ile ayni.
+void telegramKonteynerOtoSusturKontrolEt() {
+  static bool bekliyor = false;
+  static String metin;
+  static unsigned long ilkDenemeMs = 0;
+
+  if (!telegramBildirimAktif) { konteynerOtoSusturBildirimBekliyor = false; bekliyor = false; return; }
+
+  if (konteynerOtoSusturBildirimBekliyor) {
+    konteynerOtoSusturBildirimBekliyor = false;
+    metin = "📦 Konteyner: Siren " + String(KONTEYNER_SIREN_MAX_MS / 60000UL) + " dakikadir kesintisiz caldigi icin otomatik susturuldu - sensoru kontrol edin";
+    bekliyor = true; ilkDenemeMs = millis();
+  }
 
   if (bekliyor) {
     if (telegramMesajGonder(metin)) {
@@ -4079,6 +4124,7 @@ void loop() {
   // Alarm baslarsa Telegram'a bildirim gonder
   telegramAlarmKontrolEt();
   telegramBateryaKontrolEt();
+  telegramKonteynerOtoSusturKontrolEt();
 
   // BLE - bagli telefona periyodik anlik veri
 #if ENABLE_BLE
