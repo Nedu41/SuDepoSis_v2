@@ -104,4 +104,5 @@ bilinçli olarak burada tutulur, `esp8266_slave` hafif kalsın diye (bkz. proje 
 | 8 | Konteyner siren rölesi |
 | 9 | Konteyner lamba rölesi |
 
-Tam pinout (kablaj, modül notları) için [docs/pinout.html](docs/pinout.html).
+Tam pinout (kablaj, modül notları) için [docs/pinout.html](docs/pinout.html); MPPT şarj kontrolcü
+bağlantısı için adım adım görsel kılavuz: [docs/mppt-baglanti-kilavuzu.html](docs/mppt-baglanti-kilavuzu.html).
