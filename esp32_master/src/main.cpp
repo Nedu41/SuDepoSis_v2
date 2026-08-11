@@ -351,6 +351,11 @@ SensorData sensorData;
 NanoIOStatus nanoStatus;
 AlarmStatus alarmStatus;
 MpptData mpptData;
+SemaphoreHandle_t mpptDataMutex = NULL; // mpptData: ayri task (yazar) ile loop() (okur) arasi guvenli erisim
+struct MpptKilit {
+  MpptKilit() { xSemaphoreTake(mpptDataMutex, portMAX_DELAY); }
+  ~MpptKilit() { xSemaphoreGive(mpptDataMutex); }
+};
 bool esp8266BatteryLowAck = false; // ESP8266'nin SET_BATTERY_LOW komutuna gore uyguladigi durum
 String esp8266_id = "UNKNOWN";
 String nano_id = "UNKNOWN";
@@ -828,9 +833,11 @@ void telegramBateryaKontrolEt() {
   if (!telegramBildirimAktif) { oncekiKritik = bateryaKritik; bekliyor = false; return; }
 
   if (bateryaKritik && !oncekiKritik) {
+    MpptKilit kilit;
     metin = "🔋 SuDepo: DUSUK AKU (" + String(mpptData.battery_voltage, 1) + "V) - sulama ve konteyner lambasi devre disi birakildi";
     bekliyor = true; ilkDenemeMs = millis();
   } else if (!bateryaKritik && oncekiKritik) {
+    MpptKilit kilit;
     metin = "🔋 SuDepo: Aku normale dondu (" + String(mpptData.battery_voltage, 1) + "V) - yukler tekrar aktif";
     bekliyor = true; ilkDenemeMs = millis();
   }
@@ -1180,6 +1187,20 @@ void mpptPostTransmission() {
   digitalWrite(MPPT_RS485_DE_PIN, LOW);
 }
 
+void mpptPoll(); // asagida tanimli, mpptTask() tarafindan cagriliyor
+
+// mpptPoll() Modbus istekleri donanim yanit vermezse istek basina 2sn'ye kadar
+// bloke olabiliyor (ModbusMaster::ku16MBResponseTimeout) - donanim henuz sahada
+// dogrulanip/baglanmadan bu, loop()'u (web/RS485/buton islenmesi) her poll
+// dongusunde saniyelerce donduruyordu ("tepkilerde belirgin yavaslama"). Bu yuzden
+// ayri, dusuk oncelikli bir FreeRTOS task'ta calisiyor - loop() asla beklemez.
+void mpptTask(void *pv) {
+  for (;;) {
+    mpptPoll();
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
+}
+
 void mppt_init() {
   MpptSerial.begin(MPPT_BAUDRATE, SERIAL_8N1, MPPT_RS485_RX_PIN, MPPT_RS485_TX_PIN);
   pinMode(MPPT_RS485_DE_PIN, OUTPUT);
@@ -1187,7 +1208,9 @@ void mppt_init() {
   mpptNode.begin(MPPT_SLAVE_ID, MpptSerial);
   mpptNode.preTransmission(mpptPreTransmission);
   mpptNode.postTransmission(mpptPostTransmission);
-  DEBUG_PRINTLN("[MPPT] UART2 Modbus RTU hazir (FAZ 1 - sadece loglama)");
+  mpptDataMutex = xSemaphoreCreateMutex();
+  xTaskCreatePinnedToCore(mpptTask, "mpptTask", 4096, NULL, 1, NULL, 0);
+  DEBUG_PRINTLN("[MPPT] UART2 Modbus RTU hazir, ayri task'ta (FAZ 1 - sadece loglama)");
 }
 
 // bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
@@ -1211,6 +1234,7 @@ void mpptPoll() {
   // oldugu icin tek Modbus istegiyle alinir, 16 ayri istekten cok daha hizli.
   uint8_t sonuc = mpptNode.readInputRegisters(MPPT_REG_BLOCK_START, MPPT_REG_BLOCK_COUNT);
   if (sonuc == mpptNode.ku8MBSuccess) {
+    MpptKilit kilit;
     mpptData.pv_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_VOLTAGE) * MPPT_REG_SCALE;
     mpptData.pv_current = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_CURRENT) * MPPT_REG_SCALE;
     uint32_t pvPowerRaw = (uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_POWER_L) |
@@ -1225,6 +1249,7 @@ void mpptPoll() {
     mpptData.read_ok = true;
     mpptData.last_update_ms = millis();
   } else {
+    MpptKilit kilit;
     mpptData.read_ok = false;
     DEBUG_PRINT("[MPPT] Modbus okuma hatasi (0x3100 blok), kod=0x");
     DEBUG_PRINTLN(String(sonuc, HEX));
@@ -1233,6 +1258,7 @@ void mpptPoll() {
   // SOC ayri bir adreste (bloga bitisik degil) - ikinci, kucuk bir istek.
   uint8_t socSonuc = mpptNode.readInputRegisters(MPPT_REG_BATTERY_SOC, 1);
   if (socSonuc == mpptNode.ku8MBSuccess) {
+    MpptKilit kilit;
     mpptData.battery_soc = mpptNode.getResponseBuffer(0);
   } else {
     DEBUG_PRINT("[MPPT] SOC okuma hatasi, kod=0x");
@@ -1257,6 +1283,7 @@ void mpptPoll() {
 // alarm-tazelik korumasiyla ayni felsefe).
 void bateryaDurumHesapla() {
   if (!bateryaKorumaAktif) { bateryaKritik = false; return; }
+  MpptKilit kilit;
   bool veriTaze = (millis() - mpptData.last_update_ms) < MPPT_STALE_MS;
   if (!veriTaze || !mpptData.read_ok) return;
   if (!bateryaKritik && mpptData.battery_voltage <= bateryaKesmeVolt) {
@@ -2522,21 +2549,24 @@ String durumJson() {
   doc["moisture"]["low"] = sensorData.moisture_low;
   doc["moisture"]["high"] = sensorData.moisture_high;
 
-  doc["battery"]["voltage"] = mpptData.battery_voltage;
-  doc["battery"]["online"] = ((millis() - mpptData.last_update_ms) < MPPT_STALE_MS) && mpptData.read_ok;
+  {
+    MpptKilit kilit;
+    doc["battery"]["voltage"] = mpptData.battery_voltage;
+    doc["battery"]["online"] = ((millis() - mpptData.last_update_ms) < MPPT_STALE_MS) && mpptData.read_ok;
+    doc["battery"]["pv_volt"] = mpptData.pv_voltage;
+    doc["battery"]["pv_amp"] = mpptData.pv_current;
+    doc["battery"]["pv_watt"] = mpptData.pv_power;
+    doc["battery"]["load_volt"] = mpptData.load_voltage;
+    doc["battery"]["load_amp"] = mpptData.load_current;
+    doc["battery"]["load_watt"] = mpptData.load_power;
+    doc["battery"]["soc"] = mpptData.battery_soc;
+    doc["battery"]["kalan_saat"] = mpptData.kalan_saat;
+  }
   doc["battery"]["koruma_aktif"] = bateryaKorumaAktif;
   doc["battery"]["kritik"] = bateryaKritik;
   doc["battery"]["kesme_volt"] = bateryaKesmeVolt;
   doc["battery"]["geri_volt"] = bateryaGeriYuklemeVolt;
   doc["battery"]["esp8266_ack"] = esp8266BatteryLowAck;
-  doc["battery"]["pv_volt"] = mpptData.pv_voltage;
-  doc["battery"]["pv_amp"] = mpptData.pv_current;
-  doc["battery"]["pv_watt"] = mpptData.pv_power;
-  doc["battery"]["load_volt"] = mpptData.load_voltage;
-  doc["battery"]["load_amp"] = mpptData.load_current;
-  doc["battery"]["load_watt"] = mpptData.load_power;
-  doc["battery"]["soc"] = mpptData.battery_soc;
-  doc["battery"]["kalan_saat"] = mpptData.kalan_saat;
 
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
@@ -3901,8 +3931,9 @@ void loop() {
   // RS485 Polling
   rs485_poll();
 
-  // MPPT (ayri bus/UART2) - aku voltaji okuma + kritik-durum histerezisi
-  mpptPoll();
+  // MPPT (ayri bus/UART2) - aku voltaji okuma ayri bir FreeRTOS task'ta yapiliyor
+  // (bkz mpptTask/mppt_init) ki donanim yanit vermedigi surece loop()'u bloklamasin;
+  // burada sadece son okunan degerle kritik-durum histerezisi hesaplanir.
   bateryaDurumHesapla();
   bateryaRS485Bildir();
 
