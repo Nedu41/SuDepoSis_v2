@@ -343,6 +343,7 @@ SensorData sensorData;
 NanoIOStatus nanoStatus;
 AlarmStatus alarmStatus;
 MpptData mpptData;
+bool esp8266BatteryLowAck = false; // ESP8266'nin SET_BATTERY_LOW komutuna gore uyguladigi durum
 String esp8266_id = "UNKNOWN";
 String nano_id = "UNKNOWN";
 
@@ -446,6 +447,38 @@ void konteynerAlarmAyarKaydet(bool etkin) {
   ayarPrefs.end();
 }
 
+// ===== Batarya (MPPT) Koruma Ayarlari =====
+// korumaAktif VARSAYILAN KAPALI: MPPT register/olcek sahada (bahcede)
+// dogrulanmadan otomatik kesme calismasin diye bilincli tercih - kullanici
+// Serial Monitor'daki [MPPT] voltajini multimetreyle dogruladiktan SONRA
+// web arayuzunden acik hale getirir (bkz /api/batarya/ayar).
+// Histerezis (kesme != geri yukleme esigi): tam esik sinirinda role
+// cirpinmasini onlemek icin - konteynerPirTutmaSaniye deseniyle ayni NVS
+// (ayarPrefs, "ayarlar" namespace) uzerinden kalici saklanir.
+bool bateryaKorumaAktif = false;
+float bateryaKesmeVolt = 23.0;
+float bateryaGeriYuklemeVolt = 25.0;
+bool bateryaKritik = false; // histerezis durumu - bkz bateryaDurumHesapla()
+
+void bateryaAyarlariYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  bateryaKorumaAktif = ayarPrefs.getBool("bat_aktif", false);
+  bateryaKesmeVolt = ayarPrefs.getFloat("bat_kesme", 23.0);
+  bateryaGeriYuklemeVolt = ayarPrefs.getFloat("bat_geri", 25.0);
+  ayarPrefs.end();
+}
+void bateryaAyarlariKaydet(bool aktif, float kesme, float geri) {
+  bateryaKorumaAktif = aktif;
+  bateryaKesmeVolt = kesme;
+  bateryaGeriYuklemeVolt = geri;
+  if (!aktif) bateryaKritik = false; // koruma kapatilinca kesik yukler hemen serbest kalsin
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putBool("bat_aktif", aktif);
+  ayarPrefs.putFloat("bat_kesme", kesme);
+  ayarPrefs.putFloat("bat_geri", geri);
+  ayarPrefs.end();
+}
+
 void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
@@ -505,7 +538,12 @@ void alarmLedGuncelle() {
   // yeniden yakar - siren gibi tamamen otomatiklestirilmedi, bilincli tercih:
   // kullanici "lambayi ac" dedigi surece, alarm bitse bile yanik kalsin).
   konteynerSirenAktif = konteynerBuzzerVar;
-  konteynerLambaAktif = konteynerBuzzerVar || konteynerLambaOnayVerildi || konteynerLambaManuel;
+  // Batarya kritikse (bateryaKritik) lamba ZORLA kapatilir - guvenlik/alarm
+  // cikisi olmadigindan (sadece aydinlatma) yuk kesme kapsaminda; siren
+  // KASITLI OLARAK dokunulmuyor, her kosulda calismaya devam eder. Voltaj
+  // toparlaninca bir sonraki dongude otomatik geri acilir - ayri bir "geri
+  // ac" mantigi gerekmez, konteynerLambaManuel'e de dokunulmaz.
+  konteynerLambaAktif = (konteynerBuzzerVar || konteynerLambaOnayVerildi || konteynerLambaManuel) && !bateryaKritik;
   digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
   digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaAktif ? HIGH : LOW);
 
@@ -768,6 +806,34 @@ void telegramAlarmKontrolEt() {
   }
 }
 
+// bateryaKritik gecisinde (acilis/kapanis) bir kez bildirim gonderir - ayni
+// bekle/retry deseni telegramAlarmKontrolEt ile ayni, ayri degiskenlerle.
+void telegramBateryaKontrolEt() {
+  static bool oncekiKritik = false;
+  static bool bekliyor = false;
+  static String metin;
+  static unsigned long ilkDenemeMs = 0;
+
+  if (!telegramBildirimAktif) { oncekiKritik = bateryaKritik; bekliyor = false; return; }
+
+  if (bateryaKritik && !oncekiKritik) {
+    metin = "🔋 SuDepo: DUSUK AKU (" + String(mpptData.battery_voltage, 1) + "V) - sulama ve konteyner lambasi devre disi birakildi";
+    bekliyor = true; ilkDenemeMs = millis();
+  } else if (!bateryaKritik && oncekiKritik) {
+    metin = "🔋 SuDepo: Aku normale dondu (" + String(mpptData.battery_voltage, 1) + "V) - yukler tekrar aktif";
+    bekliyor = true; ilkDenemeMs = millis();
+  }
+  oncekiKritik = bateryaKritik;
+
+  if (bekliyor) {
+    if (telegramMesajGonder(metin)) {
+      bekliyor = false;
+    } else if (millis() - ilkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
+      bekliyor = false;
+    }
+  }
+}
+
 // ============================================================
 // RS485 UART1 AYARLARI
 // ============================================================
@@ -1002,6 +1068,10 @@ void parse_esp8266_data(String payload) {
       alarmStatus.pending = (value == "1");
     } else if (key == "TRIG_MASK") {
       alarmStatus.trigger_mask = (uint8_t)value.toInt();
+    } else if (key == "BATTERY_LOW") {
+      // ESP8266'nin kendi uyguladigi durum - bateryaKritik'in gonderdigimiz
+      // komutun gercekten uygulandigini dogrulamasi icin (round-trip).
+      esp8266BatteryLowAck = (value == "1");
     }
     
     pos = next_comma + 1;
@@ -1129,6 +1199,36 @@ void mpptPoll() {
   DEBUG_PRINT(String(mpptData.battery_voltage, 2));
   DEBUG_PRINT(" ok=");
   DEBUG_PRINTLN(mpptData.read_ok ? "1" : "0");
+}
+
+// Histerezis: bateryaKesmeVolt'un altina inince kritik olur, ancak
+// bateryaGeriYuklemeVolt'a CIKANA kadar kritik kalir - tam esik sinirinda
+// role/komut cirpinmasini onler. FAIL-OPEN: MPPT verisi bayat/okunamiyorsa
+// (kablo kopuk, register hala yanlis vb.) mevcut durum DEGISTIRILMEZ -
+// MPPT baglantisi kopmasi sulama/lambayi gereksiz kesen YENI bir ariza
+// noktasi olmasin diye bilincli tercih (bkz sensorData.last_update_ms<10000
+// alarm-tazelik korumasiyla ayni felsefe).
+void bateryaDurumHesapla() {
+  if (!bateryaKorumaAktif) { bateryaKritik = false; return; }
+  bool veriTaze = (millis() - mpptData.last_update_ms) < MPPT_STALE_MS;
+  if (!veriTaze || !mpptData.read_ok) return;
+  if (!bateryaKritik && mpptData.battery_voltage <= bateryaKesmeVolt) {
+    bateryaKritik = true;
+  } else if (bateryaKritik && mpptData.battery_voltage >= bateryaGeriYuklemeVolt) {
+    bateryaKritik = false;
+  }
+}
+
+// bateryaKritik degistiginde (sadece GECISTE, her dongude degil - retry-safe,
+// PANIC/ALARM_MUTE explicit-set deseniyle ayni mantik) ESP8266'ya bildirilir
+// ki sulama rolesini zorla kapatsin/serbest biraksin.
+void bateryaRS485Bildir() {
+  static bool oncekiKritik = false;
+  if (bateryaKritik == oncekiKritik) return;
+  String reply;
+  String cmd = String("MASTER:SET_BATTERY_LOW=") + (bateryaKritik ? "1" : "0") + "\n";
+  rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  oncekiKritik = bateryaKritik;
 }
 
 // ============================================================
@@ -1313,6 +1413,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div><small>Litre</small></div>
       <div class="card"><h3>Sıcaklık</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
+      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt</small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div></div>
     </div>
 
     <div class="card">
@@ -1518,6 +1619,20 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği. Değer girip alandan çıkınca otomatik kaydedilir.</p>
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </details>
+
+    <details class="card" open>
+      <summary>🔋 Batarya (MPPT) Koruma Ayarları</summary>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Akü voltajı, MPPT şarj kontrolcüsünden ayrı bir RS485/Modbus hattı üzerinden okunur. Koruma AÇIK olduğunda, voltaj "Kesme" eşiğinin altına inince sulama rölesi ve Konteyner lambası otomatik kapatılır (siren/alarm etkilenmez); voltaj "Geri Yükleme" eşiğine çıkınca otomatik serbest kalır.</p>
+      <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> Register/ölçek değerleri sahada doğrulanana kadar koruma varsayılan olarak KAPALI kalır - önce Genel sekmesindeki "Akü" kartından gelen voltajı bir multimetreyle karşılaştırıp doğrulayın, sonra korumayı açın.</p>
+      <div class="row">
+        <button class="btn btn-primary" id="batarya-koruma-btn" onclick="bateryaKorumaToggle()">Korumayı Aç</button>
+      </div>
+      <div class="sz-grid" style="margin-top:10px">
+        <div><label class="sz-label">Kesme Voltajı (V)</label><input class="input" type="number" step="0.1" min="0" id="batarya-kesme" onchange="bateryaEsikKaydet()"></div>
+        <div><label class="sz-label">Geri Yükleme Voltajı (V)</label><input class="input" type="number" step="0.1" min="0" id="batarya-geri" onchange="bateryaEsikKaydet()"></div>
+      </div>
+      <div id="batarya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
     <details class="card" open>
@@ -1888,6 +2003,20 @@ function renderUI(d){
   const smm=$('#settings-moisture-mod'); if(smm) smm.textContent=esp8266Ok?(mo.auto?'Otomatik':'Manuel'):'--';
   const sml=$('#moisture-settings-low'); if(sml&&!sml.matches(':focus')&&!yakinKorumali('moisture-settings-low')) sml.value=mo.low||0;
   const smh=$('#moisture-settings-high'); if(smh&&!smh.matches(':focus')&&!yakinKorumali('moisture-settings-high')) smh.value=mo.high||0;
+  // Batarya (MPPT) - kendi ayri "online" bayragi var (esp8266Ok'tan bagimsiz,
+  // MPPT UART2 hatti ESP8266 RS485'inden tamamen ayri bir bus)
+  const bat = d.battery || {};
+  const batOk = bat.online !== false;
+  const bkpi=$('#kpi-batarya'); if(bkpi) bkpi.textContent = batOk ? (bat.voltage||0).toFixed(1)+' V' : '--';
+  const bdur=$('#batarya-durum');
+  if(bdur){
+    if(!bat.koruma_aktif) bdur.textContent = batOk ? 'İzleniyor (koruma kapalı)' : 'Bağlantı yok';
+    else bdur.textContent = !batOk ? 'Bağlantı yok' : (bat.kritik ? 'KRİTİK - sulama/lamba kesildi' : 'Normal');
+    bdur.style.color = (batOk && bat.kritik) ? 'var(--danger)' : '';
+  }
+  { const bkb=$('#batarya-koruma-btn'); if(bkb) bkb.textContent = bat.koruma_aktif ? 'Korumayı Kapat' : 'Korumayı Aç'; }
+  const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
+  const bgv=$('#batarya-geri'); if(bgv&&!bgv.matches(':focus')&&!yakinKorumali('batarya-geri')&&bat.geri_volt!=null) bgv.value=bat.geri_volt;
   // Bilgiler sekmesi - sistem bilgileri
   const bi=$('#bilgi-sistem');
   if(bi){
@@ -2098,6 +2227,21 @@ function konteynerPirKaydet(){
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
 
+function bateryaKorumaToggle(){
+  const acik = $('#batarya-koruma-btn').textContent.trim().startsWith('Korumayı Kapat');
+  api('/api/batarya/ayar?aktif='+(acik?0:1)).then(()=>{
+    $('#batarya-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#batarya-sonuc').textContent='Hata oluştu'; });
+}
+function bateryaEsikKaydet(){
+  yakinDuzenlendi('batarya-kesme'); yakinDuzenlendi('batarya-geri');
+  const kesme=$('#batarya-kesme').value;
+  const geri=$('#batarya-geri').value;
+  api('/api/batarya/ayar?kesme='+encodeURIComponent(kesme)+'&geri='+encodeURIComponent(geri)).then(()=>{
+    $('#batarya-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#batarya-sonuc').textContent='Hata oluştu'; });
+}
+
 // === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
 const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
 function szGridHtml(prefix){
@@ -2275,7 +2419,7 @@ irListesiYukle();
 }
 
 String durumJson() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(1280);
 
   doc["level_cm"] = sensorData.level_cm;
   doc["level_percent"] = sensorData.level_percent;
@@ -2318,7 +2462,15 @@ String durumJson() {
   doc["moisture"]["auto"] = sensorData.moisture_auto;
   doc["moisture"]["low"] = sensorData.moisture_low;
   doc["moisture"]["high"] = sensorData.moisture_high;
-  
+
+  doc["battery"]["voltage"] = mpptData.battery_voltage;
+  doc["battery"]["online"] = ((millis() - mpptData.last_update_ms) < MPPT_STALE_MS) && mpptData.read_ok;
+  doc["battery"]["koruma_aktif"] = bateryaKorumaAktif;
+  doc["battery"]["kritik"] = bateryaKritik;
+  doc["battery"]["kesme_volt"] = bateryaKesmeVolt;
+  doc["battery"]["geri_volt"] = bateryaGeriYuklemeVolt;
+  doc["battery"]["esp8266_ack"] = esp8266BatteryLowAck;
+
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
   doc["kapasite"] = TANK_CAPACITY_LITERS;
@@ -2663,6 +2815,21 @@ void handleAPI_KonteynerPirAyar() {
   }
   konteynerPirAyarKaydet(tutma, onay);
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
+}
+
+// Batarya (MPPT) koruma ayarlari - "aktif" parametresi verilmezse mevcut
+// deger korunur (sadece esikleri degistirmek icin ayri cagri yapilabilsin).
+void handleAPI_BateryaAyar() {
+  bool aktif = bateryaKorumaAktif;
+  float kesme = bateryaKesmeVolt;
+  float geri = bateryaGeriYuklemeVolt;
+  if (server.hasArg("aktif")) aktif = server.arg("aktif").toInt() != 0;
+  if (server.hasArg("kesme")) kesme = server.arg("kesme").toFloat();
+  if (server.hasArg("geri")) geri = server.arg("geri").toFloat();
+  if (geri <= kesme) geri = kesme + 1.0; // histerezis icin gecerli sira garantisi
+  bateryaAyarlariKaydet(aktif, kesme, geri);
+  server.send(200, "application/json", "{\"basarili\":true,\"aktif\":" + String(aktif ? "true" : "false") +
+              ",\"kesme\":" + String(kesme, 1) + ",\"geri\":" + String(geri, 1) + "}");
 }
 
 // Konteyner Zonu'nun KENDI alarm ac/kapa anahtari - Sudepo'nun /api/alarm'inin
@@ -3429,6 +3596,7 @@ void setupWebServer() {
   server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
+  server.on("/api/batarya/ayar", handleAPI_BateryaAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
@@ -3590,6 +3758,7 @@ void setup() {
   telegramAyarYukle();
   konteynerPirAyarYukle();
   konteynerAlarmAyarYukle();
+  bateryaAyarlariYukle();
 
   // WiFi Connect
   wifi_connect();
@@ -3665,8 +3834,10 @@ void loop() {
   // RS485 Polling
   rs485_poll();
 
-  // MPPT (ayri bus/UART2) - FAZ 1: sadece loglama, bkz mppt bolumu
+  // MPPT (ayri bus/UART2) - aku voltaji okuma + kritik-durum histerezisi
   mpptPoll();
+  bateryaDurumHesapla();
+  bateryaRS485Bildir();
 
   // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
   konteynerSensorleriOku();
@@ -3679,6 +3850,7 @@ void loop() {
 
   // Alarm baslarsa Telegram'a bildirim gonder
   telegramAlarmKontrolEt();
+  telegramBateryaKontrolEt();
 
   // BLE - bagli telefona periyodik anlik veri
 #if ENABLE_BLE
