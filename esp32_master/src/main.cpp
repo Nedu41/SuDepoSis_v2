@@ -393,6 +393,16 @@ bool konteynerOnBipCiksin = false;         // loop'a "yeni bolum basladi, on bip
 bool konteynerOnayBekleniyor = false;      // mode==3 + eskalasyon oldu + henuz onaylanmadi
 bool konteynerOnayVerildi = false;         // mode==3 + bu bolum icin onaylandi (Sesli onay ile)
 bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (Lamba)" onayi verildi
+// BUG (kullanici bulgusu): Konteyner sireni onceden dogrudan alarmStatus.muted
+// okuyordu, ama o degisken HER ESP8266 RS485 durum mesajinda (~600ms'de bir)
+// ESP8266'nin KENDI ALARM_MUTE alaniyla EZILIYOR (bkz "TRIG_MASK" parse
+// blogu) - ESP8266'nin Konteyner'le hicbir ilgisi olmadigindan (o an
+// susturulmus/tetiklenmis degilse) bir sonraki pollde muted=false'a geri
+// donuyor, "sustur bir anlik kapatiyor sonra alarm hemen geri aciliyor"
+// sikayetine yol aciyordu. Konteyner tamamen YEREL calismali (bkz yukaridaki
+// PIR2 aciklamasi) - bu yuzden kendi ayri, RS485'ten hic etkilenmeyen
+// susturma bayragi.
+bool konteynerSusturuldu = false;
 bool konteynerLambaManuel = false;         // Kontrol sekmesinden elle acilan/kapanan lamba - alarm/siren'den BAGIMSIZ, otomatik davranisla OR'lanir (bkz alarmLedGuncelle)
 bool konteynerSirenAktif = false;          // KONTEYNER_SIREN_PIN'in guncel durumu (durumJson icin)
 bool konteynerLambaAktif = false;          // KONTEYNER_LAMBA_PIN'in guncel durumu (durumJson icin)
@@ -496,7 +506,13 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
-  pinMode(PIR2_PIN, INPUT);
+  // Kullanici bulgusu: reset sonrasi hic hareket olmadan "Hareket: Var"
+  // takilip kaliyordu (sadece ilk acilis isinma penceresiyle aciklanamayacak
+  // kadar - reset attiktan hemen sonra, hicbir gecikme olmadan basliyordu).
+  // Duz INPUT pin, PIR modulunun cikisini aktif surmedigi/gecis anlarinda
+  // float/belirsiz birakabilir - dahili pull-down ile HIGH'in SADECE modul
+  // gercekten sinyal verdiginde okunmasi garanti edilir.
+  pinMode(PIR2_PIN, INPUT_PULLDOWN);
   // Reed switch: kablolamaya gore kapali/acik seviyesi degisebilir -
   // ilk kurulumda gercek davranisi /api/durum -> konteyner.kapi_acik'tan
   // gozlemleyip gerekirse asagidaki karsilastirmayi (==HIGH) ters cevir.
@@ -527,13 +543,16 @@ void alarmLedGuncelle() {
   bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && (konteynerPirEskalasyonOldu || kapi2Acik));
   bool konteynerBuzzerVar = false;
   if (konteynerEskaleVar) {
-    // BUG (kullanici bulgusu): "Sustur/Sireni Kapat" banner butonu
-    // (alarmStatus.muted) buraya hic bakilmadigindan Konteyner sirenini
-    // SUSTURAMIYORDU - sadece ESP8266/Sudepo sirenini etkiliyordu. Panik HALA
-    // mute'tan bagimsiz (elle ac/kapat anahtari gibi, yukaridaki yorum).
+    // BUG (kullanici bulgusu): "Sustur/Sireni Kapat" banner butonu buraya hic
+    // bakilmadigindan Konteyner sirenini SUSTURAMIYORDU. Ilk duzeltmede
+    // alarmStatus.muted kullanilmisti ama o RS485 durum mesajlariyla surekli
+    // ezildigi icin sustur bir anlik calisip hemen geri aciliyordu - artik
+    // tamamen yerel/RS485'ten bagimsiz konteynerSusturuldu kullanilyor (bkz
+    // yukarida tanim yorumu). Panik HALA mute'tan bagimsiz (elle ac/kapat
+    // anahtari gibi, yukaridaki yorum).
     if (alarmStatus.panic_mode) konteynerBuzzerVar = true; // Panik - susturmadan bagimsiz
-    else if (alarmStatus.mode == 1) konteynerBuzzerVar = !alarmStatus.muted; // Sesli - susturulmadiysa hemen cal
-    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi && !alarmStatus.muted; // Onayli - onaydan sonra, susturulmadiysa cal
+    else if (alarmStatus.mode == 1) konteynerBuzzerVar = !konteynerSusturuldu; // Sesli - susturulmadiysa hemen cal
+    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi && !konteynerSusturuldu; // Onayli - onaydan sonra, susturulmadiysa cal
     // mode==2 (Sessiz) ve panik degilse: konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
   }
 
@@ -655,6 +674,10 @@ void konteynerSensorleriOku() {
     konteynerOnayBekleniyor = false;
     konteynerOnayVerildi = false;
     konteynerLambaOnayVerildi = false;
+    // Susturma da bu "bolum" ile birlikte biter - aksi halde bir onceki
+    // alarmda basilan Sustur, bir SONRAKI tamamen ayri/yeni bir tetiklenmeyi
+    // de sessiz birakirdi.
+    konteynerSusturuldu = false;
   }
 }
 
@@ -2065,8 +2088,13 @@ function renderUI(d){
       // sadece "Panik Kapat" gosterilir. Bkz esp8266_slave data/app.js (ayni
       // duzeltme orada da yapildi, iki panel tutarli olsun diye).
       let msg = panikAktif ? at : (bekliyor ? ('ONAY BEKLIYOR - '+at) : at);
+      // Konteyner'in kendi (RS485'ten bagimsiz, yerel) susturma bayragi -
+      // d.alarm.muted SADECE ESP8266/Sudepo tarafini yansitir, ikisi ayri
+      // (bkz konteynerSusturuldu tanim yorumu main.cpp).
+      const konteynerSusturulduMu = !!(d.konteyner && d.konteyner.susturuldu);
+      const herhangiSusturulmus = (d.alarm && d.alarm.muted) || konteynerSusturulduMu;
       if(!panikAktif){
-        if(d.alarm && d.alarm.muted) msg += ' (Susturuldu)';
+        if(herhangiSusturulmus) msg += ' (Susturuldu)';
         const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar);
         msg += ' | Tetikleyen: '+tk;
       }
@@ -2076,7 +2104,7 @@ function renderUI(d){
       } else if(bekliyor){
         html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-danger" onclick="bannerAksiyon(this,\'/api/alarm/onayla\')">Sesli</button><button class="btn btn-warn" onclick="bannerAksiyon(this,\'/api/alarm/onayla_lamba\')">Sessiz (Lamba)</button></div>';
       } else if(anyAlarm){
-        const susLabel = (d.alarm && d.alarm.muted) ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
+        const susLabel = herhangiSusturulmus ? 'Susturmayi Kaldir' : 'Sustur/Sireni Kapat';
         html += '<div class="row" style="margin-top:10px;justify-content:center"><button class="btn btn-warn" onclick="bannerAksiyon(this,\'/api/alarm/mute\')">'+susLabel+'</button></div>';
       }
       ban.innerHTML = html;
@@ -2647,6 +2675,7 @@ String durumJson() {
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
   doc["konteyner"]["pir"] = pir2HareketVar;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
+  doc["konteyner"]["susturuldu"] = konteynerSusturuldu;
   doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
   doc["konteyner"]["pir_onay"] = konteynerPirOnaySaniye;
   doc["konteyner"]["pending"] = konteynerOnayBekleniyor;
@@ -3161,7 +3190,17 @@ bool alarmSustur(String& reply) {
   // tetiklenip ESKI haline donebiliyordu. Artik ESP32 istenen HEDEF degeri
   // hesaplayip acikca gonderiyor - kac kere tekrar gonderilirse gonderilsin
   // sonuc ayni (idempotent).
-  bool hedef = !alarmStatus.muted;
+  // Tek buton iki BAGIMSIZ susturma bayragini birden kontrol ediyor
+  // (alarmStatus.muted -> Sudepo/ESP8266, konteynerSusturuldu -> Kalburum
+  // yerel). Toggle hedefi ikisinin "OR"una gore belirlenir - aksi halde
+  // sadece biri susturulmusken (orn. Konteyner susturulmus, Sudepo hic
+  // tetiklenmemisti) butona tekrar basmak yanlislikla "tekrar sustur"
+  // olarak yorumlanip acmak yerine kilitli kalirdi.
+  bool hedef = !(alarmStatus.muted || konteynerSusturuldu);
+  // Konteyner'in kendi susturmasi RS485/ESP8266 sonucundan BAGIMSIZ hemen
+  // uygulanir (bkz konteynerSusturuldu tanim yorumu) - ESP8266 offline olsa
+  // bile Kalburum'daki sireni susturabilmek icin.
+  konteynerSusturuldu = hedef;
   bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
