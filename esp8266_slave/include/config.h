@@ -73,7 +73,7 @@
 // struct'a yeni alan eklenirse taşma riski var.
 // 512 byte, ESP8266 EEPROM (4096 max) için güvenli ve geleceğe dönük.
 #define EEPROM_SIZE 512
-#define EEPROM_MAGIC 0xA547  // alarmOutputSesli/alarmOutputSessiz eklendi (eski: 0xA546)
+#define EEPROM_MAGIC 0xA548  // alarmSensorEtkin eklendi (eski: 0xA547)
 
 // Alarm CIKISLARI (siren/role, lamba) - mod basina bitmask, ALARM_TRIGGER_*
 // (girdi/sensor) bitmask'inden bagimsiz ayri bir kume.
