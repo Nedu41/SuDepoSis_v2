@@ -669,10 +669,39 @@ uint32_t irSonKod = 0;
 // adres almiyor" - UNKNOWN filtresi eklendikten sonra).
 String irSonDenemeProtokol = "-";
 uint32_t irDenemeSayaci = 0;
+uint16_t irSonRawlen = 0;
+
+// UNKNOWN protokolde decodedRawData HER ZAMAN 0'dir (32-bit kod yok, sadece
+// ham zamanlama var) - UNKNOWN'i tamamen atmak, kutuphanenin TANIMADIGI
+// (ama gercek) sinyalleri de yok sayiyordu. Iki FARKLI kumandada da "ilk 2
+// tus calisiyor, sonrasi UNKNOWN geliyor" gozlemlendi - yani sorun belirli
+// bir kumandaya/protokole ozgu degil. Cozum: UNKNOWN geldiginde, gercek
+// gurultuyu (cok kisa/az darbeli) elemek icin bir minimum darbe sayisi
+// sarti koyup, bunu gecen sinyalden HAM ZAMANLAMA verisinden kararli bir
+// "parmak izi" (hash) uretip kod olarak kullanmak - boylece protokolu
+// tanimasa da AYNI tusun tekrar basilinca AYNI kodu uretmesini bekleyebiliriz.
+#define IR_HAM_MIN_RAWLEN 10 // bundan az darbe = gercek gurultu, at
+uint32_t irHamSinyalHashHesapla() {
+  uint32_t hash = 2166136261UL; // FNV-1a
+  uint16_t rawlen = IrReceiver.decodedIRData.rawlen;
+  for (uint16_t i = 1; i < rawlen; i++) {
+    // /4 (=200us) kovaya yuvarla: ayni tusun ardisik basimlarindaki normal
+    // birkac-onluk-mikrosaniyelik jitter'i tolere etsin, yine de farkli
+    // tuslari ayirt edebilsin.
+    uint8_t kova = IrReceiver.irparams.rawbuf[i] / 4;
+    hash ^= kova;
+    hash *= 16777619UL;
+  }
+  hash ^= rawlen;
+  hash *= 16777619UL;
+  return hash;
+}
+
 void irKumandaIsle() {
   if (!IrReceiver.decode()) return;
   irDenemeSayaci++;
   irSonDenemeProtokol = getProtocolString(IrReceiver.decodedIRData.protocol);
+  irSonRawlen = IrReceiver.decodedIRData.rawlen;
   // ONEMLI BUG DUZELTMESI: NEC protokolu (bu kumandalarin cogu) bir tusa
   // basili tutulurken ~108ms'de bir "repeat" (tekrar) karesi gonderir - bu,
   // IrReceiver.decode()'un AYRI bir basarili decode olarak donmesine neden
@@ -686,14 +715,17 @@ void irKumandaIsle() {
     IrReceiver.resume();
     return;
   }
-  // IrReceiver.decode() gercek bir kumanda kodu DISINDA, hicbir bilinen
-  // protokole uymayan ortam IR gurultusunu (gunes isigi, floresan, baska
-  // bir kumanda) de "UNKNOWN" protokol olarak basarili decode sayip true
-  // donuyor - bu durumda decodedRawData HER ZAMAN 0'dir (ham zamanlama
-  // verisi var, 32-bit kod yok). Bu filtre olmadan, kumandaya hic
-  // basilmadan "0x0 kod alindi" yanlis pozitifi olusuyordu (bkz kullanici
-  // sikayeti: "daha kumandaya basmadan 0x0 alindi diyor").
   if (IrReceiver.decodedIRData.protocol == UNKNOWN) {
+    if (IrReceiver.decodedIRData.rawlen < IR_HAM_MIN_RAWLEN) {
+      // cok kisa/az darbe - gercek IR gurultusu (gunes isigi, floresan vb.),
+      // kumandaya basilmadan "0x0 kod alindi" yanlis pozitifinin sebebiydi.
+      IrReceiver.resume();
+      return;
+    }
+    irSonKod = irHamSinyalHashHesapla();
+    irYeniKodVar = true;
+    DEBUG_PRINT("[IR] UNKNOWN protokol, ham hash ile kod uretildi: 0x");
+    DEBUG_PRINTLN(String(irSonKod, HEX));
     IrReceiver.resume();
     return;
   }
@@ -2486,7 +2518,7 @@ function irOgrenBaslat(){
 }
 function irOgrenKontrolEt(){
   fetch('/api/ir/ogren_durum').then(r=>r.json()).then(d=>{
-    const teshis=' <span class="muted" style="font-size:11px">(teşhis: '+d.denemeSayisi+' deneme, son protokol: '+d.sonProtokol+')</span>';
+    const teshis=' <span class="muted" style="font-size:11px">(teşhis: '+d.denemeSayisi+' deneme, son protokol: '+d.sonProtokol+', darbe: '+d.sonRawlen+')</span>';
     if(d.hazir){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
       irKodAtamaFormuGoster(d.kod);
@@ -3469,7 +3501,8 @@ void handleAPI_IrOgrenDurum() {
     ",\"kod\":\"" + String(irOgrenmeYakalananKod, HEX) + "\"" +
     ",\"zamanAsimi\":" + String(zamanAsimi ? "true" : "false") +
     ",\"sonProtokol\":\"" + irSonDenemeProtokol + "\"" +
-    ",\"denemeSayisi\":" + String(irDenemeSayaci) + "}";
+    ",\"denemeSayisi\":" + String(irDenemeSayaci) +
+    ",\"sonRawlen\":" + String(irSonRawlen) + "}";
   server.send(200, "application/json", json);
 }
 
