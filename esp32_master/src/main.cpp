@@ -2536,7 +2536,19 @@ function irOgrenBaslat(){
   }).catch(()=>{});
 }
 function irOgrenKontrolEt(){
+  const buIstekIcinPolling = irOgrenPolling; // bkz asagidaki "GEC GELEN YANIT" notu
   fetch('/api/ir/ogren_durum').then(r=>r.json()).then(d=>{
+    // GEC GELEN YANIT KORUMASI: 800ms'de bir istek atiliyor, fetch()'ler
+    // gonderildikleri sirayla DONMEK ZORUNDA DEGIL - kod yakalanip form
+    // gosterildikten (irOgrenPolling=null yapilip interval durdurulduktan)
+    // SONRA, daha ONCE gonderilmis ama gec gelen bir istek burada hala
+    // "hazir:false" ile cozulup formu (select dahil) "Kumandada bir tusa
+    // basin..." yazisiyla EZIYORDU - kullanicinin "secim yapamiyorum, liste
+    // hemen kayboluyor, hizli davranirsam yakaliyorum" sikayetinin sebebi
+    // buydu. Bu istegi atarken gecerli olan polling referansi artik
+    // gecersizse (baska bir yanit zaten islenip interval durdurulmus/
+    // yeniden baslatilmissa), bu YANITI TAMAMEN YOKSAY.
+    if (buIstekIcinPolling !== irOgrenPolling) return;
     const teshis=' <span class="muted" style="font-size:11px">(teşhis: '+d.denemeSayisi+' deneme, son protokol: '+d.sonProtokol+', darbe: '+d.sonRawlen+')</span>';
     if(d.hazir){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
