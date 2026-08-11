@@ -1,0 +1,5 @@
+# Obsidian - kisisel/gecici workspace durumu, git'e dahil edilmez
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+.trash/
