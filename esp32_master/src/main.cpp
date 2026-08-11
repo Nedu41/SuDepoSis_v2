@@ -1753,12 +1753,12 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
         <tr><td>D8</td><td>8</td><td>Alarm Sireni Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif (Sudepo Zonu'ndaki "Alarm Rölesi" ile aynı mantık)</td></tr>
         <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
-        <tr><td>RX (UART2)</td><td>10</td><td>2. MAX485 (MPPT)</td><td>RO (Alıcı) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı</td></tr>
-        <tr><td>TX (UART2)</td><td>11</td><td>2. MAX485 (MPPT)</td><td>DI (Verici)</td></tr>
-        <tr><td>-</td><td>12</td><td>2. MAX485 (MPPT)</td><td>DE/RE (Enable)</td></tr>
+        <tr><td>RX (UART2)</td><td>40</td><td>2. MAX485 (MPPT)</td><td>RO (Alıcı) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı, RS485 (37/38/39) ile aynı sağ sütunda</td></tr>
+        <tr><td>TX (UART2)</td><td>41</td><td>2. MAX485 (MPPT)</td><td>DI (Verici)</td></tr>
+        <tr><td>-</td><td>42</td><td>2. MAX485 (MPPT)</td><td>DE/RE (Enable)</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> alanından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 2, 13-15, 16, 17, 18, 21, 33, 34, 36, 40, 41, 42, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
     </details>
 
     <details class="card zone-sudepo">

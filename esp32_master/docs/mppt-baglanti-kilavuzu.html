@@ -92,7 +92,7 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
 <section class="card">
   <h2><span class="num">1</span>Genel bağlantı şeması</h2>
   <figure style="margin:0">
-    <svg viewBox="0 0 680 300" role="img" aria-label="ESP32-S3, ikinci MAX485 modülü ve MPPT şarj kontrolcü arasındaki RS485 bağlantı şeması; ESP32 GPIO10/11/12 MAX485'e, MAX485'in A/B hatları MPPT'nin RJ45 portundaki A/B pinlerine gider">
+    <svg viewBox="0 0 680 300" role="img" aria-label="ESP32-S3, ikinci MAX485 modülü ve MPPT şarj kontrolcü arasındaki RS485 bağlantı şeması; ESP32 GPIO40/41/42 MAX485'e, MAX485'in A/B hatları MPPT'nin RJ45 portundaki A/B pinlerine gider">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -103,9 +103,9 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
         <rect x="16" y="70" width="150" height="130" rx="10" opacity="0.55"/>
         <text x="91" y="95" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">ESP32-S3</text>
         <text x="91" y="111" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.65">"Kalburum"</text>
-        <text x="30" y="140" font-size="11.5" stroke="none" fill="currentColor">GPIO10 (RX)</text>
-        <text x="30" y="160" font-size="11.5" stroke="none" fill="currentColor">GPIO11 (TX)</text>
-        <text x="30" y="180" font-size="11.5" stroke="none" fill="currentColor">GPIO12 (DE/RE)</text>
+        <text x="30" y="140" font-size="11.5" stroke="none" fill="currentColor">GPIO40 (RX)</text>
+        <text x="30" y="160" font-size="11.5" stroke="none" fill="currentColor">GPIO41 (TX)</text>
+        <text x="30" y="180" font-size="11.5" stroke="none" fill="currentColor">GPIO42 (DE/RE)</text>
 
         <!-- MAX485 box -->
         <rect x="265" y="55" width="150" height="160" rx="10" opacity="0.55"/>
@@ -142,7 +142,7 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
   <h2><span class="num">2</span>Adım adım kablolama</h2>
   <ol class="steps">
     <li><b>MPPT'nin RJ45 portunu bulun.</b> Cihazın üzerinde "RS485" veya "COM" yazan bir RJ45 (ethernet benzeri) jak olmalı. Yanında etiket/manuel varsa A/B/GND pinlerini orada da kontrol edin — aşağıdaki tablo standart bir tahmindir.</li>
-    <li><b>İkinci bir MAX485 modülü</b> edinin (ESP8266 hattındakiyle aynı tip). Bunu ESP32'nin <span class="pin">GPIO10</span> (RO→RX), <span class="pin">GPIO11</span> (DI←TX), <span class="pin">GPIO12</span> (DE+RE, ortak) pinlerine bağlayın; MAX485'in VCC/GND'sini uygun bir 3.3V veya 5V kaynaktan besleyin.</li>
+    <li><b>İkinci bir MAX485 modülü</b> edinin (ESP8266 hattındakiyle aynı tip). Bunu ESP32'nin <span class="pin">GPIO40</span> (RO→RX), <span class="pin">GPIO41</span> (DI←TX), <span class="pin">GPIO42</span> (DE+RE, ortak) pinlerine bağlayın; MAX485'in VCC/GND'sini uygun bir 3.3V veya 5V kaynaktan besleyin.</li>
     <li><b>RJ45 kablosunu hazırlayın</b> — bir RJ45 fişten sadece A/B/GND kablolarını (aşağıdaki tablo) çıkarıp MAX485'in A/B/GND terminaline bağlayın.</li>
     <li>
       <div class="danger-box"><b>⚠️ Asla Vcc pinlerine (1-2) dokunmayın</b> — RS485 kablosunu yanlışlıkla oraya bağlarsanız MPPT'ye kalıcı zarar verebilir.</div>
@@ -172,9 +172,9 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
   <div class="tablewrap">
     <table>
       <tr><th>GPIO</th><th>MAX485 Pin</th><th>Yön</th></tr>
-      <tr><td class="mono">10</td><td>RO</td><td>MAX485 → ESP32 (RX)</td></tr>
-      <tr><td class="mono">11</td><td>DI</td><td>ESP32 → MAX485 (TX)</td></tr>
-      <tr><td class="mono">12</td><td>DE + RE</td><td>Ortak Enable</td></tr>
+      <tr><td class="mono">40</td><td>RO</td><td>MAX485 → ESP32 (RX)</td></tr>
+      <tr><td class="mono">41</td><td>DI</td><td>ESP32 → MAX485 (TX)</td></tr>
+      <tr><td class="mono">42</td><td>DE + RE</td><td>Ortak Enable</td></tr>
     </table>
   </div>
   <p style="margin-top:12px">Tam kod tarafı tanımları: <code class="inline">esp32_master/include/config.h</code> içindeki <code class="inline">MPPT_*</code> satırları.</p>
@@ -201,7 +201,7 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
   <h2><span class="num">6</span>Doğrulama ve sorun giderme</h2>
   <ul class="checklist">
     <li>Serial Monitor'da <code class="inline">[MPPT] Modbus okuma hatasi</code> görüyorsanız: A/B ters bağlanmış olabilir (yer değiştirip deneyin), veya baud hızı <span class="pin">9600</span> değil.</li>
-    <li>Hiç veri gelmiyorsa: DE/RE (GPIO12) bağlantısını, ortak GND'yi ve MAX485'in beslendiğini kontrol edin.</li>
+    <li>Hiç veri gelmiyorsa: DE/RE (GPIO42) bağlantısını, ortak GND'yi ve MAX485'in beslendiğini kontrol edin.</li>
     <li>Veri geliyor ama voltaj mantıksızsa (çok yüksek/düşük/sabit): register adresi yanlış olabilir — <code class="inline">config.h</code>'daki <code class="inline">MPPT_REG_*</code> tanımlarını MPPT'nizin gerçek manueline göre düzeltin.</li>
     <li>Doğru çalışıyorsa: web arayüzü → Ayarlar → "Batarya (MPPT) Koruma Ayarları" → <b>Korumayı Aç</b> diyerek otomatik yük-kesme özelliğini etkinleştirebilirsiniz.</li>
   </ul>

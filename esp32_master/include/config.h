@@ -81,9 +81,14 @@
 // hardcode etmez).
 // Mevcut ESP8266 RS485 hattindan (UART1, GPIO37/38/39) TAMAMEN AYRI bir
 // bus/protokol - ayni hatta baglanamaz, ikinci bir MAX485 modulu gerekir.
-#define MPPT_RS485_RX_PIN 10    // GPIO10 - ikinci MAX485 RO -> ESP32 RX (UART2)
-#define MPPT_RS485_TX_PIN 11    // GPIO11 - ikinci MAX485 DI <- ESP32 TX (UART2)
-#define MPPT_RS485_DE_PIN 12    // GPIO12 - ikinci MAX485 DE/RE
+// NOT: Ilk secim GPIO10/11/12'ydi ama ESP32-S3-DevKitC-1'in standart pin
+// diziliminde bunlar kartin SOL sutununda, RS485 (37/38/39) ise SAG
+// sutununda kaliyor - ikinci MAX485 modulunu ilkinin yanina fiziksel
+// olarak monte edebilmek icin GPIO40/41/42'ye tasindi (39'un hemen
+// yaninda, ayni sag sutun) - kullanicinin tercihi.
+#define MPPT_RS485_RX_PIN 40    // GPIO40 - ikinci MAX485 RO -> ESP32 RX (UART2)
+#define MPPT_RS485_TX_PIN 41    // GPIO41 - ikinci MAX485 DI <- ESP32 TX (UART2)
+#define MPPT_RS485_DE_PIN 42    // GPIO42 - ikinci MAX485 DE/RE
 #define MPPT_UART_NUM 2         // UART2
 #define MPPT_BAUDRATE 9600      // DOGRULA - cihazin kendi ayari farkli olabilir
 #define MPPT_SLAVE_ID 1         // DOGRULA - Modbus slave adresi
@@ -119,11 +124,12 @@
 // eklerken cakisma olmasin diye:
 //   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485 - ESP8266'ya)
 //                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
-//                  GPIO10, GPIO11, GPIO12 (yukarida - MPPT Modbus RS485, ikinci MAX485)
+//                  GPIO40, GPIO41, GPIO42 (yukarida - MPPT Modbus RS485, ikinci MAX485 -
+//                    RS485 (37/38/39) ile AYNI sag sutunda, fiziksel montaj kolayligi icin)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO2, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 40, 41, 42, 47, 48
+//   SERBEST (gelecekteki eklentiler icin): GPIO2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 47, 48
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
