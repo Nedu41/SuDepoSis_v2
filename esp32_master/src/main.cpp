@@ -329,11 +329,19 @@ struct AlarmStatus {
   uint8_t trigger_mask = 0; // Alarmi tetikleyen sensor(ler) - bitmask, ESP8266 ile ayni kodlama
 };
 
-// MPPT sarj kontrolcusunden (ikinci/ayri RS485+Modbus hatti) okunan aku
-// voltaji - bkz config.h "MPPT (Modbus RTU) Ayarlari" (register/olcek
-// FAZ 1'de dogrulanana kadar TAHMINI).
+// MPPT sarj kontrolcusunden (ikinci/ayri RS485+Modbus hatti) okunan
+// elektriksel degerler - bkz config.h "MPPT (Modbus RTU) Ayarlari"
+// (register/olcek sahada dogrulanana kadar TAHMINI).
 struct MpptData {
   float battery_voltage = 0.0;
+  float pv_voltage = 0.0;
+  float pv_current = 0.0;
+  float pv_power = 0.0;      // W - 32-bit register ciftinden (L+H) hesaplanir
+  float load_voltage = 0.0;
+  float load_current = 0.0;
+  float load_power = 0.0;    // W
+  int battery_soc = -1;      // % - MPPT'nin kendi tahmini, -1 = henuz okunmadi
+  float kalan_saat = -1.0;   // Mevcut net tuketimle tahmini kalan sure, -1 = N/A (sarj oluyor/veri yok)
   bool read_ok = false;
   unsigned long last_update_ms = 0;
 };
@@ -1179,26 +1187,62 @@ void mppt_init() {
   DEBUG_PRINTLN("[MPPT] UART2 Modbus RTU hazir (FAZ 1 - sadece loglama)");
 }
 
+// bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
+// kaba bir "kalan saat" tahmini - MPPT'nin gercek bir SOC algoritmasina
+// sahip olmasi (coulomb-counting) bizim voltaj-bazli tahmin etmemizden
+// COK daha guvenilir, o yuzden 0x311A SOC register'i temel alinir.
+float mpptKalanSaatHesapla() {
+  if (mpptData.battery_soc < 0) return -1.0; // SOC hic okunamadi
+  float netGucW = mpptData.load_power - mpptData.pv_power;
+  if (netGucW <= 1.0) return -1.0; // sarj oluyor/dengede - "kalan sure" anlamsiz
+  float kalanWh = BATTERY_CAPACITY_WH * (mpptData.battery_soc / 100.0f);
+  return kalanWh / netGucW;
+}
+
 void mpptPoll() {
   static unsigned long lastPoll = 0;
   if (millis() - lastPoll < MPPT_POLL_INTERVAL_MS) return;
   lastPoll = millis();
 
-  uint8_t sonuc = mpptNode.readInputRegisters(MPPT_REG_BATTERY_VOLTAGE, 1);
+  // Tek seferde 0x3100-0x310F (16 register, PV+aku+yuk) - araliksiz blok
+  // oldugu icin tek Modbus istegiyle alinir, 16 ayri istekten cok daha hizli.
+  uint8_t sonuc = mpptNode.readInputRegisters(MPPT_REG_BLOCK_START, MPPT_REG_BLOCK_COUNT);
   if (sonuc == mpptNode.ku8MBSuccess) {
-    uint16_t ham = mpptNode.getResponseBuffer(0);
-    mpptData.battery_voltage = ham * MPPT_REG_BATTERY_VOLTAGE_SCALE;
+    mpptData.pv_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_VOLTAGE) * MPPT_REG_SCALE;
+    mpptData.pv_current = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_CURRENT) * MPPT_REG_SCALE;
+    uint32_t pvPowerRaw = (uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_POWER_L) |
+                           ((uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_POWER_H) << 16);
+    mpptData.pv_power = pvPowerRaw * MPPT_REG_SCALE;
+    mpptData.battery_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_BATTERY_VOLTAGE) * MPPT_REG_SCALE;
+    mpptData.load_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_VOLTAGE) * MPPT_REG_SCALE;
+    mpptData.load_current = mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_CURRENT) * MPPT_REG_SCALE;
+    uint32_t loadPowerRaw = (uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_POWER_L) |
+                             ((uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_POWER_H) << 16);
+    mpptData.load_power = loadPowerRaw * MPPT_REG_SCALE;
     mpptData.read_ok = true;
     mpptData.last_update_ms = millis();
   } else {
     mpptData.read_ok = false;
-    DEBUG_PRINT("[MPPT] Modbus okuma hatasi, kod=0x");
+    DEBUG_PRINT("[MPPT] Modbus okuma hatasi (0x3100 blok), kod=0x");
     DEBUG_PRINTLN(String(sonuc, HEX));
   }
-  DEBUG_PRINT("[MPPT] V=");
-  DEBUG_PRINT(String(mpptData.battery_voltage, 2));
-  DEBUG_PRINT(" ok=");
-  DEBUG_PRINTLN(mpptData.read_ok ? "1" : "0");
+
+  // SOC ayri bir adreste (bloga bitisik degil) - ikinci, kucuk bir istek.
+  uint8_t socSonuc = mpptNode.readInputRegisters(MPPT_REG_BATTERY_SOC, 1);
+  if (socSonuc == mpptNode.ku8MBSuccess) {
+    mpptData.battery_soc = mpptNode.getResponseBuffer(0);
+  } else {
+    DEBUG_PRINT("[MPPT] SOC okuma hatasi, kod=0x");
+    DEBUG_PRINTLN(String(socSonuc, HEX));
+  }
+
+  mpptData.kalan_saat = mpptKalanSaatHesapla();
+
+  DEBUG_PRINT("[MPPT] Vbat="); DEBUG_PRINT(String(mpptData.battery_voltage, 2));
+  DEBUG_PRINT(" PV="); DEBUG_PRINT(String(mpptData.pv_power, 1)); DEBUG_PRINT("W");
+  DEBUG_PRINT(" Yuk="); DEBUG_PRINT(String(mpptData.load_power, 1)); DEBUG_PRINT("W");
+  DEBUG_PRINT(" SOC="); DEBUG_PRINT(String(mpptData.battery_soc));
+  DEBUG_PRINT(" ok="); DEBUG_PRINTLN(mpptData.read_ok ? "1" : "0");
 }
 
 // Histerezis: bateryaKesmeVolt'un altina inince kritik olur, ancak
@@ -1413,7 +1457,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div><small>Litre</small></div>
       <div class="card"><h3>Sıcaklık</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
-      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt</small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div></div>
+      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div></div>
     </div>
 
     <div class="card">
@@ -2008,11 +2052,20 @@ function renderUI(d){
   const bat = d.battery || {};
   const batOk = bat.online !== false;
   const bkpi=$('#kpi-batarya'); if(bkpi) bkpi.textContent = batOk ? (bat.voltage||0).toFixed(1)+' V' : '--';
+  const bsoc=$('#batarya-soc'); if(bsoc) bsoc.textContent = (batOk && bat.soc!=null && bat.soc>=0) ? ('('+bat.soc+'%)') : '';
   const bdur=$('#batarya-durum');
   if(bdur){
     if(!bat.koruma_aktif) bdur.textContent = batOk ? 'İzleniyor (koruma kapalı)' : 'Bağlantı yok';
     else bdur.textContent = !batOk ? 'Bağlantı yok' : (bat.kritik ? 'KRİTİK - sulama/lamba kesildi' : 'Normal');
     bdur.style.color = (batOk && bat.kritik) ? 'var(--danger)' : '';
+  }
+  const bpv=$('#batarya-pv'); if(bpv) bpv.textContent = batOk ? (bat.pv_watt||0).toFixed(0)+'W ('+(bat.pv_amp||0).toFixed(1)+'A)' : '--';
+  const byuk=$('#batarya-yuk'); if(byuk) byuk.textContent = batOk ? (bat.load_watt||0).toFixed(0)+'W ('+(bat.load_amp||0).toFixed(1)+'A)' : '--';
+  const bkalan=$('#batarya-kalan');
+  if(bkalan){
+    if(!batOk) bkalan.textContent='';
+    else if(bat.kalan_saat==null || bat.kalan_saat<0) bkalan.textContent = (bat.pv_watt>bat.load_watt) ? '🔆 Şarj oluyor' : '';
+    else bkalan.textContent = '⏳ Bu tüketimle ~'+bat.kalan_saat.toFixed(1)+' saat kaldı';
   }
   { const bkb=$('#batarya-koruma-btn'); if(bkb) bkb.textContent = bat.koruma_aktif ? 'Korumayı Kapat' : 'Korumayı Aç'; }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
@@ -2419,7 +2472,7 @@ irListesiYukle();
 }
 
 String durumJson() {
-  DynamicJsonDocument doc(1280);
+  DynamicJsonDocument doc(1536);
 
   doc["level_cm"] = sensorData.level_cm;
   doc["level_percent"] = sensorData.level_percent;
@@ -2470,6 +2523,14 @@ String durumJson() {
   doc["battery"]["kesme_volt"] = bateryaKesmeVolt;
   doc["battery"]["geri_volt"] = bateryaGeriYuklemeVolt;
   doc["battery"]["esp8266_ack"] = esp8266BatteryLowAck;
+  doc["battery"]["pv_volt"] = mpptData.pv_voltage;
+  doc["battery"]["pv_amp"] = mpptData.pv_current;
+  doc["battery"]["pv_watt"] = mpptData.pv_power;
+  doc["battery"]["load_volt"] = mpptData.load_voltage;
+  doc["battery"]["load_amp"] = mpptData.load_current;
+  doc["battery"]["load_watt"] = mpptData.load_power;
+  doc["battery"]["soc"] = mpptData.battery_soc;
+  doc["battery"]["kalan_saat"] = mpptData.kalan_saat;
 
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
