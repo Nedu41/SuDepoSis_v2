@@ -1924,9 +1924,13 @@ void loop() {
   unsigned long s = millis();
   uint16_t a = geceModuMu() ? ayar.olcumAraligiGece : ayar.olcumAraligiGunduz;
   if (s - sonOtomatikOlcumMs >= (unsigned long)a * 1000UL) { olcumYap(); sonOtomatikOlcumMs = s; ssePush(); server.handleClient(); }
-  // SSE periyodik durum guncelleme (1500ms) - sensör olcumu yapmadan sadece durum iter
+  // SSE periyodik durum guncelleme - onceden 1500ms'de bir moistureOku()
+  // (gercek analogRead) cagiriyordu, yani nem sensoru gereksiz sik
+  // okunuyordu (yorumun soyledigi "olcum yapmadan sadece durum iter"in
+  // aksine). Kullanici istegiyle 4000ms'e yavaslatildi - ekranda hala
+  // akici hissettirecek kadar sik, ama analogRead sıklığı ~2.7 kat azaldi.
   static unsigned long sseGonderMs = 0;
-  if (s - sseGonderMs >= 1500UL) { sseGonderMs = s; moistureOku(); ssePush(); }
+  if (s - sseGonderMs >= 4000UL) { sseGonderMs = s; moistureOku(); ssePush(); }
   // KALDIRILDI: Periyodik (1000ms) istem-disi masterGonder() gonderimi.
   // ESP32 zaten kendi 600ms'lik dongusunde GET_STATUS ile surekli soruyor
   // (bkz esp32_master rs485_poll) - bu "yedek" gonderim aslinda ESP32'nin

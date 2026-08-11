@@ -364,7 +364,14 @@ Preferences ayarPrefs;
 bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
 bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
 bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
-unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an
+unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an - 0 = HENUZ HIC true olmadi (sentinel, gercek bir zaman degil)
+
+// Boot sonrasi HC-SR505'in isinma/kalibrasyon suresi boyunca cikisi
+// kararsiz/rastgele HIGH verebilir (bu sensor tipinin bilinen davranisi,
+// bkz asagidaki HC-SR505 aciklamasi) - bu sure icinde gercek bir eskalasyon
+// (siren/lamba/Telegram) TETIKLENMEZ, sadece yerel on-bip gorulebilir.
+// "Kalburum acilista surekli PIR alarmi veriyor" sikayetinin kok nedeni.
+#define KONTEYNER_PIR_BOOT_GRACE_MS 30000UL
 
 // PIR HASSASIYET (2 kademeli) - HC-SR505'in potansiyometresi olmadigindan
 // (sabit ~8sn HIGH, hareketin buyuklugune bakmaksizin) "ufak kipirdama"yi
@@ -607,12 +614,17 @@ void konteynerSensorleriOku() {
   // sonlanmayi tolere eder).
   if (pir2HareketVar) konteynerPirSonHareketMs = millis();
   unsigned long tutmaMs = (unsigned long)konteynerPirTutmaSaniye * 1000UL;
-  konteynerPirAlarmVar = pir2HareketVar || (millis() - konteynerPirSonHareketMs <= tutmaMs);
+  // konteynerPirSonHareketMs==0 => hic hareket gorulmedi (sentinel) - bu
+  // durumu "0 aninda hareket gorulmus gibi" yorumlayip tutmaMs suresince
+  // yanlislikla alarmVar=true yapmayi ONLEMEK icin acikca kontrol ediyoruz.
+  konteynerPirAlarmVar = pir2HareketVar || (konteynerPirSonHareketMs != 0 && (millis() - konteynerPirSonHareketMs <= tutmaMs));
 
   // ESKALASYON: bolum, Onay Suresi'ni kesintisiz astiysa artik GERCEK alarm.
+  // Boot-grace penceresi icinde eskalasyon bilerek engellenir (yukarida
+  // KONTEYNER_PIR_BOOT_GRACE_MS aciklamasina bkz).
   if (konteynerPirAlarmVar && konteynerPirBolumBaslangicMs != 0 && !konteynerPirEskalasyonOldu) {
     unsigned long onaySuresiMs = (unsigned long)konteynerPirOnaySaniye * 1000UL;
-    if (millis() - konteynerPirBolumBaslangicMs > onaySuresiMs) {
+    if (millis() - konteynerPirBolumBaslangicMs > onaySuresiMs && millis() >= KONTEYNER_PIR_BOOT_GRACE_MS) {
       konteynerPirEskalasyonOldu = true;
       if (alarmStatus.mode == 3) konteynerOnayBekleniyor = true;
     }
@@ -769,7 +781,7 @@ void telegramAyarKaydet(bool aktif) {
   ayarPrefs.end();
 }
 
-const char* alarmTetikleyiciAdlari[6] = {"Sol Kapi", "Sag Kapi", "Sudepo PIR (Hareket)", "Su Seviyesi", "Kacak", "Sensor Hatasi"};
+const char* alarmTetikleyiciAdlari[6] = {"Sudepo: Sol Kapi", "Sudepo: Sag Kapi", "Sudepo: PIR (Hareket)", "Sudepo: Su Seviyesi", "Sudepo: Kacak", "Sudepo: Sensor Hatasi"};
 
 // konteynerPir/konteynerKapi: ESP8266'nin trigger_mask'inden BAGIMSIZ,
 // ESP32'nin yerel Konteyner sensorleri (PIR2 + kapi reed) - ESP8266
@@ -786,11 +798,11 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false,
   }
   if (konteynerPir) {
     if (s.length() > 0) s += ", ";
-    s += "Konteyner PIR (Hareket)";
+    s += "Konteyner: PIR (Hareket)";
   }
   if (konteynerKapi) {
     if (s.length() > 0) s += ", ";
-    s += "Konteyner Kapı";
+    s += "Konteyner: Kapı";
   }
   return s.length() > 0 ? s : "Bilinmiyor";
 }
@@ -1945,13 +1957,18 @@ function bipSesi(){
   }catch(e){}
 }
 
-const tetikleyiciAdlari=['Sol Kapi','Sag Kapi','Sudepo PIR (Hareket)','Su Seviyesi','Kacak','Sensor Hatasi'];
+// Her tetikleyicinin hangi bolgeye (Sudepo/Konteyner) ait oldugu banner ve
+// durum metinlerinde ayirt edilebilsin diye acikca on ek olarak eklendi -
+// onceden sadece Konteyner tarafindakiler etiketliydi, Sudepo tarafindakiler
+// (kapi/PIR/su seviyesi/kacak/sensor) hangi cihaza ait oldugu belirtilmeden
+// gosteriliyordu.
+const tetikleyiciAdlari=['Sudepo: Sol Kapı','Sudepo: Sağ Kapı','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
 function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi){
-  if(panicAktif) return 'Panik (elle acildi)';
+  if(panicAktif) return 'Panik (elle açıldı)';
   const l=[];
   for(let i=0;i<6;i++) if(mask&(1<<i)) l.push(tetikleyiciAdlari[i]);
-  if(konteynerPir) l.push('Konteyner PIR (Hareket)');
-  if(konteynerKapi) l.push('Konteyner Kapı');
+  if(konteynerPir) l.push('Konteyner: PIR (Hareket)');
+  if(konteynerKapi) l.push('Konteyner: Kapı');
   return l.length?l.join(', '):'-';
 }
 
@@ -2013,11 +2030,11 @@ function renderUI(d){
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
-    else if(d.alarm.leak) at='ALARM: Kaçak!';
-    else if(d.alarm.low_level) at='ALARM: Düşük seviye!';
-    else if(d.alarm.door) at='ALARM: Kapı açık!';
+    else if(d.alarm.leak) at='ALARM: Sudepo kaçak!';
+    else if(d.alarm.low_level) at='ALARM: Sudepo düşük seviye!';
+    else if(d.alarm.door) at='ALARM: Sudepo kapı açık!';
     else if(alarmMask & 4) at='ALARM: Sudepo hareket algılandı!';
-    else if(alarmMask & 32) at='ALARM: Sensör hatası!';
+    else if(alarmMask & 32) at='ALARM: Sudepo sensör hatası!';
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
   }
@@ -3075,7 +3092,11 @@ void handleAPI_KonteynerLamba() {
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
-  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
+  // Alarm banner/kontrol butonlari icin en hizli tepki hedeflendiginden
+  // (bkz asagidaki alarmSustur/alarmOnayla/panik ayni degisiklik) timeout
+  // dusuruldu - normal ACK suresi 9600 baud'da birkac ms/onlarca ms, 1000ms
+  // sadece hat sorunu durumunda gereksiz uzun bekletiyordu.
+  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 400, 2);
   if (ok) { alarmStatus.enabled = aktif; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -3092,7 +3113,7 @@ void handleAPI_Alarm() {
 }
 
 bool alarmModAyarla(uint8_t mod, String& reply) {
-  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
+  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 400, 2);
   if (ok) {
     alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis();
     // Konteyner'in yerel onay bayraklarini da mod degisince temizle - ONCEDEN
@@ -3130,7 +3151,7 @@ bool alarmSustur(String& reply) {
   // hesaplayip acikca gonderiyor - kac kere tekrar gonderilirse gonderilsin
   // sonuc ayni (idempotent).
   bool hedef = !alarmStatus.muted;
-  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
+  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -3142,7 +3163,7 @@ void handleAPI_AlarmMute() {
 }
 
 bool alarmOnayla(String& reply) {
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
+  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 400, 2);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
   // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin. ONCEDEN BUG:
@@ -3167,7 +3188,7 @@ void handleAPI_AlarmOnayla() {
 
 void handleAPI_AlarmOnaylaLamba() {
   String reply;
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
+  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 400, 2);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
   // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
@@ -3334,7 +3355,7 @@ void handleAPI_SudepoAyarlarKaydet() {
 // ESP8266 ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
 bool panikTetikle(bool& panicActive, String& reply) {
   bool hedef = !alarmStatus.panic_mode;
-  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
+  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 400, 2);
 
   // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
   panicActive = false;
