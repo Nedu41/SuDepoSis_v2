@@ -371,7 +371,13 @@ unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true gor
 // bkz asagidaki HC-SR505 aciklamasi) - bu sure icinde gercek bir eskalasyon
 // (siren/lamba/Telegram) TETIKLENMEZ, sadece yerel on-bip gorulebilir.
 // "Kalburum acilista surekli PIR alarmi veriyor" sikayetinin kok nedeni.
-#define KONTEYNER_PIR_BOOT_GRACE_MS 30000UL
+// NOT: ilk denemede 30sn secilmisti, ama gercek cihazda reboot sonrasi
+// "Hareket: Var" (ham okuma) birkac dakika boyunca surebiliyor - HC-SR505
+// warm-up'i bazen 30sn'den uzun suruyor. Guvenli tarafta kalmak icin 90sn'e
+// cikarildi (ham "Hareket" alani bu sureden BAGIMSIZ, o her zaman anlik pin
+// durumunu gosterir - sadece siren/lamba/Telegram ESKALASYONU bu kadar
+// erteleniyor).
+#define KONTEYNER_PIR_BOOT_GRACE_MS 90000UL
 
 // PIR HASSASIYET (2 kademeli) - HC-SR505'in potansiyometresi olmadigindan
 // (sabit ~8sn HIGH, hareketin buyuklugune bakmaksizin) "ufak kipirdama"yi
@@ -521,8 +527,13 @@ void alarmLedGuncelle() {
   bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && (konteynerPirEskalasyonOldu || kapi2Acik));
   bool konteynerBuzzerVar = false;
   if (konteynerEskaleVar) {
-    if (alarmStatus.panic_mode || alarmStatus.mode == 1) konteynerBuzzerVar = true; // Panik veya Sesli - hemen cal
-    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi; // Onayli - onaydan sonra cal
+    // BUG (kullanici bulgusu): "Sustur/Sireni Kapat" banner butonu
+    // (alarmStatus.muted) buraya hic bakilmadigindan Konteyner sirenini
+    // SUSTURAMIYORDU - sadece ESP8266/Sudepo sirenini etkiliyordu. Panik HALA
+    // mute'tan bagimsiz (elle ac/kapat anahtari gibi, yukaridaki yorum).
+    if (alarmStatus.panic_mode) konteynerBuzzerVar = true; // Panik - susturmadan bagimsiz
+    else if (alarmStatus.mode == 1) konteynerBuzzerVar = !alarmStatus.muted; // Sesli - susturulmadiysa hemen cal
+    else if (alarmStatus.mode == 3) konteynerBuzzerVar = konteynerOnayVerildi && !alarmStatus.muted; // Onayli - onaydan sonra, susturulmadiysa cal
     // mode==2 (Sessiz) ve panik degilse: konteynerBuzzerVar false kalir, Telegram/banner yine de calisir
   }
 
