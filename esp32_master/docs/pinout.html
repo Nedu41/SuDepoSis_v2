@@ -66,11 +66,31 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>Röle çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
 <tr><td>9</td><td>Konteyner Lambası</td><td>Röle çıkışı (uyarı lambası/flaşör)</td><td>Varsayılan HIGH=aktif; siren ile birlikte VEYA tek başına (Onaylı mod "Sessiz (Lamba)" onayı, ya da Kontrol sekmesinden elle) aktif olabilir</td></tr>
+<tr><td>10</td><td>2. MAX485 (MPPT)</td><td>RO → ESP32 RX</td><td>UART2, Modbus RTU — ESP8266 hattından (UART1) tamamen ayrı, ikinci bir MAX485 modülü</td></tr>
+<tr><td>11</td><td>2. MAX485 (MPPT)</td><td>DI ← ESP32 TX</td><td>UART2, Modbus RTU</td></tr>
+<tr><td>12</td><td>2. MAX485 (MPPT)</td><td>DE + RE</td><td>UART2, Modbus RTU</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (9600 baud)</td><td>PC'ye USB üzerinden</td></tr>
 <tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Quad Flash)</td><td>Bu karttaki flash için ayrılmış</td></tr>
-<tr><td>2, 10-18, 21, 33, 34, 36, 40-42, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>—</td></tr>
+<tr><td>2, 13-18, 21, 33, 34, 36, 40-42, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>—</td></tr>
 </table>
+</div>
+
+<div class="section">
+<h2>Modül 4: MPPT Şarj Kontrolcü (Modbus RTU, "victor NML 3200-24")</h2>
+<p><strong>UYARI:</strong> Register adresi/ölçek FAZ 1'de multimetreyle doğrulanana kadar TAHMİNİ
+— bkz <code>esp32_master/include/config.h</code>'daki <code>MPPT_REG_BATTERY_VOLTAGE</code> yanındaki
+not. Model gerçek Victron ürün adlandırmasıyla uyuşmuyor, muhtemelen jenerik/OEM bir RS485+Modbus
+RTU cihaz.</p>
+<table>
+<tr><th>2. MAX485 Pin</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
+<tr><td>RO</td><td>10</td><td>Data Output (MAX → ESP32 RX)</td></tr>
+<tr><td>DI</td><td>11</td><td>Data Input (ESP32 TX → MAX)</td></tr>
+<tr><td>DE + RE</td><td>12</td><td>Ortak Enable</td></tr>
+<tr><td>A / B</td><td>—</td><td>MPPT kontrolcünün RS485 A/B terminaline twisted pair</td></tr>
+</table>
+<p>Baudrate: <code>9600</code> (DOĞRULA). Bu bus, ESP8266 RS485 hattından (UART1) tamamen ayrı
+çalışır — aynı fiziksel hatta bağlanamaz.</p>
 </div>
 
 <div class="section">
