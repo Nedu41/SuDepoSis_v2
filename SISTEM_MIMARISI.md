@@ -1,323 +1,178 @@
-# 🏗️ SuDepoSis v2 - Sistem Mimarisi
+# 🏗️ SuDepoSis v2 — Sistem Mimarisi (Teknik Referans)
+
+> Bu dosya, projenin **güncel** teknik mimarisini anlatır. Fiziksel pin şeması için her kartın
+> `docs/pinout.html` dosyasına bak: [esp32_master/docs/pinout.html](esp32_master/docs/pinout.html),
+> [esp8266_slave/docs/pinout.html](esp8266_slave/docs/pinout.html). Kurulum adımları için kök
+> [README.md](README.md) yeterli — burası "nasıl çalışıyor" sorusuna cevap verir.
 
 ## 📊 Genel Yapı
 
-```
-                    ┌─────────────────────────────┐
-                    │   ESP32-S3 S (Ana Sunucu)   │
-                    │  Konum: Konteyner 20m aşağı│
-                    │                             │
-                    │ ✓ UART1 RS485 Master        │
-                    │   (GPIO16 RX, GPIO17 TX)    │
-                    │ ✓ Web Dashboard (port 80)   │
-                    │ ✓ MQTT Publisher            │
-                    │ ✓ Veri Hub (CSV/SPIFFS)     │
-                    │ ✓ Alarm Karar Merkezi       │
-                    │ ✓ OTA Güncellemeler         │
-                    └────────────┬────────────────┘
-                                 │
-                    RS485 (CAT5 Kablo - 20m)
-                    Baudrate: 115200 baud
-                    Message: CSV Format
-                                 │
-                ┌────────────────┼─────────────────┐
-                │                │                 │
-      ┌─────────▼──────┐  ┌───────▼────────┐  ┌────▼──────┐
-      │ ESP8266 12E    │  │  Arduino Nano  │  │ MAX485#2   │
-      │                │  │                │  │ (Yedek)    │
-      │ ✓ HC-SR04      │  │ ✓ 2x Kapı      │  │            │
-      │ ✓ RTC         │  │ ✓ 1x Röle (NC) │  │ (Standby)  │
-      │ ✓ Seri Nano    │  │ ✓ Status LED   │  │            │
-      │   (9600 baud)  │  │                │  │            │
-      │ ✓ RS485 Slave  │  └────────────────┘  └────────────┘
-      │ ✓ Web Local    │
-      │   (port 8080)  │
-      └────────────────┘
-```
+Sistem iki bağımsız "zon"dan oluşur, ikisi de aynı ESP32-S3 üzerinden yönetilir:
 
----
-
-## 🔄 Veri Akışı (Per Cycle)
+- **Sudepo Zonu** — depo tarafı: su seviyesi, 2 kapı, alarm rölesi, nem/sulama rölesi, depo lambası.
+  Donanımı ESP8266 + Arduino Nano üzerinde, ESP32'ye RS485 ile bağlı.
+- **Konteyner Zonu ("Kalburum")** — ESP32-S3'ün bulunduğu konteynerdeki alarm/aydınlatma donanımı:
+  IR kumanda alıcısı, PIR hareket sensörü, kapı reed switch, siren, lamba. Tamamen **ESP32'ye doğrudan
+  bağlı**, RS485/ESP8266/Nano'dan bağımsız çalışır.
 
 ```
-1. ESP32-S3 (master) RS485'ten talep gönderir (500ms)
-   └─ "MASTER:REQUEST_ESP8266"
-
-2. ESP8266 yanıt verir (timeout: 1000ms)
-   ├─ HC-SR04 ölçüm alır (5 ortalaması)
-   ├─ Nano'ya SoftwareSerial'den veri ister
-   ├─ RS485'ten cevap gönderir
-   └─ "ESP8266:LEVEL=45.2,TEMP=26.0,MODE=day"
-
-3. ESP32-S3 mesajı parse eder
-   ├─ Seviye, sıcaklık, modu güncelle
-   ├─ Yüzde ve litre hesapla
-   ├─ Alarm kontrol et
-   └─ MQTT'ye yayımla (5s başına)
-
-4. Web Dashboard güncelle (canlı)
-   └─ Browser refresh her 5 saniye
-
-5. Döngü tekrar (500ms sonra)
+                    RS485 (9600 baud, MAX485, CAT5)
+┌────────────────────────┐  ◄──────────────────►  ┌──────────────────────┐
+│   ESP32-S3 "Kalburum"   │                        │   ESP8266 (12E)       │
+│   RS485 Master           │                        │   RS485 Slave         │
+│                          │                        │                       │
+│ ✓ WiFi (AP+STA) / mDNS   │                        │ ✓ HC-SR04 seviye      │
+│ ✓ Web Dashboard (:80)    │                        │ ✓ DS1307 RTC          │
+│ ✓ MQTT Publisher         │                        │ ✓ Alarm/panik yönetimi│
+│ ✓ BLE (telefon uygulaması)│                       │ ✓ Nem otomasyonu      │
+│ ✓ Telegram bildirimleri  │                        │ ✓ Web paneli (:80, AP)│
+│ ✓ Hava durumu/yağmur     │                        │ ✓ EEPROM ayarlar      │
+│   tahmini sorgusu        │                        └──────────┬────────────┘
+│ ✓ OTA (URL/dosya/Arduino)│                                    │ UART0 (9600 baud,
+│ ✓ SPIFFS (kayıt/log CSV) │                                    │ 470Ω seri + 1kΩ pull-down)
+│                          │                        ┌───────────▼────────────┐
+│ ── Konteyner Zonu ──     │                        │  Arduino Nano           │
+│ ✓ IR alıcı + kumanda     │                        │  (ATmega328P, WiFi yok) │
+│ ✓ PIR2 + kapı reed       │                        │ ✓ 2x kapı sensörü       │
+│ ✓ Siren + lamba rölesi   │                        │ ✓ Alarm rölesi (NC)     │
+│ ✓ LED+buzzer (yerel uyarı)│                       │ ✓ Nem/sulama rölesi     │
+└─────────────────────────┘                        │ ✓ PIR (Sudepo)          │
+                                                     │ ✓ Depo lambası rölesi   │
+                                                     │ ✓ Toprak nem (analog)   │
+                                                     └─────────────────────────┘
 ```
 
----
+Üç kart da tek repoda ayrı PlatformIO projeleri: her birinin kendi `platformio.ini`, `include/`,
+`src/` klasörü var.
+
+## 🔄 Veri Akışı
+
+1. **ESP32 → ESP8266 (poll):** ESP32, `rs485_poll()` içinde her `RS485_UPDATE_INTERVAL` (600ms)'de
+   bir `GET_STATUS` gönderir; gerçek RS485 erişimi bir FreeRTOS mutex (`RS485Kilit`) ile korunur ki
+   BLE görevi (ayrı bir "nimble_host" task'ı) ile `loop()` aynı anda hatta dokunmasın.
+2. **ESP8266 yanıtı:** `ESP8266:LEVEL=..,PCT=..,...` formatında tek satır — depo seviyesi, sıcaklık,
+   kapı/röle/lamba/nem durumu, alarm modu/mute/pending, panik, tetikleyici bitmask'i hepsi bu satırda.
+   Tam alan listesi: [esp8266_slave/README.md](esp8266_slave/README.md#rs485-durum-alanları).
+3. **ESP32 parse + karar:** `parse_esp8266_data()` alanları kendi state'ine yazar; alarm/seviye
+   hesaplamaları SADECE veri taze ise (`esp8266_online`, 10sn eşik) güncellenir — bağlantı koparsa
+   eski değerler donmuş görünmez, `--`/pasif gösterilir.
+4. **Web/BLE/MQTT/SSE yayını:** Aynı state, `/api/status` (JSON), `/events` (SSE, ~1sn'de bir push),
+   BLE notify (2sn'de bir) ve MQTT (`sudeposis/*` topic'leri) üzerinden eş zamanlı sunulur — "server
+   truth" modeli: hiçbir istemci (web/telefon) local state tutmaz, hep sunucudan gelen taze veriyi çizer.
+5. **Buton komutları:** Web/BLE'den gelen bir SET komutu (`MASTER:SET_LAMBA=1` gibi) da aynı mutex
+   üzerinden gönderilir, ACK bekler (max 3 deneme, 1000ms timeout) — komutlar idempotent (PANIC/
+   ALARM_MUTE dahil, toggle değil explicit-set), bu yüzden art arda hızlı tıklamak/retry zararsız.
+6. **Konteyner Zonu:** RS485'ten tamamen bağımsız, `loop()` içinde doğrudan okunur/yazılır — PIR/kapı
+   okuma, IR kumanda işleme, siren/lamba kararı hep aynı döngüde, RS485 gecikmesi hiç etkilemez.
 
 ## 📡 İletişim Protokolleri
 
-### RS485 (ESP32 ↔ ESP8266/Nano)
+### RS485 (ESP32 ↔ ESP8266)
 
-```
-Baudrate: 115200
-Format: Metin CSV
-Timeout: 1000ms
+- **Hız:** 9600 baud, metin tabanlı, satır sonu `\n`.
+- **Master → Slave:** `MASTER:<KOMUT>\n`, örn. `MASTER:SET_LAMBA=1`, `MASTER:SET_ALARM_MOD=3`,
+  `MASTER:PANIC=1`, `MASTER:ALARM_MUTE=0`, `MASTER:SET_RAIN_SKIP=1`. Slave `ACK:<komut>` veya
+  `NACK:<komut>` ile yanıtlar.
+- **Slave → Master (periyodik durum):** `ESP8266:LEVEL=..,PCT=..,...\n` — ~1sn'de bir veya
+  `GET_STATUS` isteğine yanıt olarak.
+- Fiziksel katman: iki MAX485 modülü, CAT5 üzerinden A↔A/B↔B twisted pair. Pin detayları için
+  her kartın `docs/pinout.html`'ine bak.
 
-Master → Slave:
-  "MASTER:REQUEST_ESP8266\n"
-  "MASTER:REQUEST_NANO\n"
+### UART0 (ESP8266 ↔ Nano)
 
-Slave → Master:
-  "ESP8266:LEVEL=45.2,TEMP=26.0,MODE=day\n"
-  "NANO:D0=0,D1=1,RELE=0\n"
-```
+- 9600 baud, HardwareSerial (ESP8266'nın USB/programlama UART0'ı ile aynı pinler — bu yüzden Nano
+  bağlıyken ESP8266'yı flaşlamak sorunlu olabilir, gerekirse geçici olarak ayırın).
+- Komut listesi: [nano_io/README.md](nano_io/README.md#komut-protokolü-esp8266--nano-9600-baud).
 
-### SoftwareSerial (ESP8266 ↔ Nano)
+### BLE (Telefon Uygulaması — BLEDProject/Android)
 
-```
-Baudrate: 9600
-Format: Metin CSV
-
-Request: "GET_STATUS\n"
-Response: "D0=0,D1=1,RELE=0\n"
-
-Commands:
-  - GET_STATUS → Kapı + Röle durumu
-  - RELAY_ON → Röle tetikle
-  - RELAY_OFF → Röle kapat
-  - PING → Bağlantı testi
-```
+- ESP32-S3, NimBLE ile bir GATT servisi yayınlar (`BLE_SERVICE_UUID`/`BLE_CHARACTERISTIC_UUID`,
+  bkz `config.h`); telefon WiFi ağına hiç girmeden doğrudan lamba/alarm/kapı/panik komutlarını
+  gönderip anlık durumu okuyabilir. 2sn'de bir notify ile durum push edilir.
+- Android tarafı ayrı bir repo: `d:\Kodlar\Android\BLEDProject` (Jetpack Compose, foreground service
+  ile ekran kapalıyken de bağlantı/alarm sesi/bildirim sürdürülür).
 
 ### MQTT (ESP32-S3 → Broker)
 
-```
-Broker: 127.0.0.1:1883
-Topic: sudeposis/level
-QoS: 1
-Interval: 5 saniye
+- Yerel Mosquitto (`127.0.0.1:1883`, `config.h` → `MQTT_BROKER`/`MQTT_PORT`).
+- Yayın: `sudeposis/level`, `sudeposis/esp8266/status`, `sudeposis/nano/status`, `sudeposis/alarm`.
+- Dinleme: `sudeposis/command`.
 
-Payload: JSON
-{
-  "level_cm": 45.2,
-  "level_percent": 72.0,
-  "level_liters": 2150.0,
-  "temperature": 26.0,
-  "night_mode": false,
-  "nano": {
-    "door1": false,
-    "door2": true,
-    "relay": true
-  }
-}
-```
+### Telegram (Alarm Bildirimleri)
 
----
+- `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` (`secrets.h`) tanımlıysa, alarm tetiklendiğinde Telegram'a
+  mesaj gönderilir. İnternet o an yoksa `TELEGRAM_RETRY_SURESI_MS` (2 dk) boyunca her döngüde tekrar
+  denenir, sonra vazgeçilir (heap düşükken de atlanır — bkz. `BLE_SAFE_MIN_HEAP`).
+- Web arayüzünden açık/kapalı anahtarlanabilir (`/api/telegram/ayar`).
 
-## 🔋 Sensör Detayları
+## 🚨 Alarm Sistemi
 
-### HC-SR04 Ultrasonik
+### Sudepo Zonu — Alarm Modları (`ALARM_MOD_*`, esp8266_slave)
 
-```
-Tetik (TRIG): Düşük-yüksek pulse (10µs)
-Yankı (ECHO): Dönen ses süresi
-Çalışma: 2-400 cm
-Ölçüm: 5 ortalaması (gürültü filtresi)
-Update: 2 saniye
-```
+| Mod | Değer | Davranış |
+|---|---|---|
+| Sesli | 1 | Tetiklenince röle/siren hemen çalışır |
+| Sessiz | 2 | Röle hiç çalışmaz, sadece web/SSE/Telegram bildirimi |
+| Onaylı | 3 | Önce onay bekler ("Sesli" veya "Sessiz (Lamba)"); onaylanınca ilgili moda göre davranır |
 
-**Formül:**
-```
-Mesafe (cm) = (Echo_Time_µs * 0.0343) / 2
-```
+Tetikleyiciler (bitmask, `ALARM_TRIGGER_*`): Kapı1, Kapı2, PIR, Su seviyesi düşük, Kaçak, Sensör hatası.
 
-### RTC DS1307
+### Konteyner Zonu — Aynı Mod Numarasını Paylaşır (ESP32-local mantık)
 
-```
-Protokol: I2C
-SDA: D2 (GPIO4)
-SCL: D1 (GPIO5)
-Fonksiyon: Gece modu tetikleme
-```
+Konteyner'in kendi PIR/kapı eskalasyonu, Sudepo'nun alarm modunu (`alarmStatus.mode`) referans alır
+ama kendi `konteynerAlarmEtkin` anahtarıyla (Kontrol sekmesi) bağımsız olarak açılıp kapatılabilir.
+Panik, her iki zonu da moddan bağımsız anında tetikler ("elle açılan anahtar" gibi davranır).
 
-### Kapı Sensörleri (Nano)
+### Panik ve Susturma — Idempotent Protokol
 
-```
-D10: Sol Kapı (Input, PULLUP)
-D11: Sağ Kapı (Input, PULLUP)
+`PANIC`/`ALARM_MUTE` komutları **toggle değil, explicit set** (`MASTER:PANIC=1/0`) — RS485 ACK kaybolup
+komut retry ile tekrar gönderilse bile sonuç aynı kalır, çift-tetikleme riski yok.
 
-Açık: HIGH (Magnetik switch açık)
-Kapalı: LOW (Magnetik switch kapalı)
-Debounce: 50ms
-```
+## 🌙 Gece Enerji Politikası
 
-### Röle (NC - Normally Closed)
+Bahçede güneş enerjisi + akü ile çalışılır, gece üretim yok. Bu yüzden:
 
-```
-D9: Röle kontrolü (Output)
-Tip: Normalde Kapalı (NC)
-
-HIGH (devre açık): Röle pasif
-LOW (devre kapalı): Röle tetiklenmiş (uyarı)
-
-Tetikleme: Kapı açık durumunda
-```
-
----
+- Depo seviyesi ölçümü gece seyrekleşir (`NIGHT_MEASURE_INTERVAL` 900sn, gündüz `DAY_MEASURE_INTERVAL` 60sn).
+- **Alarm/panik/susturma/nem kontrolü her zaman anlık çalışır** — gece dahil hiçbir gecikme kabul
+  edilmez (asıl güvenlik ihtiyacı gece ortaya çıkar). RS485 dinleme, Nano poll'u, web sunucusu gece
+  de tam hızda çalışır; gerçek deep-sleep kullanılmaz.
+- Hava durumu sorgusu, bahçede sabit internet olmadığından, kullanıcı mobil hat/hotspot'a
+  bağlandığında güncellenir; 7 günden eski tahmin fail-open olarak geçersiz sayılır.
 
 ## 💾 Veri Depolama
 
-### SPIFFS (ESP32-S3)
+- **ESP32 (SPIFFS):** `/kayitlar.csv` (dolum kayıtları, max 500), `/settings.json`,
+  `/monthly_archive.csv`, `/alarm_log.csv`.
+- **ESP8266 (EEPROM + LittleFS):** Ayarlar/eşikler EEPROM'da (`EEPROM_MAGIC` ile versiyonlanır, WiFi
+  bilgisi ayrı bir EEPROM bölgesinde bağımsız saklanır); kayıtlar/tüketim geçmişi LittleFS'te. Web
+  arayüzü (`web/index.html`+`app.js`) artık LittleFS'ten değil, derleme zamanında firmware'e gömülür.
+- **Nano:** Kalıcı ayar yok — röle polaritesi (`SET_RELAY_POLARITY`) EEPROM'da kalıcı tutulur.
 
-```
-Dosyalar:
-├── /kayitlar.csv
-│   Format: Tarih, Kişi, Litre, Ücret, Kaynak
-│   Max: 500 kayıt
-│
-├── /settings.json
-│   Ayarlar, eşikler
-│
-├── /monthly_archive.csv
-│   Aylık arşivler (tekil veriler)
-│
-└── /alarm_log.csv
-    Alarm olayları, zamanlar
-```
+## 🔌 Fiziksel Pin Şeması
 
-### CSV Format
+Tam pinout tabloları (her GPIO'nun ne olduğu, hangi modüle bağlandığı, kablaj özeti) için:
 
-```
-kayitlar.csv:
-2026-07-26T14:30:45,Tanker,3000.0,1200.00,Tanker
+- [esp32_master/docs/pinout.html](esp32_master/docs/pinout.html) — RS485 master pinleri + Konteyner
+  Zonu (IR, PIR2, kapı reed, siren, lamba).
+- [esp8266_slave/docs/pinout.html](esp8266_slave/docs/pinout.html) — RS485 slave pinleri, HC-SR04,
+  DS1307 RTC, Nano UART bağlantısı ve Nano'nun kendi pin haritası.
 
-alarm_log.csv:
-2026-07-26T14:30:45,LOW_LEVEL,15.0%
-2026-07-26T14:35:00,DOOR_OPEN,Sol Kapı
-```
+## 🎯 OTA / Firmware Güncelleme
 
----
+- **ArduinoOTA (ağ üzerinden, PlatformIO'dan):** `pio run -t upload`, WiFi ağındaysa USB gerekmez.
+- **Web'den URL:** GitHub'daki `firmware/*.bin` linkini yapıştır (`GITHUB_FIRMWARE_URL`, `config.h`).
+- **Web'den dosya:** Bilgisayardaki `.bin`'i doğrudan seç, GitHub'a ihtiyaç yok.
+- Her iki kart da bu üç yöntemi destekler; şifreler `secrets.h` → `OTA_PASSWORD`.
 
-## ⚠️ Alarm Sistemi
+## 📱 Android Uygulaması (BLEDProject)
 
-### Alarm Türleri
-
-| Alarm | Eşik | Tetik | Aksiyon |
-|-------|------|-------|---------|
-| Düşük Seviye | < 15% | Ölçüm | MQTT yayımla |
-| Su Kaçağı | 60+ dak düşüş | Trend | MQTT + Log |
-| Kapı Açık | D0/D1 = HIGH | Anlık | Röle tetikle |
-| Dönem Hatası | > 1s | Zaman aşımı | Log + Retry |
-
-### Röle Tetikleme Mantığı
-
-```cpp
-if (door1_open || door2_open) {
-  // NC röle: LOW = aktif (uyarı)
-  digitalWrite(RELAY_PIN, LOW);
-  mqttClient.publish("sudeposis/alarm", "DOOR_OPEN");
-} else {
-  digitalWrite(RELAY_PIN, HIGH);
-}
-```
+Ayrı repo (`d:\Kodlar\Android\BLEDProject`), Jetpack Compose + BLE. ESP32-S3'ün BLE GATT servisine
+bağlanıp lamba/alarm/kapı/panik komutlarını gönderir, anlık durumu (seviye, alarm, nem, panik) gösterir.
+Ekran kapalıyken/uygulama arka plandayken de bağlantı ve alarm sesi/bildirimi sürsün diye bir
+foreground service (`BleForegroundService`) BLE'yi sahiplenir.
 
 ---
 
-## 🌙 Gece Modu
-
-```
-Başlama: 22:00 (NIGHT_START_HOUR)
-Bitme: 06:00 (NIGHT_END_HOUR)
-
-Gündüz:
-  - Ölçüm Aralığı: 60 saniye
-  - RS485 Update: 500ms
-
-Gece:
-  - Ölçüm Aralığı: 900 saniye (15 dak)
-  - RS485 Update: 500ms
-  - Enerji tasarrufu
-```
-
----
-
-## 🎯 Başarı Kriterleri
-
-✅ **Donanım Testi:**
-- RS485: 115200 baud, mesaj alış-verişi ✓
-- HC-SR04: 2-400 cm ölçüm ✓
-- SoftwareSerial: 9600 baud, Nano iletişim ✓
-- Röle: NC fonksiyonu ✓
-
-✅ **Yazılım Testi:**
-- ESP32-S3 Web: http://[IP]:80 ✓
-- ESP8266 Local: http://[IP]:8080 ✓
-- MQTT: sudeposis/level yayımı ✓
-- Alarm: Kapı/seviye tetikleme ✓
-
-✅ **Entegrasyon:**
-- Tüm 3 cihaz senkronize
-- Veri merkezileştirildi (ESP32)
-- CSV arşiv çalışıyor
-
----
-
-## 📈 Performans
-
-| Metrik | Değer | Not |
-|--------|-------|-----|
-| RS485 Gecikme | ~100ms | İnsan hissetmez |
-| Web Refresh | 5 saniye | Canlı görünüm |
-| MQTT Publish | 5 saniye | Çoğu IoT için yeterli |
-| HC-SR04 Ölçüm | 100ms | 5 ortalaması |
-| Nano Poll | 1 saniye | Kapı hassasiyeti |
-| CPU Kullanım | ~10% | Rahat |
-| Güç Tüketimi | ~500mA | Standby |
-
----
-
-## 🔄 Sistem Başlatma Sırası
-
-```
-1. Arduino Nano boot (LED blink)
-   └─ Kapı sensörleri hazır, röle kapalı
-
-2. ESP8266 boot (serial log)
-   └─ HC-SR04 kalibre, RTC kontrol
-   └─ Nano ile SoftwareSerial test
-   └─ RS485 slave hazır
-
-3. ESP32-S3 boot (serial log)
-   └─ RS485 master hazır
-   └─ WiFi bağlantı
-   └─ MQTT bağlantı
-   └─ Web sunucusu açık
-   └─ Canlı data polling başla
-
-4. Dashboard açılabilir
-   └─ Veri canlı görülür
-```
-
----
-
-## 🚀 Ölçeklenebilirlik
-
-Gelecek için:
-- [ ] 2. ESP8266 slave (başka sensörler)
-- [ ] Weatherstation (yağmur, sıcaklık)
-- [ ] Depo pump kontrolü (otomatik dolum)
-- [ ] SMS/Email alertlar
-- [ ] Cloud sync (optional)
-
----
-
-**Sistem Tasarım Tamam!** 🎯
-
+**Not:** Bu dosyanın önceki sürümü (RS485 115200 baud, GPIO16/17/2, port 8080, SoftwareSerial vb.)
+projenin çok erken bir prototip aşamasını anlatıyordu ve gerçek donanımla uyuşmuyordu — yukarıdaki
+içerik güncel koddan (2026-08-11 itibarıyla) doğrulanarak yazıldı.

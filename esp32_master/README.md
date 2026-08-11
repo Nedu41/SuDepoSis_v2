@@ -22,14 +22,35 @@ pio run -t upload
 | Ayar | Değer |
 |---|---|
 | Baudrate | 9600 |
-| RX | GPIO16 (UART1) |
-| TX | GPIO17 (UART1) |
-| DE/RE | GPIO2 |
+| RX | GPIO37 (UART1) |
+| TX | GPIO38 (UART1) |
+| DE/RE | GPIO39 |
 | Poll aralığı | 600ms (`RS485_UPDATE_INTERVAL`) |
 
-Slave'e komut göndermek `MASTER:<KOMUT>` formatında olur, örn: `MASTER:REQUEST_ESP8266`,
-`MASTER:SET_RAIN_SKIP=1`, `MASTER:PANIC`. Tüm komut listesi `esp8266_slave/src/main.cpp`
-içindeki `rs485KomutDinle()` fonksiyonunda.
+Slave'e komut göndermek `MASTER:<KOMUT>` formatında olur, örn: `MASTER:SET_LAMBA=1`,
+`MASTER:SET_RAIN_SKIP=1`, `MASTER:PANIC=1`. Tüm komut listesi `esp8266_slave/src/main.cpp`
+içindeki `rs485KomutDinle()` fonksiyonunda. Gerçek RS485 erişimi bir FreeRTOS mutex (`RS485Kilit`)
+ile korunur — BLE görevi ile `loop()` (web/poll) aynı anda hatta asla dokunmaz.
+
+## Konteyner Zonu (Kalburum'un Kendi Alarm/Aydınlatma Donanımı)
+
+ESP32-S3'ün bulunduğu konteynerdeki alarm donanımı — RS485/ESP8266/Nano'dan tamamen bağımsız,
+doğrudan ESP32'ye bağlı. Kendi PIR'ı (HC-SR505), kapı reed switch'i, IR kumanda alıcısı, sireni ve
+lambası var; "Sudepo Zonu"ndaki (depo tarafı) alarm ile aynı Alarm Modu numarasını (Sesli/Sessiz/
+Onaylı) referans alır ama `konteynerAlarmEtkin` ile bağımsız açılıp kapatılabilir. Panik, moddan
+bağımsız her iki zonu da anında tetikler. Pin detayları için [docs/pinout.html](docs/pinout.html).
+
+## BLE (Telefon Uygulaması)
+
+NimBLE üzerinden bir GATT servisi yayınlanır (`BLE_SERVICE_UUID`/`BLE_CHARACTERISTIC_UUID`,
+`include/config.h`) — eşleşmiş Android uygulaması (ayrı repo, `BLEDProject`) WiFi ağına hiç girmeden
+lamba/alarm/kapı/panik komutlarını gönderip anlık durumu okuyabilir (2sn'de bir notify).
+
+## Telegram Bildirimleri
+
+`secrets.h` içindeki `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` tanımlıysa, alarm tetiklendiğinde
+Telegram'a mesaj gönderilir (internet yoksa 2 dakika boyunca tekrar denenir). Web arayüzünden
+açık/kapalı anahtarlanabilir (`/api/telegram/ayar`).
 
 ## Web Uç Noktaları
 
@@ -40,11 +61,18 @@ içindeki `rs485KomutDinle()` fonksiyonunda.
 | `/events` | Server-Sent Events (canlı güncelleme) |
 | `/api/ota?url=` | URL'den firmware güncelleme |
 | `/update` (POST, multipart) | Dosyadan firmware güncelleme (.bin yükleme) |
-| `/api/lamba`, `/api/moisture`, `/api/moisture/auto`, `/api/moisture/threshold` | Depo lambası / nem kontrolü |
-| `/api/alarm`, `/api/alarm/mod`, `/api/alarm/mute`, `/api/alarm/onayla` | Alarm yönetimi |
-| `/api/panic` | Panik butonu |
+| `/api/lamba`, `/api/moisture`, `/api/moisture/auto`, `/api/moisture/threshold` | Sudepo Zonu lambası / nem kontrolü |
+| `/api/konteyner/lamba`, `/api/konteyner/alarm`, `/api/konteyner/pir_ayar` | Konteyner Zonu lambası / alarm anahtarı / PIR ayarı |
+| `/api/alarm`, `/api/alarm/mod`, `/api/alarm/mute`, `/api/alarm/onayla`, `/api/alarm/onayla_lamba` | Alarm yönetimi (Sudepo) |
+| `/api/panic` | Panik butonu (her iki zonu da tetikler) |
 | `/api/kapi` | Kapı/röle testi |
+| `/api/ir/liste`, `/api/ir/ogren_baslat`, `/api/ir/ogren_durum`, `/api/ir/kaydet`, `/api/ir/sil` | Konteyner IR kumanda öğrenme/eşleme |
+| `/api/weather`, `/api/weather/check` | Hava durumu / yağmur tahmini |
+| `/api/telegram/test`, `/api/telegram/ayar` | Telegram bildirimleri |
 | `/api/wifi`, `/api/wifi/scan` | STA WiFi ayarı |
+| `/api/sudepo_ayarlar`, `/api/sudepo_ayarlar/kaydet` | Sudepo ayarlarına (ESP8266) köprü |
+| `/api/kayit/yedekle`, `/api/kayit/geri_yukle`, `/api/kayit/yedek_durum` | Dolum kayıtları (kayitlar.csv) yedekleme |
+| `/firmware/upload`, `/firmware/esp8266.bin`, `/api/firmware/durum` | ESP8266 firmware'ini yerel depoda barındırma |
 | `/api/restart` | Kartı yeniden başlat |
 
 ## MQTT
@@ -66,6 +94,14 @@ bilinçli olarak burada tutulur, `esp8266_slave` hafif kalsın diye (bkz. proje 
 
 | GPIO | İşlev |
 |---|---|
-| 16 | RS485 RX (UART1) |
-| 17 | RS485 TX (UART1) |
-| 2 | RS485 DE/RE |
+| 37 | RS485 RX (UART1) |
+| 38 | RS485 TX (UART1) |
+| 39 | RS485 DE/RE |
+| 4 | Konteyner IR alıcı |
+| 5 | Konteyner LED + buzzer (yerel uyarı) |
+| 6 | Konteyner PIR2 (HC-SR505) |
+| 7 | Konteyner kapı reed switch |
+| 8 | Konteyner siren rölesi |
+| 9 | Konteyner lamba rölesi |
+
+Tam pinout (kablaj, modül notları) için [docs/pinout.html](docs/pinout.html).

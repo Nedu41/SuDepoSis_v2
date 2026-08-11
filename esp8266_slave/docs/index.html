@@ -121,11 +121,11 @@
 <h2>WiFi Konfigürasyonu</h2>
 <table>
 <tr><th>Mod</th><th>SSID</th><th>Şifre</th><th>IP</th><th>Max Client</th></tr>
-<tr><td>AP</td><td>SuDepo</td><td>18811881</td><td>192.168.4.1</td><td>4</td></tr>
+<tr><td>AP</td><td>SuDepo</td><td>(include/secrets.h → AP_PASSWORD)</td><td>192.168.4.1</td><td>4</td></tr>
 <tr><td>STA</td><td>Kullanıcı tanımlı</td><td>Kullanıcı tanımlı</td><td>DHCP</td><td>—</td></tr>
 </table>
 <p><strong>mDNS:</strong> http://sudepo.local (hostname = AP adından türetilir)</p>
-<p><strong>OTA Şifre:</strong> 1881+</p>
+<p><strong>OTA Şifre:</strong> include/secrets.h → OTA_PASSWORD (bu dosyaya gerçek şifre asla yazılmaz)</p>
 </div>
 
 <div class="section">
