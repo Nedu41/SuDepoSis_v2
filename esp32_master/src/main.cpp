@@ -2182,6 +2182,7 @@ function fmtSure(sn){
 }
 
 function guncelle(){
+  if(herhangiBirAlanaYaziliyorMu()) return;
   fetch('/api/status')
     .then(r=>r.json())
     .then(d=>renderUI(d))
@@ -2193,10 +2194,23 @@ function guncelle(){
 // Baglanti koparsa 3sn sonra otomatik yeniden dener; guncelle() 5sn'de bir
 // yedek olarak calismaya devam eder (SSE tamamen kesilirse bile ekran donmaz).
 let _es = null;
+// Kullanici herhangi bir input/select/textarea'da yaziyorken (odaklanmisken)
+// arka plandaki otomatik guncellemeler (SSE + guncelle()) O ANKI render'i
+// tamamen atlar - "input/selectbox'lar agresif, yazarken siliniyor" tipi
+// sorunlarin KOKUNDEN onlenmesi icin genel bir kilit (tek tek her alana
+// :focus kontrolu eklemek yerine, hicbir yazma islemi arka plan
+// guncellemesiyle asla yarismasin diye tum renderUI() cagrilarini kapsar).
+function herhangiBirAlanaYaziliyorMu(){
+  const a = document.activeElement;
+  if(!a) return false;
+  const t = a.tagName;
+  return t==='INPUT' || t==='SELECT' || t==='TEXTAREA';
+}
 function connectSSE(){
   if(_es) return;
   _es = new EventSource('/events');
   _es.onmessage = function(e){
+    if(herhangiBirAlanaYaziliyorMu()) return;
     try{ renderUI(JSON.parse(e.data)); }catch(err){}
   };
   _es.onerror = function(){
