@@ -15,6 +15,7 @@
 #include <Update.h>
 #include <Preferences.h>
 #include <esp_system.h>
+#include <ModbusMaster.h>
 
 // NOT: IRremote.hpp kendi ic basliklarinda DEBUG_PRINT/DEBUG_PRINTLN adinda
 // makrolar tanimlayip config.h'daki (asagida include edilen) bizim
@@ -328,10 +329,20 @@ struct AlarmStatus {
   uint8_t trigger_mask = 0; // Alarmi tetikleyen sensor(ler) - bitmask, ESP8266 ile ayni kodlama
 };
 
+// MPPT sarj kontrolcusunden (ikinci/ayri RS485+Modbus hatti) okunan aku
+// voltaji - bkz config.h "MPPT (Modbus RTU) Ayarlari" (register/olcek
+// FAZ 1'de dogrulanana kadar TAHMINI).
+struct MpptData {
+  float battery_voltage = 0.0;
+  bool read_ok = false;
+  unsigned long last_update_ms = 0;
+};
+
 // Global Veri
 SensorData sensorData;
 NanoIOStatus nanoStatus;
 AlarmStatus alarmStatus;
+MpptData mpptData;
 String esp8266_id = "UNKNOWN";
 String nano_id = "UNKNOWN";
 
@@ -1065,6 +1076,59 @@ void rs485_poll() {
       }
       break;
   }
+}
+
+// ============================================================
+// MPPT UART2 (Modbus RTU) - AKU VOLTAJI OKUMA
+// ============================================================
+// FAZ 1 (bring-up): sadece Serial Monitor'a loglar, hicbir kesme/UI
+// entegrasyonu YOK - register/olcek dogrulanana kadar (bkz config.h
+// MPPT_REG_BATTERY_VOLTAGE yanindaki UYARI) hicbir aksiyon bu degere
+// bagli olmamali.
+//
+// Mevcut ESP8266 RS485 hattindan (Serial1/UART1, RS485Kilit mutex'i)
+// TAMAMEN AYRI bir bus - ikinci bir MAX485 modulu, UART2 uzerinden.
+// BLE gorevi bu hatta hic dokunmadigindan mutex'e ihtiyac YOK.
+HardwareSerial MpptSerial(MPPT_UART_NUM);
+ModbusMaster mpptNode;
+
+void mpptPreTransmission() {
+  digitalWrite(MPPT_RS485_DE_PIN, HIGH);
+}
+void mpptPostTransmission() {
+  digitalWrite(MPPT_RS485_DE_PIN, LOW);
+}
+
+void mppt_init() {
+  MpptSerial.begin(MPPT_BAUDRATE, SERIAL_8N1, MPPT_RS485_RX_PIN, MPPT_RS485_TX_PIN);
+  pinMode(MPPT_RS485_DE_PIN, OUTPUT);
+  digitalWrite(MPPT_RS485_DE_PIN, LOW);
+  mpptNode.begin(MPPT_SLAVE_ID, MpptSerial);
+  mpptNode.preTransmission(mpptPreTransmission);
+  mpptNode.postTransmission(mpptPostTransmission);
+  DEBUG_PRINTLN("[MPPT] UART2 Modbus RTU hazir (FAZ 1 - sadece loglama)");
+}
+
+void mpptPoll() {
+  static unsigned long lastPoll = 0;
+  if (millis() - lastPoll < MPPT_POLL_INTERVAL_MS) return;
+  lastPoll = millis();
+
+  uint8_t sonuc = mpptNode.readInputRegisters(MPPT_REG_BATTERY_VOLTAGE, 1);
+  if (sonuc == mpptNode.ku8MBSuccess) {
+    uint16_t ham = mpptNode.getResponseBuffer(0);
+    mpptData.battery_voltage = ham * MPPT_REG_BATTERY_VOLTAGE_SCALE;
+    mpptData.read_ok = true;
+    mpptData.last_update_ms = millis();
+  } else {
+    mpptData.read_ok = false;
+    DEBUG_PRINT("[MPPT] Modbus okuma hatasi, kod=0x");
+    DEBUG_PRINTLN(String(sonuc, HEX));
+  }
+  DEBUG_PRINT("[MPPT] V=");
+  DEBUG_PRINT(String(mpptData.battery_voltage, 2));
+  DEBUG_PRINT(" ok=");
+  DEBUG_PRINTLN(mpptData.read_ok ? "1" : "0");
 }
 
 // ============================================================
@@ -3515,6 +3579,7 @@ void setup() {
   
   // RS485 Initialize
   rs485_init();
+  mppt_init();
 
   // SPIFFS - kayit yedekleme icin (bkz esp8266KayitYedekle/GeriYukle)
   if (!SPIFFS.begin(true)) {
@@ -3599,6 +3664,9 @@ void loop() {
 
   // RS485 Polling
   rs485_poll();
+
+  // MPPT (ayri bus/UART2) - FAZ 1: sadece loglama, bkz mppt bolumu
+  mpptPoll();
 
   // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
   konteynerSensorleriOku();

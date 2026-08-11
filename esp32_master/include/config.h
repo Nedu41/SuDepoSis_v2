@@ -70,15 +70,38 @@
 #define RS485_DE_PIN 39      // GPIO39 - MAX485 DE/RE (Verici Enable)
 #define RS485_UART_NUM 1     // UART1
 
+// ===== MPPT (Modbus RTU) Ayarlari - "victor NML 3200-24" sarj kontrolcu =====
+// UYARI: Asagidaki register adresi/olcek DOGRULANMAMIS - cihazin gercek
+// modeli/protokolu netlesmedigi icin EPEVER Tracer-klonu cihazlarda yaygin
+// olan tipik bir Modbus haritasi TAHMIN olarak kondu. Faz 1'de Serial
+// Monitor'daki [MPPT] logundaki voltaj degeri gercek bir multimetre
+// olcumuyle karsilastirilip DOGRULANMADAN gercek deger olarak GUVENME.
+// Yanlissa SADECE bu blok duzeltilir, baska hicbir yeri degistirmeye
+// gerek yok (mpptPoll() vs. bu define'lari kullanir, register/olcegi
+// hardcode etmez).
+// Mevcut ESP8266 RS485 hattindan (UART1, GPIO37/38/39) TAMAMEN AYRI bir
+// bus/protokol - ayni hatta baglanamaz, ikinci bir MAX485 modulu gerekir.
+#define MPPT_RS485_RX_PIN 10    // GPIO10 - ikinci MAX485 RO -> ESP32 RX (UART2)
+#define MPPT_RS485_TX_PIN 11    // GPIO11 - ikinci MAX485 DI <- ESP32 TX (UART2)
+#define MPPT_RS485_DE_PIN 12    // GPIO12 - ikinci MAX485 DE/RE
+#define MPPT_UART_NUM 2         // UART2
+#define MPPT_BAUDRATE 9600      // DOGRULA - cihazin kendi ayari farkli olabilir
+#define MPPT_SLAVE_ID 1         // DOGRULA - Modbus slave adresi
+#define MPPT_REG_BATTERY_VOLTAGE 0x331A       // DOGRULA - aku voltaji register adresi
+#define MPPT_REG_BATTERY_VOLTAGE_SCALE 0.01f  // DOGRULA - ham_deger * olcek = Volt
+#define MPPT_POLL_INTERVAL_MS 5000
+#define MPPT_STALE_MS 15000
+
 // ===== Konteyner Donanimi (IR alici, alarm LED, PIR) =====
 // ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti
 // eklerken cakisma olmasin diye:
-//   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485)
+//   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485 - ESP8266'ya)
 //                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
+//                  GPIO10, GPIO11, GPIO12 (yukarida - MPPT Modbus RS485, ikinci MAX485)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO2, 10-15, 16, 17, 18, 21, 33, 34, 36, 40, 41, 42, 47, 48
+//   SERBEST (gelecekteki eklentiler icin): GPIO2, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 40, 41, 42, 47, 48
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
