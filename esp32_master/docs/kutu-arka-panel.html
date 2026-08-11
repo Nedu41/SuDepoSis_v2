@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalburum Kutusu — Arka Panel Bağlantı Kılavuzu</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; color:#1e293b; }
+  h1 { color: #1976d2; }
+  h2 { color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  .section { margin-bottom: 34px; }
+  .warn { background:#fef3e2; border:1px solid #fbbf24; color:#92400e; border-radius:8px; padding:10px 14px; margin:12px 0; font-size:14px; }
+  .todo { background:#f3f4f6; border:1px dashed #9ca3af; color:#4b5563; border-radius:8px; padding:8px 12px; margin:8px 0; font-size:13px; }
+  .swatch { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:6px; vertical-align:middle; border:1px solid rgba(0,0,0,.25); }
+  svg { max-width:100%; height:auto; display:block; margin: 12px auto; }
+  code { background:#f0f0f0; padding:1px 4px; border-radius:3px; }
+  @media print {
+    body { margin: 0; }
+    .no-print { display: none; }
+    table, .section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<h1>Kalburum Kutusu — Arka Panel Bağlantı Kılavuzu</h1>
+<p class="no-print">Yazdırmak/PDF olarak kaydetmek için tarayıcınızın yazdırma (Ctrl+P → "PDF olarak kaydet") özelliğini kullanabilirsiniz.</p>
+<p>ESP32-S3 ("Kalburum") bir <b>Dream DM500S</b> uydu alıcısı gövdesine monte edildi — arka paneldeki orijinal RJ45 ve diğer tüm soketler pertinax (izole plaka) üzerinde ayrılıp kendi amacına uyarlandı. Bu sayfa kutunun arka panelindeki tüm bağlantı noktalarını listeler.</p>
+
+<div class="section">
+  <h2>1. RJ45 — RS485</h2>
+  <p>ESP32↔ESP8266 RS485 hattı için. Pin ataması ve kablolama detayları için:
+  <a href="pinout.html">docs/pinout.html</a> (genel pinout) ve
+  <a href="mppt-baglanti-kilavuzu.html">docs/mppt-baglanti-kilavuzu.html</a> (MPPT için ikinci RS485 hattı, kutu içinde ayrı bir MAX485 modülü — GPIO40/41/42).</p>
+</div>
+
+<div class="section">
+  <h2>2. DC 5V Güç Girişi</h2>
+  <div class="warn"><b>⚠️ UYARI:</b> 5V'un üzerinde gerilim uygulanırsa cihaz yanar. Bu girişten sadece 5V DC verilmeli.</div>
+  <p>Bu giriş hem ESP32-S3'ün 5V hattını hem kutu içindeki diğer sensörleri (PIR, reed switch vb.) besler. Güç yetersiz kalırsa (örn. röle/siren gibi ek yükler eklenirse) ayrı bir destek/yardımcı besleme kaynağı eklenebilir — aynı DC hattına paralel, ortak GND ile.</p>
+</div>
+
+<div class="section">
+  <h2>3. SCART — Alarm Çıkışları (yeniden amaçlandırılmış)</h2>
+  <p>Orijinal SCART soketi görüntü/ses için değil, Konteyner alarm çıkışlarını dışarı taşımak için kullanılıyor. Şu ana kadar tanımlanan pinler:</p>
+  <table>
+    <tr><th>Pin</th><th>Fonksiyon</th><th>Kablo Rengi</th></tr>
+    <tr><td>2</td><td>Alarm Lambası</td><td><span class="swatch" style="background:linear-gradient(90deg,#6b4423 50%,#fff 50%);border-color:#6b4423"></span>Kahve - Beyaz</td></tr>
+    <tr><td>4</td><td>GND</td><td><span class="swatch" style="background:linear-gradient(90deg,#16a34a 50%,#fff 50%);border-color:#16a34a"></span>Yeşil - Beyaz</td></tr>
+    <tr><td>6</td><td>Alarm Sireni</td><td><span class="swatch" style="background:linear-gradient(90deg,#eab308 50%,#fff 50%);border-color:#eab308"></span>Sarı - Beyaz</td></tr>
+    <tr><td>1, 3, 5, 7-20</td><td colspan="2">Boş / yedek — daha sonra tanımlanacak</td></tr>
+  </table>
+
+  <figure style="margin:0">
+    <svg viewBox="0 0 400 280" role="img" aria-label="SCART konnektör pin şeması, 21 pin - 2 numaralı pin Alarm Lambası (kahve-beyaz kablo), 4 numaralı pin GND (yeşil-beyaz kablo), 6 numaralı pin Alarm Sireni (sarı-beyaz kablo), diğer pinler boş/yedek">
+      <g fill="none" stroke="currentColor" stroke-width="1.5" font-family="Arial, sans-serif">
+        <path d="M 155 20 L 245 20 L 245 240 L 220 260 L 180 260 L 155 240 Z" opacity="0.6"/>
+        <!-- left column pins (odd, top to bottom: 19,17,15,13,11,9,7,5,3,1) -->
+        <g font-size="11" stroke="none" fill="currentColor">
+          <text x="145" y="42" text-anchor="end">19 — boş</text>
+          <text x="145" y="64" text-anchor="end">17 — boş</text>
+          <text x="145" y="86" text-anchor="end">15 — boş</text>
+          <text x="145" y="108" text-anchor="end">13 — boş</text>
+          <text x="145" y="130" text-anchor="end">11 — boş</text>
+          <text x="145" y="152" text-anchor="end">9 — boş</text>
+          <text x="145" y="174" text-anchor="end">7 — boş</text>
+          <text x="145" y="196" text-anchor="end" font-weight="700">5 — boş</text>
+          <text x="145" y="218" text-anchor="end">3 — boş</text>
+          <text x="145" y="240" text-anchor="end">1 — boş</text>
+        </g>
+        <!-- right column pins (even, top to bottom: 20,18,16,14,12,10,8,6,4,2) -->
+        <g font-size="11" stroke="none" fill="currentColor">
+          <text x="255" y="42">20 — boş</text>
+          <text x="255" y="64">18 — boş</text>
+          <text x="255" y="86">16 — boş</text>
+          <text x="255" y="108">14 — boş</text>
+          <text x="255" y="130">12 — boş</text>
+          <text x="255" y="152">10 — boş</text>
+          <text x="255" y="174">8 — boş</text>
+          <text x="255" y="196" font-weight="700">6 — Alarm Sireni (sarı-beyaz)</text>
+          <text x="255" y="218" font-weight="700">4 — GND (yeşil-beyaz)</text>
+          <text x="255" y="240" font-weight="700">2 — Alarm Lambası (kahve-beyaz)</text>
+        </g>
+        <!-- pin marks -->
+        <g stroke="currentColor" stroke-width="3">
+          <line x1="150" y1="38" x2="163" y2="38"/><line x1="150" y1="60" x2="163" y2="60"/>
+          <line x1="150" y1="82" x2="163" y2="82"/><line x1="150" y1="104" x2="163" y2="104"/>
+          <line x1="150" y1="126" x2="163" y2="126"/><line x1="150" y1="148" x2="163" y2="148"/>
+          <line x1="150" y1="170" x2="163" y2="170"/><line x1="150" y1="192" x2="163" y2="192"/>
+          <line x1="150" y1="214" x2="163" y2="214"/><line x1="150" y1="236" x2="163" y2="236"/>
+          <line x1="237" y1="38" x2="250" y2="38"/><line x1="237" y1="60" x2="250" y2="60"/>
+          <line x1="237" y1="82" x2="250" y2="82"/><line x1="237" y1="104" x2="250" y2="104"/>
+          <line x1="237" y1="126" x2="250" y2="126"/><line x1="237" y1="148" x2="250" y2="148"/>
+          <line x1="237" y1="170" x2="250" y2="170"/>
+          <line x1="237" y1="192" x2="250" y2="192" stroke="#b45309" stroke-width="4"/>
+          <line x1="237" y1="214" x2="250" y2="214" stroke="#16a34a" stroke-width="4"/>
+          <line x1="237" y1="236" x2="250" y2="236" stroke="#6b4423" stroke-width="4"/>
+        </g>
+      </g>
+    </svg>
+    <p class="no-print" style="text-align:center;color:#64748b;font-size:12px">Standart SCART pin numaralandırması (sol sütun tek, sağ sütun çift) — sadece 2/4/6 tanımlı, kalanı yedek.</p>
+  </figure>
+  <div class="todo">📝 Not: 1, 3, 5, 7-20 numaralı pinler şu an boş/yedek — kullanıcı ileride tanımlayacak.</div>
+</div>
+
+<div class="section">
+  <h2>4. RCA (Phono) Girişleri — 3 adet</h2>
+  <table>
+    <tr><th>Renk</th><th>Fonksiyon</th><th>Not</th></tr>
+    <tr><td><span class="swatch" style="background:#dc2626"></span>Kırmızı</td><td>PIR sensör</td><td>Konteyner PIR2 (GPIO6)</td></tr>
+    <tr><td><span class="swatch" style="background:#f8fafc"></span>Beyaz</td><td>Reed switch (kapı)</td><td>Konteyner kapı reed (GPIO7)</td></tr>
+    <tr><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>Boş / yedek</td><td>Kart üzerindeki 13'lü soketin <b>9. pinine</b> bağlı ama henüz ESP'ye bağlı değil — ileride bir ESP pini atanacak</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>5. DB9 Seri Port</h2>
+  <p>Boşta — henüz bir işleve atanmadı.</p>
+</div>
+
+<div class="section">
+  <h2>Gövde Notu</h2>
+  <p>Kutu, bir <b>Dream DM500S</b> uydu alıcısının gövdesi yeniden kullanılarak hazırlandı. Orijinal arka panel soketleri (RJ45, SCART, RCA'lar, DB9 vb.) sökülmeden <b>pertinax</b> (izole plaka) üzerinde elektriksel olarak ayrılıp bu projeye uyarlandı — orijinal cihazla hiçbir elektriksel bağlantısı kalmadı, sadece gövde/soket olarak yeniden kullanılıyor.</p>
+</div>
+
+<footer style="color:#64748b;font-size:12px;text-align:center;margin-top:30px">Kalburum / SuDepoSis v2 — ESP8266 (Sudepo) tarafının kendi kutu dokümantasyonu ayrıca hazırlanacak.</footer>
+</body>
+</html>

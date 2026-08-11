@@ -105,4 +105,6 @@ bilinçli olarak burada tutulur, `esp8266_slave` hafif kalsın diye (bkz. proje 
 | 9 | Konteyner lamba rölesi |
 
 Tam pinout (kablaj, modül notları) için [docs/pinout.html](docs/pinout.html); MPPT şarj kontrolcü
-bağlantısı için adım adım görsel kılavuz: [docs/mppt-baglanti-kilavuzu.html](docs/mppt-baglanti-kilavuzu.html).
+bağlantısı için adım adım görsel kılavuz: [docs/mppt-baglanti-kilavuzu.html](docs/mppt-baglanti-kilavuzu.html);
+kutunun (Dream DM500S gövdesi) arka panel bağlantıları (RJ45/DC güç/SCART/RCA/DB9) için:
+[docs/kutu-arka-panel.html](docs/kutu-arka-panel.html).
