@@ -70,47 +70,127 @@
 #define RS485_DE_PIN 39      // GPIO39 - MAX485 DE/RE (Verici Enable)
 #define RS485_UART_NUM 1     // UART1
 
-// ===== MPPT (Modbus RTU) Ayarlari - "victor NML 3200-24" sarj kontrolcu =====
-// UYARI: Asagidaki register adresi/olcek DOGRULANMAMIS - cihazin gercek
-// modeli/protokolu netlesmedigi icin EPEVER Tracer-klonu cihazlarda yaygin
-// olan tipik bir Modbus haritasi TAHMIN olarak kondu. Faz 1'de Serial
-// Monitor'daki [MPPT] logundaki voltaj degeri gercek bir multimetre
-// olcumuyle karsilastirilip DOGRULANMADAN gercek deger olarak GUVENME.
-// Yanlissa SADECE bu blok duzeltilir, baska hicbir yeri degistirmeye
-// gerek yok (mpptPoll() vs. bu define'lari kullanir, register/olcegi
-// hardcode etmez).
-// Mevcut ESP8266 RS485 hattindan (UART1, GPIO37/38/39) TAMAMEN AYRI bir
-// bus/protokol - ayni hatta baglanamaz, ikinci bir MAX485 modulu gerekir.
-// NOT: Ilk secim GPIO10/11/12'ydi ama ESP32-S3-DevKitC-1'in standart pin
-// diziliminde bunlar kartin SOL sutununda, RS485 (37/38/39) ise SAG
-// sutununda kaliyor - ikinci MAX485 modulunu ilkinin yanina fiziksel
-// olarak monte edebilmek icin GPIO40/41/42'ye tasindi (39'un hemen
-// yaninda, ayni sag sutun) - kullanicinin tercihi.
-#define MPPT_RS485_RX_PIN 40    // GPIO40 - ikinci MAX485 RO -> ESP32 RX (UART2)
-#define MPPT_RS485_TX_PIN 41    // GPIO41 - ikinci MAX485 DI <- ESP32 TX (UART2)
-#define MPPT_RS485_DE_PIN 42    // GPIO42 - ikinci MAX485 DE/RE
+// ===== MPPT (RS232 / PI30-Voltronic protokolu) Ayarlari - "victor NML 3200-24" =====
+// Sahada olculdu (2026-08): Bu cihazin RJ45 "COM" portu RS485 DEGIL, RS-232 -
+// datasheet "Iletisim Arayuzu: RS232/WIFI" diyor, kullanici klonunun kutu
+// icindeki serigrafisi de 12 numarali portu "RS-232 communication port" olarak
+// isaretliyor. Menu kisaltmalari (USB/SBU/SUB cikis onceligi, AGM/FLD/LIB
+// batarya tipi) Voltronic/Axpert ailesiyle birebir eslesiyor - protokol PI30
+// (ASCII komut-cevap + CRC16), Modbus RTU DEGIL. Onceki Modbus/register
+// yaklasimi bu yuzden TAMAMEN degistirildi - A/B/Modbus register'i YOK.
+// Kaynak: "Axpert MKS II&MKS III&MKS IV RS232 Protocol" (Voltronic resmi
+// dokumani, bkz sudepo/05 belgeler/ altindaki datasheet'ler).
+//
+// Servisten alinan resmi CN1 ("RS232.WIFI") sema fotosuyla DOGRULANDI
+// (2026-08-14, bkz sudepo/ altindaki WhatsApp fotolari) - RJ45 pin haritasi
+// (T568B renk sirasi, pin1=turuncu-beyaz):
+//   pin1 turuncu-beyaz = RXD (WiFi modulunun kendi RX'i - yani inverter
+//                         mainboard'unun TX ciktisi, bize gore MPPT->ESP32)
+//   pin2 turuncu       = TXD (WiFi modulunun kendi TX'i - mainboard'un RX
+//                         girisi, bize gore ESP32->MPPT)
+//   pin3,5,6,7         = NG (kullanilmiyor)
+//   pin4 mavi          = +12V VCC - BAGLAMA, WiFi modulune guc icin,
+//                         MAX3232/ESP32'ye baglanirsa yakabilir.
+//   pin8 kahverengi    = GND
+// NOT: 2026-08-13 sahada yapilan ilk multimetre olcumu (GND=pin1,
+// +13V=pin8) bu resmi semayla TERS cikti - ev yapimi RJ45 breakout'ta pin
+// sayma yonu (klips yukari/asagi) karismis olmali. Resmi sema (servisten,
+// bu porta ozel CN1 etiketli) esas alindi; sahada kablolarken RJ45'i T568B
+// standardina gore (klips SIZE dogru, pin1 SOLDA) sayarak dogrulayin.
+//
+// Donanim: RS485/MAX485 modulu bu hat icin GECERSIZ - RS232-TTL cevirici
+// (MAX3232/HW-390 gibi) gerekir, DE/RE (yon) pini yok (RS232 full-duplex).
+// GPIO40/41/42'deki eski MAX485 modulu SOKULDU (2026-08-14) - MAX3232
+// kullanicinin tercihiyle bu pinlere (40/41) tasindi, GPIO42 hala serbest
+// (RS232'de DE/RE yok, ihtiyac yok).
+// ONEMLI: MAX3232 modullerinin TTL tarafi silkscreen'de "TX"/"RX" diye
+// etiketlenir ama bu etiketler URETICIYE GORE DEGISIR (bazilari "cipin
+// kendi TX/RX'i", bazilari "MCU'ya gore TX/RX" anlaminda kullanir) - bu
+// yuzden BURADA VE TUM DOKUMANLARDA cipin kendi (belirsizlik olmayan)
+// datasheet pin adlari kullanilir:
+//   R1OUT = TTL cikis (RS232'den alinan veri buradan CIKAR)  -> ESP32 RX
+//   T1IN  = TTL giris (ESP32'nin gonderecegi veri buraya GIRER) <- ESP32 TX
+// Modulunuzdeki etiket ne yaziyorsa yazsin, ISLEVE gore baglayin.
+#define MPPT_UART_RX_PIN 40     // GPIO40 - MAX3232 R1OUT -> ESP32 RX (UART2)
+#define MPPT_UART_TX_PIN 41     // GPIO41 - ESP32 TX -> MAX3232 T1IN (UART2)
 #define MPPT_UART_NUM 2         // UART2
-#define MPPT_BAUDRATE 9600      // DOGRULA - cihazin kendi ayari farkli olabilir
-#define MPPT_SLAVE_ID 1         // DOGRULA - Modbus slave adresi
-// Register bloklari - EPEVER B-series/Tracer "real-time data" haritasindan
-// (yaygin dokumante edilmis, aggsoft/ESPHome/Home Assistant entegrasyonlarinda
-// da ayni adresler kullanilir - onceki 0x331A tahmininden daha guvenilir
-// bir kaynak). 0x3100-0x310F ARALIKSIZ TEK OKUMAYLA (16 register) alinir.
-#define MPPT_REG_BLOCK_START 0x3100
-#define MPPT_REG_BLOCK_COUNT 16
-#define MPPT_REG_OFS_PV_VOLTAGE 0        // 0x3100, x0.01V
-#define MPPT_REG_OFS_PV_CURRENT 1        // 0x3101, x0.01A
-#define MPPT_REG_OFS_PV_POWER_L 2        // 0x3102 (32-bit L, x0.01W)
-#define MPPT_REG_OFS_PV_POWER_H 3        // 0x3103 (32-bit H)
-#define MPPT_REG_OFS_BATTERY_VOLTAGE 4   // 0x3104 "sarj cikis voltaji" = pratikte aku voltaji, x0.01V
-#define MPPT_REG_OFS_LOAD_VOLTAGE 12     // 0x310C, x0.01V
-#define MPPT_REG_OFS_LOAD_CURRENT 13     // 0x310D, x0.01A
-#define MPPT_REG_OFS_LOAD_POWER_L 14     // 0x310E (32-bit L, x0.01W)
-#define MPPT_REG_OFS_LOAD_POWER_H 15     // 0x310F (32-bit H)
-#define MPPT_REG_BATTERY_SOC 0x311A      // Aku doluluk yuzdesi (%), MPPT'nin kendi tahmini
-#define MPPT_REG_SCALE 0.01f             // DOGRULA - ham_deger * olcek = Volt/Amper/Watt
+#define MPPT_BAUDRATE 2400      // PI30 protokolu sabit: 2400 8N1
 #define MPPT_POLL_INTERVAL_MS 5000
 #define MPPT_STALE_MS 15000
+// QPIGS cevabi ~117 byte - 2400 baud'da SADECE aktarimi ~490ms suruyor
+// (117*10bit/2400baud). Eski deger (500ms) bu yuzden sinirda kaliyordu,
+// en ufak gecikmede QPIGS zaman asimina ugruyordu (QMOD/QPIWS kisa
+// olduklari icin sorun cikarmiyordu - sahada 2026-08-14 fake_mppt.py
+// testiyle tespit edildi). Rahat bir pay icin buyutuldu.
+#define MPPT_RESPONSE_TIMEOUT_MS 1200
+
+// ===== Yedek Aku (ADC voltaj izleme + gunduz-only sarj kontrolu) =====
+// 3x 12V 20Ah kullanilmis ("cikma eski") scooter akusu, HEPSI PARALEL
+// baglanarak tek bir 12V ~60Ah yedek banka olusturur (3'u ayni anda sarj
+// edilebilsin diye seri degil paralel - kullanicinin tercihi). Bu banka
+// SADECE dusuk guclu alarm elektroniginin (ESP32 + role mantigi) 5V
+// hattina, TEK YONLU bir guc diyotu (diyot-OR) uzerinden yedek olarak
+// baglanir - ana 24V hatta veya sulama pompasina DEGIL (kapasite/saglik
+// bilinmedigi icin bilincli olarak dar tutuldu). Diyot yonu: yedek aku
+// SADECE 5V hattı sarktiginda devreye girer, o hattan asla akim CEKMEZ.
+//
+// SARJ (aktif, sistem kontrollu): Ana 24V hattan bir role/MOSFET
+// uzerinden bu 12V bankaya sarj yapilir, YEDEK_AKU_SARJ_PIN ile ESP32
+// tarafindan acilir/kapatilir. Gunduz/gunes var mi sorusu, RS232/PI30
+// uzerinden zaten okunan mpptData.pv_power kullanilarak cevaplanir - ayri
+// bir RTC/saat mantigina GEREK YOK. PV uretim esiğinin ALTINDAYSA (gece
+// veya bulutlu/karanlik) role KAPALI kalir ki ana batarya geceleri bu
+// yuzden ekstra tuketilmesin. MPPT verisi bayat/okunamiyorsa FAIL-SAFE:
+// role KAPALI kalir (sarj etmemek, gunes olup olmadigini bilmeden ana
+// bataryayi riske atmaktan daha guvenli).
+//
+// 12V (gercekte sarj sirasinda ~10.5-15V araligi) hat, dirençli bir
+// gerilim bolucu ile ESP32 ADC'nin 0-3.3V araligina indirilir. Ornek oran
+// (~1/4.7, 1% toleransli dirençlerle): R1(ust)=100kOhm, R2(alt)=27kOhm ->
+// 15V girişte ADC ucunda ~3.2V (guvenli marj). YEDEK_AKU_ADC_OLCEK gercek
+// dirençlere ve sahada multimetreyle yapilan kalibrasyona gore DOGRULA/duzelt.
+#define YEDEK_AKU_ADC_PIN 2         // GPIO2 - ADC1 kanali (ADC2 WiFi aktifken guvenilmez)
+#define YEDEK_AKU_ADC_OLCEK 4.70f   // (R1+R2)/R2 = (100+27)/27, teorik bolucu orani
+// Sahada multimetreyle 3 noktada (3.625/5.115/12.18 V) kalibre edildi.
+// Sabit ofset cikarma orta/ust bolgeyi bozdugundan (ilk denemede) terk
+// edildi - saf kazanc carpani 3 noktaya cok daha iyi oturuyor (force-origin
+// en kucuk kareler fit). Bosta ~0.2V ADC tabani icin ayri olu-bolge esigi
+// kullaniliyor (asagida), boylece gercek okumalar bozulmuyor.
+#define YEDEK_AKU_KALIBRASYON_KAZANC 1.097f
+#define YEDEK_AKU_OLU_BOLGE_V 0.3f  // Bu ham voltajin altinda 0V goster (ADC bosta tabani)
+#define YEDEK_AKU_POLL_INTERVAL_MS 5000
+#define YEDEK_AKU_DOLU_V 12.8f      // Bu voltajin ustu: "Dolu" (12V kursun-asit, dinlenme voltaji)
+#define YEDEK_AKU_ZAYIF_V 11.5f     // Bu voltajin altı: "Zayif" (sarj/degisim gerekir, derin desarjdan kacinilir)
+// GPIO10 (ADC1 kanal 9) MQ3 icin acilmasi gerektiginden sarj rolesi GPIO21'e
+// tasindi (dijital cikis, ADC ihtiyaci yok) - bkz asagidaki "Konteyner Ek
+// Sensorler" bloğu.
+#define YEDEK_AKU_SARJ_PIN 21       // GPIO21 - sarj rolesi/MOSFET tetikleme cikisi
+#define YEDEK_AKU_SARJ_PV_ESIK_W 30.0f // Bu PV gucunun ustu "gunduz/gunes var" sayilir, sarj rolesi acilir
+
+// ===== Konteyner Ek Sensorler (AHT10 + MQ3 + Alev) =====
+// AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
+// yerine elle CRC16, IRremote yerine ham kenar yakalama gibi) Wire.h ile elle
+// yazilir: tetikle (0xAC 0x33 0x00), 80ms bekle, 6 byte oku, 20-bit ham
+// sicaklik/nem hesapla. Konteyner'e OZEL yeni alanlar (sensorData.temperature
+// ESP8266'dan gelen, hep 0.0 gonderilen bir yer tutucu - KARISTIRILMAZ,
+// dokunulmaz).
+#define AHT10_SDA_PIN 11
+#define AHT10_SCL_PIN 12
+#define AHT10_I2C_ADDR 0x38
+#define AHT10_POLL_INTERVAL_MS 5000
+
+// MQ3 (gaz sensoru, kullanicida zaten var) - SADECE bilgi/gosterge amacli,
+// hicbir alarm/esik kararina BAGLANMAZ (kullanicinin acik istegi - "onemli
+// degil"). ADC1 kanali (ADC2 WiFi aktifken guvenilmez).
+#define MQ3_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
+#define MQ3_POLL_INTERVAL_MS 5000
+
+// Basit IR alev sensoru - cogu modul ALEV VARKEN LOW cikis verir (aktif-LOW),
+// INPUT_PULLUP ile okunur. Mevcut Swan PIR deseniyle (konteynerSwanEtkin/
+// swanPirVar) birebir ayni sekilde alarm/telegram'a baglanir - panik gibi
+// anlik/moddan-bagimsiz DEGIL, kendi Etkin anahtarina tabi.
+#define ALEV_PIN 14
+#define ALEV_AKTIF_LOW true         // DOGRULA - modul tipine gore degisebilir
 
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
@@ -124,12 +204,19 @@
 // eklerken cakisma olmasin diye:
 //   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485 - ESP8266'ya)
 //                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
-//                  GPIO40, GPIO41, GPIO42 (yukarida - MPPT Modbus RS485, ikinci MAX485 -
-//                    RS485 (37/38/39) ile AYNI sag sutunda, fiziksel montaj kolayligi icin)
+//                  GPIO40, GPIO41 (yukarida - MPPT RS232/PI30, MAX3232 - eski
+//                    MAX485'in yerinde, 2026-08-14'te sokulup buraya tasindi)
+//                  GPIO2 (yukarida - Yedek Aku ADC voltaj bolucu girisi, ADC1 kanali)
+//                  GPIO21 (yukarida - Yedek Aku sarj rolesi/MOSFET cikisi)
+//                  GPIO11, GPIO12 (yukarida - AHT10 I2C SDA/SCL)
+//                  GPIO10 (yukarida - MQ3 analog giris, ADC1 kanali)
+//                  GPIO14 (yukarida - Alev sensoru dijital giris)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 47, 48
+//   SERBEST (gelecekteki eklentiler icin): GPIO16, 17, 18, 33, 34, 36, GPIO42
+//                  (GPIO40/41 artik MPPT/MAX3232'de kullaniliyor)
+//   GPIO13: Sari RCA'ya ayrildi (bkz SARI_RCA_PIN asagida) - henuz kullanilmiyor
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
@@ -148,6 +235,11 @@
 // ters cevirmeniz yeterli (reed switch'teki gibi tek satirlik duzeltme).
 #define KONTEYNER_SIREN_PIN 8   // GPIO8 - Alarm sireni rolesi (Sesli/Onayli+Sesli-onay'da aktif)
 #define KONTEYNER_LAMBA_PIN 9   // GPIO9 - Uyari lambasi/flasoru rolesi (siren ile birlikte VEYA Onayli+"Sessiz(Lamba)" onayinda tek basina aktif)
+// Sari RCA (arka panel, 13'lu soket pin 9) - henuz bos/yedek, ne icin
+// kullanilacagi VE input/output yonu belirlenince burada pinMode ile
+// birlikte tanimlanacak. GPIO13 strapping pin degil, JTAG (MTCK) disinda
+// serbest - hem input hem output icin sorunsuz kullanilabilir.
+#define SARI_RCA_PIN 13   // GPIO13 - Sari RCA (henuz kullanilmiyor)
 
 // NOT: ESP8266 status satiri (alarm mod/mute/pending alanlari eklendikten
 // sonra) ~270 karaktere ulasti. 9600 baud'da bu ~280ms surer - eski

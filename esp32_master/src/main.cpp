@@ -15,7 +15,7 @@
 #include <Update.h>
 #include <Preferences.h>
 #include <esp_system.h>
-#include <ModbusMaster.h>
+#include <Wire.h>
 
 #include "../include/config.h"
 
@@ -313,21 +313,64 @@ struct AlarmStatus {
   uint8_t trigger_mask = 0; // Alarmi tetikleyen sensor(ler) - bitmask, ESP8266 ile ayni kodlama
 };
 
-// MPPT sarj kontrolcusunden (ikinci/ayri RS485+Modbus hatti) okunan
-// elektriksel degerler - bkz config.h "MPPT (Modbus RTU) Ayarlari"
-// (register/olcek sahada dogrulanana kadar TAHMINI).
+// MPPT sarj kontrolcusunden (ikinci/ayri RS232+PI30 hatti) okunan
+// elektriksel degerler - bkz config.h "MPPT (RS232/PI30) Ayarlari". Ana
+// sayfada SADECE birkac alan (battery_voltage/load_current/load_power/
+// pv_voltage/pv_power/kalan_saat) gosterilir - geri kalani "Invertor"
+// sekmesinde (bkz web arayuzu) detay olarak sunulur.
 struct MpptData {
+  // Ana sayfada da gosterilen ozet alanlar
   float battery_voltage = 0.0;
   float pv_voltage = 0.0;
   float pv_current = 0.0;
-  float pv_power = 0.0;      // W - 32-bit register ciftinden (L+H) hesaplanir
+  float pv_power = 0.0;      // W - QPIGS "PV sarj gucu" alani
   float load_voltage = 0.0;
-  float load_current = 0.0;
+  float load_current = 0.0; // dogrudan alan yok, load_power/load_voltage'dan hesaplanir
   float load_power = 0.0;    // W
   int battery_soc = -1;      // % - MPPT'nin kendi tahmini, -1 = henuz okunmadi
   float kalan_saat = -1.0;   // Mevcut net tuketimle tahmini kalan sure, -1 = N/A (sarj oluyor/veri yok)
   bool read_ok = false;
   unsigned long last_update_ms = 0;
+
+  // Sadece "Invertor" sekmesinde gosterilen QPIGS detay alanlari
+  float grid_voltage = 0.0;
+  float grid_freq = 0.0;
+  float ac_out_freq = 0.0;
+  float apparent_power = 0.0; // VA
+  int load_percent = 0;       // %
+  float bus_voltage = 0.0;
+  float temperature_c = 0.0;  // invertor isi kanat sicakligi
+  float battery_charge_current = 0.0;    // aku sarj akimi (AC/SCC toplam)
+  float battery_discharge_current = 0.0; // aku desarj akimi
+  String status_bits = "";    // b7..b0 ham string (QPIGS field 16)
+  bool load_on = false;
+  bool charging_on = false;
+  bool scc_charging_on = false;
+  bool ac_charging_on = false;
+
+  // QMOD (calisma modu)
+  char mode_code = '?';
+  String mode_text = "Bilinmiyor";
+  bool mode_read_ok = false;
+
+  // QPIWS (36 bit uyari/ariza) - ham string + aktif olanlarin listesi
+  String warn_raw = "";
+  String warn_list = ""; // virgulle ayrilmis aktif uyari adlari, bos = uyari yok
+  bool warn_read_ok = false;
+
+  // QPIRI (anma degerleri/ayarlar) - yavas periyotta okunur, degisim az
+  float qpiri_batt_voltage = 0.0;
+  float qpiri_batt_recharge_v = 0.0;
+  float qpiri_batt_under_v = 0.0;
+  float qpiri_batt_bulk_v = 0.0;
+  float qpiri_batt_float_v = 0.0;
+  int qpiri_batt_type = -1;          // 0:AGM 1:Sulu 2:Kullanici
+  int qpiri_max_ac_charge_a = -1;
+  int qpiri_max_charge_a = -1;
+  int qpiri_out_source_priority = -1; // 0:Sebeke 1:Solar 2:SBU
+  int qpiri_charger_source_priority = -1; // 0:Sebeke 1:Solar 2:Solar+Sebeke 3:Sadece solar
+  bool qpiri_read_ok = false;
+  unsigned long qpiri_last_update_ms = 0;
 };
 
 // Global Veri
@@ -366,6 +409,7 @@ bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
 // (pir2HareketVar) gibi yazilim tutma/onay suresine ihtiyaci yok, kendi
 // donanimsal debounce/pet-immunity'si var; kapi gibi ANINDA eskale eder.
 bool swanPirVar = false;
+bool konteynerAlevVar = false; // Basit IR alev sensoru - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok
 bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
 bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
 unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an - 0 = HENUZ HIC true olmadi (sentinel, gercek bir zaman degil)
@@ -449,21 +493,25 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
 bool konteynerPirEtkin = true;
 bool konteynerKapiEtkin = true;
 bool konteynerSwanEtkin = true;
+bool konteynerAlevEtkin = true;
 void konteynerSensorAktifYukle() {
   ayarPrefs.begin("ayarlar", true);
   konteynerPirEtkin = ayarPrefs.getBool("k_pir_en", true);
   konteynerKapiEtkin = ayarPrefs.getBool("k_kapi_en", true);
   konteynerSwanEtkin = ayarPrefs.getBool("k_swan_en", true);
+  konteynerAlevEtkin = ayarPrefs.getBool("k_alev_en", true);
   ayarPrefs.end();
 }
-void konteynerSensorAktifKaydet(bool pirEtkin, bool kapiEtkin, bool swanEtkin) {
+void konteynerSensorAktifKaydet(bool pirEtkin, bool kapiEtkin, bool swanEtkin, bool alevEtkin) {
   konteynerPirEtkin = pirEtkin;
   konteynerKapiEtkin = kapiEtkin;
   konteynerSwanEtkin = swanEtkin;
+  konteynerAlevEtkin = alevEtkin;
   ayarPrefs.begin("ayarlar", false);
   ayarPrefs.putBool("k_pir_en", pirEtkin);
   ayarPrefs.putBool("k_kapi_en", kapiEtkin);
   ayarPrefs.putBool("k_swan_en", swanEtkin);
+  ayarPrefs.putBool("k_alev_en", alevEtkin);
   ayarPrefs.end();
 }
 
@@ -547,8 +595,9 @@ void konteynerDonanimiInit() {
   // Swan Quad PET PIR - reed switch ile ayni sekilde NC/COM kontak, kablolama
   // yonune gore ters gerekebilir (bkz SWAN_PIR_PIN yorumu, config.h).
   pinMode(SWAN_PIR_PIN, INPUT_PULLUP);
+  pinMode(ALEV_PIN, INPUT_PULLUP); // ALEV_AKTIF_LOW varsayimiyla (bkz config.h)
   irAliciBaslat(); // bkz asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumu
-  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR hazir");
+  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/Alev hazir");
 }
 
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
@@ -570,7 +619,7 @@ void alarmLedGuncelle() {
   // LED+buzzer, Telegram, banner) TUTARLI olarak enabled/mod'dan BAGIMSIZ -
   // "her seyin onunde calisir, elle ac/kapat anahtari gibi" davranisiyla
   // Konteyner siren+lambasini da dogrudan (Sesli gibi) tetikler.
-  bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar)));
+  bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerAlevEtkin && konteynerAlevVar)));
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
   // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
   // siren'i kessin, lamba yansin").
@@ -703,6 +752,8 @@ void konteynerSensorleriOku() {
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   bool swanOncekiDurum = swanPirVar;
   swanPirVar = (digitalRead(SWAN_PIR_PIN) == HIGH);
+  bool alevOncekiDurum = konteynerAlevVar;
+  konteynerAlevVar = ALEV_AKTIF_LOW ? (digitalRead(ALEV_PIN) == LOW) : (digitalRead(ALEV_PIN) == HIGH);
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
 
   // Devre disi birakilan sensorler HAM okumaya devam eder (tani/gosterge
@@ -712,14 +763,15 @@ void konteynerSensorleriOku() {
   // asagidaki reset kosulunu sonsuza kadar engellerdi).
   bool kapiEfektif = konteynerKapiEtkin && kapi2Acik;
   bool swanEfektif = konteynerSwanEtkin && swanPirVar;
+  bool alevEfektif = konteynerAlevEtkin && konteynerAlevVar;
 
-  // Kapi ve Swan PIR ANLIK/kesin tetikleyiciler (PIR2'deki gibi bir "onay
-  // suresi" beklemesi gerekmiyor - bkz PIR eskalasyon yorumu asagida) - bu
-  // yuzden Onayli modda yukselen kenarda DOGRUDAN onay beklemeye alinir.
+  // Kapi, Swan PIR ve Alev ANLIK/kesin tetikleyiciler (PIR2'deki gibi bir
+  // "onay suresi" beklemesi gerekmiyor - bkz PIR eskalasyon yorumu asagida) -
+  // bu yuzden Onayli modda yukselen kenarda DOGRUDAN onay beklemeye alinir.
   // ONCEDEN BUG (kapi icin): bu blok hic yoktu, sadece PIR'in kendi "bolum"
   // takibi konteynerOnayBekleniyor'u set ediyordu - PIR hic tetiklenmeden
   // sadece kapi acilirsa Onayli modda alarm sessizce hicbir sey yapmiyordu.
-  if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum)) && alarmStatus.mode == 3) {
+  if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum) || (alevEfektif && !alevOncekiDurum)) && alarmStatus.mode == 3) {
     konteynerOnayBekleniyor = true;
   }
 
@@ -919,7 +971,7 @@ const char* alarmTetikleyiciAdlari[6] = {"Sudepo: Sol Kapi", "Sudepo: Sag Kapi",
 // ESP32'nin yerel Konteyner sensorleri (PIR2 + kapi reed) - ESP8266
 // bitmask'ina karistirilmiyor (o mask ESP8266'nin kendi kodlamasi, ileride
 // cakisma riski olmasin diye ayri tutuluyor).
-String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false, bool konteynerKapi = false, bool konteynerSwan = false) {
+String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false, bool konteynerKapi = false, bool konteynerSwan = false, bool konteynerAlev = false) {
   if (panik) return "Panik (elle acildi)";
   String s = "";
   for (int i = 0; i < 6; i++) {
@@ -939,6 +991,10 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false,
   if (konteynerSwan) {
     if (s.length() > 0) s += ", ";
     s += "Konteyner: Swan PIR";
+  }
+  if (konteynerAlev) {
+    if (s.length() > 0) s += ", ";
+    s += "Konteyner: Alev/Duman";
   }
   return s.length() > 0 ? s : "Bilinmiyor";
 }
@@ -999,7 +1055,8 @@ void telegramAlarmKontrolEt() {
   bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
   bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && swanPirVar;
-  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar;
+  bool konteynerAlevTetik = konteynerAlarmEtkin && konteynerAlevEtkin && konteynerAlevVar;
+  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerAlevTetik;
   bool alarmVar = anyAlarm || alarmStatus.pending;
 
   if (!telegramBildirimAktif) {
@@ -1012,7 +1069,7 @@ void telegramAlarmKontrolEt() {
     // Yeni alarm basladi - mesaj hazirla, ilk denemeyi hemen yap.
     String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" :
                      (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
-    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar);
+    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerAlevTetik);
     telegramBekleyenVar = true;
     telegramIlkDenemeMs = millis();
   }
@@ -1396,33 +1453,86 @@ void rs485_poll() {
 }
 
 // ============================================================
-// MPPT UART2 (Modbus RTU) - AKU VOLTAJI OKUMA
+// MPPT UART2 (RS232 / PI30-Voltronic protokolu) - AKU/PV/YUK OKUMA
 // ============================================================
 // FAZ 1 (bring-up): sadece Serial Monitor'a loglar, hicbir kesme/UI
-// entegrasyonu YOK - register/olcek dogrulanana kadar (bkz config.h
-// MPPT_REG_BATTERY_VOLTAGE yanindaki UYARI) hicbir aksiyon bu degere
-// bagli olmamali.
+// entegrasyonu YOK - kablolama (TX/RX pinleri, bkz config.h) sahada
+// dogrulanana kadar hicbir aksiyon bu degere bagli olmamali.
 //
 // Mevcut ESP8266 RS485 hattindan (Serial1/UART1, RS485Kilit mutex'i)
-// TAMAMEN AYRI bir bus - ikinci bir MAX485 modulu, UART2 uzerinden.
-// BLE gorevi bu hatta hic dokunmadigindan mutex'e ihtiyac YOK.
+// TAMAMEN AYRI bir bus/protokol - RS232, MAX3232 (RS232-TTL) uzerinden
+// UART2. RS485 DEGIL, DE/RE yon pini YOK - full-duplex. BLE gorevi bu
+// hatta hic dokunmadigindan mutex'e ihtiyac YOK.
 HardwareSerial MpptSerial(MPPT_UART_NUM);
-ModbusMaster mpptNode;
 
-void mpptPreTransmission() {
-  digitalWrite(MPPT_RS485_DE_PIN, HIGH);
+// PI30 protokolunun resmi CRC16 hesaplama yontemi ("Axpert...RS232
+// Protocol" dokumaninin "4.1 CRC calibration method" eki - topluluk
+// implementasyonlarinda (mpp-solar vb.) da ayni tablo/algoritma kullanilir).
+// CRC ciktisinin herhangi bir byte'i '(' (0x28) veya <cr>/<lf> ile
+// cakisirsa +1 kaydirilir, boylece cevap ayirstirken CRC baytlari veri
+// govdesiyle karismaz.
+static const uint16_t MPPT_CRC_TABLE[16] = {
+    0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
+    0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef
+};
+
+uint16_t mpptCrc16(const uint8_t *data, size_t len) {
+  uint16_t crc = 0;
+  for (size_t i = 0; i < len; i++) {
+    uint8_t da = (uint8_t)(crc >> 8) >> 4;
+    crc <<= 4;
+    crc ^= MPPT_CRC_TABLE[da ^ (data[i] >> 4)];
+    da = (uint8_t)(crc >> 8) >> 4;
+    crc <<= 4;
+    crc ^= MPPT_CRC_TABLE[da ^ (data[i] & 0x0f)];
+  }
+  uint8_t low = crc & 0xff;
+  uint8_t high = (crc >> 8) & 0xff;
+  if (low == 0x28 || low == 0x0d || low == 0x0a) low++;
+  if (high == 0x28 || high == 0x0d || high == 0x0a) high++;
+  return ((uint16_t)high << 8) | low;
 }
-void mpptPostTransmission() {
-  digitalWrite(MPPT_RS485_DE_PIN, LOW);
+
+// "QPIGS" gibi bir PI30 komutunu CRC16 + <cr> ekleyip gonderir, cihazin
+// "(<veri><CRC><cr>" seklindeki cevabini okur. Basariliysa cevap govdesini
+// (basindaki '(' ve sondaki 2 CRC byte + <cr> cikarilmis halde) 'out'a
+// yazar ve true doner. Donanim/kablo henuz sahada dogrulanmadigi icin
+// zaman asimi MPPT_RESPONSE_TIMEOUT_MS ile sinirli - loop() bu fonksiyonu
+// hic cagirmaz, sadece ayri mpptTask() cagirir (bkz asagisi).
+bool mpptSendCommand(const char *cmd, String &out) {
+  size_t cmdLen = strlen(cmd);
+  uint16_t crc = mpptCrc16((const uint8_t *)cmd, cmdLen);
+  while (MpptSerial.available()) MpptSerial.read(); // eski/artik veriyi temizle
+
+  MpptSerial.write((const uint8_t *)cmd, cmdLen);
+  MpptSerial.write((uint8_t)(crc >> 8));
+  MpptSerial.write((uint8_t)(crc & 0xff));
+  MpptSerial.write('\r');
+  MpptSerial.flush();
+
+  String resp;
+  unsigned long start = millis();
+  bool gotCr = false;
+  while (millis() - start < MPPT_RESPONSE_TIMEOUT_MS && !gotCr) {
+    while (MpptSerial.available()) {
+      char c = (char)MpptSerial.read();
+      resp += c;
+      if (c == '\r') { gotCr = true; break; }
+    }
+  }
+
+  if (!gotCr || resp.length() < 4 || resp[0] != '(') return false;
+  out = resp.substring(1, resp.length() - 3); // '(' ve son 2 CRC byte + <cr> cikarildi
+  return true;
 }
 
 void mpptPoll(); // asagida tanimli, mpptTask() tarafindan cagriliyor
 
-// mpptPoll() Modbus istekleri donanim yanit vermezse istek basina 2sn'ye kadar
-// bloke olabiliyor (ModbusMaster::ku16MBResponseTimeout) - donanim henuz sahada
-// dogrulanip/baglanmadan bu, loop()'u (web/RS485/buton islenmesi) her poll
-// dongusunde saniyelerce donduruyordu ("tepkilerde belirgin yavaslama"). Bu yuzden
-// ayri, dusuk oncelikli bir FreeRTOS task'ta calisiyor - loop() asla beklemez.
+// Cihaz yanit vermezse istek basina MPPT_RESPONSE_TIMEOUT_MS kadar bloke
+// olabilir - donanim henuz sahada dogrulanip/baglanmadan bu, loop()'u
+// (web/RS485/buton islenmesi) her poll dongusunde donduruyordu ("tepkilerde
+// belirgin yavaslama"). Bu yuzden ayri, dusuk oncelikli bir FreeRTOS
+// task'ta calisiyor - loop() asla beklemez.
 void mpptTask(void *pv) {
   for (;;) {
     mpptPoll();
@@ -1431,15 +1541,151 @@ void mpptTask(void *pv) {
 }
 
 void mppt_init() {
-  MpptSerial.begin(MPPT_BAUDRATE, SERIAL_8N1, MPPT_RS485_RX_PIN, MPPT_RS485_TX_PIN);
-  pinMode(MPPT_RS485_DE_PIN, OUTPUT);
-  digitalWrite(MPPT_RS485_DE_PIN, LOW);
-  mpptNode.begin(MPPT_SLAVE_ID, MpptSerial);
-  mpptNode.preTransmission(mpptPreTransmission);
-  mpptNode.postTransmission(mpptPostTransmission);
+  MpptSerial.begin(MPPT_BAUDRATE, SERIAL_8N1, MPPT_UART_RX_PIN, MPPT_UART_TX_PIN);
   mpptDataMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(mpptTask, "mpptTask", 4096, NULL, 1, NULL, 0);
-  DEBUG_PRINTLN("[MPPT] UART2 Modbus RTU hazir, ayri task'ta (FAZ 1 - sadece loglama)");
+  DEBUG_PRINTLN("[MPPT] UART2 RS232/PI30 hazir, ayri task'ta (FAZ 1 - sadece loglama)");
+}
+
+// ============================================================
+// YEDEK AKU (ADC voltaj izleme + gunduz-only sarj kontrolu) - 3x 12V 20Ah
+// kullanilmis scooter akusu, PARALEL baglanip tek bir 12V ~60Ah yedek
+// banka olusturur, SADECE dusuk guclu alarm elektroniginin 5V hattina
+// TEK YONLU diyot-OR ile yedek olur (bkz config.h "Yedek Aku" bloğu).
+// Deşarj (yedek besleme) tamamen PASIF donanimsal failover - kod hicbir
+// role/yuk kesme kararini bu degere BAGLAMAZ (MPPT'nin bateryaKritik
+// mantigi ana bataryayi zaten koruyor). Sarj ise AKTIF/sistem kontrollu:
+// mpptData.pv_power'a bakip gunduz/gunes varsa role/MOSFET'i acar, yoksa
+// (gece veya MPPT verisi bayat/okunamiyorsa - FAIL-SAFE) kapali tutar ki
+// ana batarya geceleri bu yuzden ekstra tuketilmesin. RS232 gibi bloke
+// olabilecek bir I/O olmadigindan (duz analogRead()/digitalWrite()) ayri
+// bir task/mutex'e gerek yok - dogrudan loop() icinde cagrilir.
+// ============================================================
+struct YedekAkuData {
+  float voltaj = 0.0;
+  bool read_ok = false;
+  bool sarj_aktif = false;
+  unsigned long last_update_ms = 0;
+};
+YedekAkuData yedekAkuData;
+
+const char* yedekAkuDurumMetni() {
+  if (!yedekAkuData.read_ok) return "bilinmiyor";
+  if (yedekAkuData.voltaj >= YEDEK_AKU_DOLU_V) return "dolu";
+  if (yedekAkuData.voltaj <= YEDEK_AKU_ZAYIF_V) return "zayif";
+  return "devrede";
+}
+
+void yedekAku_init() {
+  pinMode(YEDEK_AKU_SARJ_PIN, OUTPUT);
+  digitalWrite(YEDEK_AKU_SARJ_PIN, LOW); // guvenli varsayilan: sarj KAPALI, MPPT verisi henuz gelmedi
+}
+
+void yedekAkuPoll() {
+  static unsigned long lastPoll = 0;
+  if (millis() - lastPoll < YEDEK_AKU_POLL_INTERVAL_MS) return;
+  lastPoll = millis();
+
+  int raw = analogRead(YEDEK_AKU_ADC_PIN);
+  float adcVolt = (raw / 4095.0f) * 3.3f;
+  float voltajHam = adcVolt * YEDEK_AKU_ADC_OLCEK;
+  yedekAkuData.voltaj = (voltajHam < YEDEK_AKU_OLU_BOLGE_V) ? 0.0f : voltajHam * YEDEK_AKU_KALIBRASYON_KAZANC;
+  yedekAkuData.read_ok = true;
+  yedekAkuData.last_update_ms = millis();
+
+  // Gunduz/gunes var mi -> mpptData.pv_power (RS232/PI30 uzerinden zaten
+  // okunuyor). MPPT verisi bayat/okunamiyorsa FAIL-SAFE: sarj KAPALI.
+  bool gunesVar;
+  {
+    MpptKilit kilit;
+    bool mpptTaze = (millis() - mpptData.last_update_ms) < MPPT_STALE_MS;
+    gunesVar = mpptTaze && mpptData.read_ok && (mpptData.pv_power >= YEDEK_AKU_SARJ_PV_ESIK_W);
+  }
+  yedekAkuData.sarj_aktif = gunesVar;
+  digitalWrite(YEDEK_AKU_SARJ_PIN, gunesVar ? HIGH : LOW);
+
+  DEBUG_PRINT("[YedekAku] V="); DEBUG_PRINT(String(yedekAkuData.voltaj, 2));
+  DEBUG_PRINT(" durum="); DEBUG_PRINT(yedekAkuDurumMetni());
+  DEBUG_PRINT(" sarj="); DEBUG_PRINTLN(gunesVar ? "1" : "0");
+}
+
+// ============================================================
+// AHT10 (I2C sicaklik/nem) - Konteyner'e OZEL, ESP8266'nin hep 0.0 gonderdigi
+// sensorData.temperature placeholder'iyla KARISTIRILMAZ (bkz config.h yorumu).
+// Kutuphane KULLANILMIYOR - AHT10'un protokolu trivial: tetikle (0xAC 0x33
+// 0x00 yaz), 80ms bekle, 6 byte oku, 20-bit ham deger -> sicaklik/nem.
+// I2C okuma cok kisa surdugunden (birkac ms) ayri task/mutex GEREKMEZ.
+// ============================================================
+struct AhtData {
+  float sicaklik = 0.0;
+  float nem = 0.0;
+  bool read_ok = false;
+  unsigned long last_update_ms = 0;
+};
+AhtData ahtData;
+
+bool ahtOku(float &sicaklikOut, float &nemOut) {
+  Wire.beginTransmission(AHT10_I2C_ADDR);
+  Wire.write(0xAC);
+  Wire.write(0x33);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return false;
+
+  delay(80); // AHT10 olcum suresi (datasheet: >=75ms)
+
+  if (Wire.requestFrom((int)AHT10_I2C_ADDR, 6) != 6) return false;
+  uint8_t b[6];
+  for (int i = 0; i < 6; i++) b[i] = Wire.read();
+
+  if (b[0] & 0x80) return false; // busy biti hala 1 ise olcum hazir degil
+
+  uint32_t humRaw = ((uint32_t)b[1] << 12) | ((uint32_t)b[2] << 4) | (b[3] >> 4);
+  uint32_t tempRaw = (((uint32_t)b[3] & 0x0F) << 16) | ((uint32_t)b[4] << 8) | b[5];
+
+  nemOut = (humRaw / 1048576.0f) * 100.0f;       // 2^20 = 1048576
+  sicaklikOut = (tempRaw / 1048576.0f) * 200.0f - 50.0f;
+  return true;
+}
+
+void ahtPoll() {
+  static unsigned long lastPoll = 0;
+  if (millis() - lastPoll < AHT10_POLL_INTERVAL_MS) return;
+  lastPoll = millis();
+
+  float sicaklik, nem;
+  if (ahtOku(sicaklik, nem)) {
+    ahtData.sicaklik = sicaklik;
+    ahtData.nem = nem;
+    ahtData.read_ok = true;
+    ahtData.last_update_ms = millis();
+  } else {
+    ahtData.read_ok = false;
+  }
+
+  DEBUG_PRINT("[AHT10] Sicaklik="); DEBUG_PRINT(String(ahtData.sicaklik, 1));
+  DEBUG_PRINT(" Nem="); DEBUG_PRINT(String(ahtData.nem, 1));
+  DEBUG_PRINT(" ok="); DEBUG_PRINTLN(ahtData.read_ok ? "1" : "0");
+}
+
+// ============================================================
+// MQ3 (analog gaz sensoru, kullanicida zaten var) - SADECE bilgi/gosterge
+// amacli, hicbir alarm/esik kararina baglanmaz (kullanicinin acik istegi).
+// ============================================================
+struct Mq3Data {
+  int raw = 0;
+  float volt = 0.0;
+  unsigned long last_update_ms = 0;
+};
+Mq3Data mq3Data;
+
+void mq3Poll() {
+  static unsigned long lastPoll = 0;
+  if (millis() - lastPoll < MQ3_POLL_INTERVAL_MS) return;
+  lastPoll = millis();
+
+  mq3Data.raw = analogRead(MQ3_ADC_PIN);
+  mq3Data.volt = (mq3Data.raw / 4095.0f) * 3.3f;
+  mq3Data.last_update_ms = millis();
 }
 
 // bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
@@ -1459,39 +1705,69 @@ void mpptPoll() {
   if (millis() - lastPoll < MPPT_POLL_INTERVAL_MS) return;
   lastPoll = millis();
 
-  // Tek seferde 0x3100-0x310F (16 register, PV+aku+yuk) - araliksiz blok
-  // oldugu icin tek Modbus istegiyle alinir, 16 ayri istekten cok daha hizli.
-  uint8_t sonuc = mpptNode.readInputRegisters(MPPT_REG_BLOCK_START, MPPT_REG_BLOCK_COUNT);
-  if (sonuc == mpptNode.ku8MBSuccess) {
-    MpptKilit kilit;
-    mpptData.pv_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_VOLTAGE) * MPPT_REG_SCALE;
-    mpptData.pv_current = mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_CURRENT) * MPPT_REG_SCALE;
-    uint32_t pvPowerRaw = (uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_POWER_L) |
-                           ((uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_PV_POWER_H) << 16);
-    mpptData.pv_power = pvPowerRaw * MPPT_REG_SCALE;
-    mpptData.battery_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_BATTERY_VOLTAGE) * MPPT_REG_SCALE;
-    mpptData.load_voltage = mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_VOLTAGE) * MPPT_REG_SCALE;
-    mpptData.load_current = mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_CURRENT) * MPPT_REG_SCALE;
-    uint32_t loadPowerRaw = (uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_POWER_L) |
-                             ((uint32_t)mpptNode.getResponseBuffer(MPPT_REG_OFS_LOAD_POWER_H) << 16);
-    mpptData.load_power = loadPowerRaw * MPPT_REG_SCALE;
-    mpptData.read_ok = true;
-    mpptData.last_update_ms = millis();
+  // QPIGS: tek istekte PV+aku+yuk (Axpert/PI30 "Device general status
+  // parameters inquiry"). Cevap bosluklarla ayrilmis alanlardan olusur:
+  // 0 grid V, 1 grid Hz, 2 AC cikis V, 3 AC cikis Hz, 4 AC gorunur guc,
+  // 5 AC aktif guc(=yuk), 6 yuk yuzdesi, 7 BUS V, 8 aku V, 9 aku sarj akimi,
+  // 10 aku SOC%, 11 isi, 12 PV akim, 13 PV voltaj, 14 SCC aku V, 15 aku
+  // desarj akimi, 16 durum bitleri, 17 fan offset, 18 EEPROM ver,
+  // 19 PV sarj gucu(W), 20 durum2, 21 grid-feed durumu, 22 ulke, 23 grid-feed guc
+  String resp;
+  bool ok = mpptSendCommand("QPIGS", resp);
+  if (ok) {
+    String fields[24];
+    int fieldCount = 0;
+    int fieldStart = 0;
+    for (int i = 0; i <= (int)resp.length() && fieldCount < 24; i++) {
+      if (i == (int)resp.length() || resp[i] == ' ') {
+        fields[fieldCount++] = resp.substring(fieldStart, i);
+        fieldStart = i + 1;
+      }
+    }
+    if (fieldCount >= 20) {
+      MpptKilit kilit;
+      // Ana sayfada da gosterilen ozet alanlar
+      mpptData.load_voltage = fields[2].toFloat();
+      mpptData.load_power = fields[5].toFloat();
+      mpptData.battery_voltage = fields[8].toFloat();
+      mpptData.battery_soc = fields[10].toInt();
+      mpptData.pv_current = fields[12].toFloat();
+      mpptData.pv_voltage = fields[13].toFloat();
+      mpptData.pv_power = fields[19].toFloat();
+      mpptData.load_current = (mpptData.load_voltage > 1.0f) ? (mpptData.load_power / mpptData.load_voltage) : 0.0f;
+
+      // Sadece "Invertor" sekmesinde gosterilen detay alanlar
+      mpptData.grid_voltage = fields[0].toFloat();
+      mpptData.grid_freq = fields[1].toFloat();
+      mpptData.ac_out_freq = fields[3].toFloat();
+      mpptData.apparent_power = fields[4].toFloat();
+      mpptData.load_percent = fields[6].toInt();
+      mpptData.bus_voltage = fields[7].toFloat();
+      mpptData.battery_charge_current = fields[9].toFloat();
+      mpptData.temperature_c = fields[11].toFloat();
+      mpptData.battery_discharge_current = fields[15].toFloat();
+      mpptData.status_bits = fields[16];
+      // b7..b0 (bkz QPIGS dokumantasyonu): b4=yuk acik, b2=sarj acik,
+      // b1=SCC(solar) sarj acik, b0=AC sarj acik
+      if (fields[16].length() == 8) {
+        mpptData.load_on = fields[16][3] == '1';        // b4
+        mpptData.charging_on = fields[16][5] == '1';     // b2
+        mpptData.scc_charging_on = fields[16][6] == '1'; // b1
+        mpptData.ac_charging_on = fields[16][7] == '1';  // b0
+      }
+
+      mpptData.read_ok = true;
+      mpptData.last_update_ms = millis();
+    } else {
+      MpptKilit kilit;
+      mpptData.read_ok = false;
+      DEBUG_PRINT("[MPPT] QPIGS cevabi eksik alan, alan sayisi=");
+      DEBUG_PRINTLN(fieldCount);
+    }
   } else {
     MpptKilit kilit;
     mpptData.read_ok = false;
-    DEBUG_PRINT("[MPPT] Modbus okuma hatasi (0x3100 blok), kod=0x");
-    DEBUG_PRINTLN(String(sonuc, HEX));
-  }
-
-  // SOC ayri bir adreste (bloga bitisik degil) - ikinci, kucuk bir istek.
-  uint8_t socSonuc = mpptNode.readInputRegisters(MPPT_REG_BATTERY_SOC, 1);
-  if (socSonuc == mpptNode.ku8MBSuccess) {
-    MpptKilit kilit;
-    mpptData.battery_soc = mpptNode.getResponseBuffer(0);
-  } else {
-    DEBUG_PRINT("[MPPT] SOC okuma hatasi, kod=0x");
-    DEBUG_PRINTLN(String(socSonuc, HEX));
+    DEBUG_PRINTLN("[MPPT] QPIGS cevap yok/zaman asimi - kablolama henuz dogrulanmadi");
   }
 
   mpptData.kalan_saat = mpptKalanSaatHesapla();
@@ -1501,6 +1777,102 @@ void mpptPoll() {
   DEBUG_PRINT(" Yuk="); DEBUG_PRINT(String(mpptData.load_power, 1)); DEBUG_PRINT("W");
   DEBUG_PRINT(" SOC="); DEBUG_PRINT(String(mpptData.battery_soc));
   DEBUG_PRINT(" ok="); DEBUG_PRINTLN(mpptData.read_ok ? "1" : "0");
+
+  // QMOD: calisma modu (Sebeke/Aku/Sarj/Ariza vb.) - "Invertor" sekmesinde
+  // gosterilir, ana sayfayi etkilemez. Salt-okunur, risksiz.
+  String modResp;
+  if (mpptSendCommand("QMOD", modResp) && modResp.length() >= 1) {
+    MpptKilit kilit;
+    mpptData.mode_code = modResp[0];
+    switch (modResp[0]) {
+      case 'P': mpptData.mode_text = "Acilis"; break;
+      case 'S': mpptData.mode_text = "Bekleme (Standby)"; break;
+      case 'L': mpptData.mode_text = "Sebeke (Line)"; break;
+      case 'B': mpptData.mode_text = "Aku (Battery)"; break;
+      case 'F': mpptData.mode_text = "ARIZA (Fault)"; break;
+      case 'D': mpptData.mode_text = "Kapali (Shutdown)"; break;
+      case 'C': mpptData.mode_text = "Sarj (Charge)"; break;
+      case 'Y': mpptData.mode_text = "Bypass"; break;
+      case 'E': mpptData.mode_text = "ECO"; break;
+      default:  mpptData.mode_text = "Bilinmiyor (" + String(modResp[0]) + ")"; break;
+    }
+    mpptData.mode_read_ok = true;
+  } else {
+    MpptKilit kilit;
+    mpptData.mode_read_ok = false;
+  }
+
+  // QPIWS: 36 bitlik uyari/ariza durumu - "Invertor" sekmesinde gosterilir.
+  // Aktif olan bitler Turkce aciklamalarla listeye ceviriliyor.
+  static const char* MPPT_WARN_ADLARI[36] = {
+    "PV kaybi", "Invertor arizasi", "Bus asiri yuksek", "Bus asiri dusuk",
+    "Bus yumusak hata", "Sebeke kesintisi", "Cikis kisa devre", "Invertor voltaji cok dusuk",
+    "Invertor voltaji cok yuksek", "Asiri sicaklik", "Fan kilitli", "Aku voltaji yuksek",
+    "Aku dusuk alarmi", "-", "Aku kesme (dusuk)", "Aku derating",
+    "Asiri yuk", "EEPROM hatasi", "Invertor asiri akim", "Invertor yumusak hata",
+    "Kendi kendini test hatasi", "Cikis DC voltaji asiri", "Aku devre disi (acik)", "Akim sensoru hatasi",
+    "Aku kisa devre", "Guc siniri", "PV voltaji yuksek", "MPPT asiri yuk/PV asiri akim",
+    "MPPT asiri yuk uyarisi", "Aku sarj icin cok dusuk", "DC/DC asiri akim", "Uzaktan ariza (D)",
+    "Uzaktan ariza (D)", "Dusuk PV enerjisi", "Bus yumusak baslangicinda yuksek AC girisi", "Aku dengeleme"
+  };
+  String wsResp;
+  if (mpptSendCommand("QPIWS", wsResp) && wsResp.length() >= 36) {
+    MpptKilit kilit;
+    mpptData.warn_raw = wsResp;
+    String liste = "";
+    for (int i = 0; i < 36; i++) {
+      if (wsResp[i] == '1') {
+        if (liste.length() > 0) liste += ", ";
+        liste += MPPT_WARN_ADLARI[i];
+      }
+    }
+    mpptData.warn_list = liste;
+    mpptData.warn_read_ok = true;
+  } else {
+    MpptKilit kilit;
+    mpptData.warn_read_ok = false;
+  }
+
+  // QPIRI: anma degerleri/ayarlar - nadiren degisir, sadece 60sn'de bir
+  // sorgulanir (RS232 trafiğini gereksiz artirmamak icin).
+  static unsigned long lastQpiriPoll = 0;
+  if (millis() - lastQpiriPoll >= 60000UL) {
+    lastQpiriPoll = millis();
+    String riResp;
+    if (mpptSendCommand("QPIRI", riResp)) {
+      String rf[24];
+      int rfCount = 0, rfStart = 0;
+      for (int i = 0; i <= (int)riResp.length() && rfCount < 24; i++) {
+        if (i == (int)riResp.length() || riResp[i] == ' ') {
+          rf[rfCount++] = riResp.substring(rfStart, i);
+          rfStart = i + 1;
+        }
+      }
+      // Alan sirasi topluluk kaynaklarina (mpp-solar vb.) dayanir - DOGRULA,
+      // cihazimizin gercek QPIRI cevabiyla karsilastirilmadi.
+      if (rfCount >= 18) {
+        MpptKilit kilit;
+        mpptData.qpiri_batt_voltage = rf[7].toFloat();
+        mpptData.qpiri_batt_recharge_v = rf[8].toFloat();
+        mpptData.qpiri_batt_under_v = rf[9].toFloat();
+        mpptData.qpiri_batt_bulk_v = rf[10].toFloat();
+        mpptData.qpiri_batt_float_v = rf[11].toFloat();
+        mpptData.qpiri_batt_type = rf[12].toInt();
+        mpptData.qpiri_max_ac_charge_a = rf[13].toInt();
+        mpptData.qpiri_max_charge_a = rf[14].toInt();
+        mpptData.qpiri_out_source_priority = rf[16].toInt();
+        mpptData.qpiri_charger_source_priority = rf[17].toInt();
+        mpptData.qpiri_read_ok = true;
+        mpptData.qpiri_last_update_ms = millis();
+      } else {
+        MpptKilit kilit;
+        mpptData.qpiri_read_ok = false;
+      }
+    } else {
+      MpptKilit kilit;
+      mpptData.qpiri_read_ok = false;
+    }
+  }
 }
 
 // Histerezis: bateryaKesmeVolt'un altina inince kritik olur, ancak
@@ -1706,6 +2078,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     <button onclick="show('kontrol')" id="nav-kontrol">Kontrol</button>
     <button onclick="show('ayarlar')" id="nav-ayarlar">Ayarlar</button>
     <button onclick="show('kumanda')" id="nav-kumanda">Kumanda</button>
+    <button onclick="show('invertor')" id="nav-invertor">İnvertör</button>
     <button onclick="show('bilgiler')" id="nav-bilgiler">Bilgiler</button>
   </div>
 
@@ -1716,7 +2089,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div><small>Litre</small></div>
       <div class="card"><h3>Sıcaklık</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
-      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div></div>
+      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
+      <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
     </div>
 
     <div class="card">
@@ -1919,6 +2293,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <div>Hareket: <b id="kz-pir">-</b></div>
         <div>Swan PIR: <b id="kz-swan">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
+        <div>Alev: <b id="kz-alev">-</b></div>
         <div>Yerel Uyarı (LED/Buzzer): <b id="kz-alarm">-</b></div>
         <div>Siren: <b id="kz-siren">-</b></div>
         <div>Lamba: <b id="kz-lamba">-</b></div>
@@ -1927,8 +2302,14 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> PIR2 Aktif</label>
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
+        <label><input type="checkbox" id="kz_alevEtkin" onchange="konteynerSensorAktifKaydet()"> Alev Sensörü Aktif</label>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "Hareket/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
+      <div class="row" style="gap:16px;margin-top:10px">
+        <div>Sıcaklık: <b id="kz-sicaklik">-</b></div>
+        <div>Nem: <b id="kz-nem">-</b></div>
+        <div style="font-size:12px;color:var(--muted)">MQ3 (gösterge): <b id="kz-mq3">-</b></div>
+      </div>
       <div class="sz-grid" style="margin-top:10px">
         <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
         <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
@@ -1939,7 +2320,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
     <details class="card" open>
       <summary>🔋 Batarya (MPPT) Koruma Ayarları</summary>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Akü voltajı, MPPT şarj kontrolcüsünden ayrı bir RS485/Modbus hattı üzerinden okunur. Koruma AÇIK olduğunda, voltaj "Kesme" eşiğinin altına inince sulama rölesi ve Konteyner lambası otomatik kapatılır (siren/alarm etkilenmez); voltaj "Geri Yükleme" eşiğine çıkınca otomatik serbest kalır.</p>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Akü voltajı, MPPT şarj kontrolcüsünden ayrı bir RS232/PI30 hattı üzerinden okunur. Koruma AÇIK olduğunda, voltaj "Kesme" eşiğinin altına inince sulama rölesi ve Konteyner lambası otomatik kapatılır (siren/alarm etkilenmez); voltaj "Geri Yükleme" eşiğine çıkınca otomatik serbest kalır.</p>
       <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> Register/ölçek değerleri sahada doğrulanana kadar koruma varsayılan olarak KAPALI kalır - önce Genel sekmesindeki "Akü" kartından gelen voltajı bir multimetreyle karşılaştırıp doğrulayın, sonra korumayı açın.</p>
       <div class="row">
         <button class="btn btn-primary" id="batarya-koruma-btn" onclick="bateryaKorumaToggle()">Korumayı Aç</button>
@@ -2007,6 +2388,59 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </details>
   </div>
 
+  <div id="invertor" class="section">
+    <div class="card">
+      <h3 style="margin:0 0 10px">🔌 İnvertör (MPPT) — Tüm Değerler</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">RS232/PI30 üzerinden okunan tüm QPIGS/QMOD/QPIWS/QPIRI alanları — salt-okunur, buradan hiçbir ayar değiştirilmez. Bağlantı: <b id="inv-baglanti">-</b></p>
+
+      <h4 style="margin:14px 0 6px;font-size:13px;color:var(--muted)">Durum</h4>
+      <table class="table">
+        <tr><td>Çalışma modu</td><td id="inv-mode">-</td></tr>
+        <tr><td>Aktif uyarı/arıza</td><td id="inv-warn">-</td></tr>
+        <tr><td>Yük çıkışı</td><td id="inv-load-on">-</td></tr>
+        <tr><td>Şarj (genel/solar/AC)</td><td id="inv-charging">-</td></tr>
+      </table>
+
+      <h4 style="margin:14px 0 6px;font-size:13px;color:var(--muted)">Akü / Güneş / Yük (anlık)</h4>
+      <table class="table">
+        <tr><td>Akü voltajı</td><td id="inv-batt-v">-</td></tr>
+        <tr><td>Akü SOC</td><td id="inv-soc">-</td></tr>
+        <tr><td>Akü şarj akımı</td><td id="inv-batt-charge-a">-</td></tr>
+        <tr><td>Akü deşarj akımı</td><td id="inv-batt-discharge-a">-</td></tr>
+        <tr><td>PV voltajı</td><td id="inv-pv-v">-</td></tr>
+        <tr><td>PV akımı</td><td id="inv-pv-a">-</td></tr>
+        <tr><td>PV gücü</td><td id="inv-pv-w">-</td></tr>
+        <tr><td>Yük voltajı (AC çıkış)</td><td id="inv-load-v">-</td></tr>
+        <tr><td>Yük gücü (aktif/görünür)</td><td id="inv-load-w">-</td></tr>
+        <tr><td>Yük yüzdesi</td><td id="inv-load-pct">-</td></tr>
+        <tr><td>Kalan süre tahmini</td><td id="inv-kalan">-</td></tr>
+      </table>
+
+      <h4 style="margin:14px 0 6px;font-size:13px;color:var(--muted)">Şebeke / Sistem</h4>
+      <table class="table">
+        <tr><td>Şebeke voltajı/frekansı</td><td id="inv-grid">-</td></tr>
+        <tr><td>AC çıkış frekansı</td><td id="inv-ac-hz">-</td></tr>
+        <tr><td>BUS voltajı</td><td id="inv-bus-v">-</td></tr>
+        <tr><td>Isı (kanat sıcaklığı)</td><td id="inv-temp">-</td></tr>
+      </table>
+
+      <h4 style="margin:14px 0 6px;font-size:13px;color:var(--muted)">Ayarlar / Anma Değerleri (QPIRI — 60sn'de bir okunur)</h4>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:6px">Bu bölümdeki alan sırası topluluk kaynaklarına dayanır, cihazın gerçek çıktısıyla henüz birebir doğrulanmadı — DOĞRULA.</p>
+      <table class="table">
+        <tr><td>Akü anma voltajı</td><td id="inv-ri-battv">-</td></tr>
+        <tr><td>Akü yeniden şarj voltajı</td><td id="inv-ri-recharge">-</td></tr>
+        <tr><td>Akü düşük (kesme) voltajı</td><td id="inv-ri-under">-</td></tr>
+        <tr><td>Akü bulk voltajı</td><td id="inv-ri-bulk">-</td></tr>
+        <tr><td>Akü float voltajı</td><td id="inv-ri-float">-</td></tr>
+        <tr><td>Akü tipi</td><td id="inv-ri-type">-</td></tr>
+        <tr><td>Maks. AC şarj akımı</td><td id="inv-ri-maxac">-</td></tr>
+        <tr><td>Maks. şarj akımı</td><td id="inv-ri-maxchg">-</td></tr>
+        <tr><td>Çıkış kaynağı önceliği</td><td id="inv-ri-outpri">-</td></tr>
+        <tr><td>Şarj kaynağı önceliği</td><td id="inv-ri-chgpri">-</td></tr>
+      </table>
+    </div>
+  </div>
+
   <div id="bilgiler" class="section">
     <details class="card zone-konteyner">
       <summary>ESP32 Master Pinout (Konteyner)</summary>
@@ -2022,12 +2456,18 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
         <tr><td>D8</td><td>8</td><td>Alarm Sireni Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif (Sudepo Zonu'ndaki "Alarm Rölesi" ile aynı mantık)</td></tr>
         <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
-        <tr><td>RX (UART2)</td><td>40</td><td>2. MAX485 (MPPT)</td><td>RO (Alıcı) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı, RS485 (37/38/39) ile aynı sağ sütunda</td></tr>
-        <tr><td>TX (UART2)</td><td>41</td><td>2. MAX485 (MPPT)</td><td>DI (Verici)</td></tr>
-        <tr><td>-</td><td>42</td><td>2. MAX485 (MPPT)</td><td>DE/RE (Enable)</td></tr>
+        <tr><td>RX (UART2)</td><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT ucu bu pine (MAX3232 çip pin adı - modül silkscreen'i "TX"/"RX" farklı yazabilir, işleve göre bağlayın) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı. MPPT'nin portu RS485 DEĞİL, RS232 (bkz not) - MAX485 kullanılmaz. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı.</td></tr>
+        <tr><td>TX (UART2)</td><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ucu bu pine</td></tr>
+        <tr><td>-</td><td>42</td><td>-</td><td>Serbest — RS232'de DE/RE (yön) pini yok, ihtiyaç yok</td></tr>
+        <tr><td>ADC1</td><td>2</td><td>Yedek Akü (gerilim bölücü)</td><td>3x12V paralel yedek akü bankasının voltajını izler — salt-okunur, hiçbir röleyi tetiklemez</td></tr>
+        <tr><td>-</td><td>21</td><td>Yedek Akü Şarj Rölesi</td><td>Ana 24V hattan yedek bankaya şarj yolu — sadece gündüz/güneş varken (MPPT <code>pv_power</code>) HIGH</td></tr>
+        <tr><td>I2C SDA</td><td>11</td><td>AHT10 (Sıcaklık/Nem)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
+        <tr><td>I2C SCL</td><td>12</td><td>AHT10 (Sıcaklık/Nem)</td><td>-</td></tr>
+        <tr><td>ADC1</td><td>10</td><td>MQ3 (gaz sensörü)</td><td>Sadece bilgi/gösterge amaçlı, alarma bağlı değil</td></tr>
+        <tr><td>-</td><td>14</td><td>Alev Sensörü (IR)</td><td>Aktif-LOW, INPUT_PULLUP — Swan PIR ile aynı desende alarm/Telegram'a bağlı</td></tr>
       </table>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 2, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 36, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 16, 17, 18, 33, 34, 36, 42. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
     </details>
 
     <details class="card zone-sudepo">
@@ -2133,13 +2573,14 @@ function bipSesi(){
 
 // Her ad hangi cihaza (Sudepo/Konteyner) ait oldugunu belirtir.
 const tetikleyiciAdlari=['Sudepo: Sol Kapı','Sudepo: Sağ Kapı','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
-function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwan){
+function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwan,konteynerAlev){
   if(panicAktif) return 'Panik (elle açıldı)';
   const l=[];
   for(let i=0;i<6;i++) if(mask&(1<<i)) l.push(tetikleyiciAdlari[i]);
   if(konteynerPir) l.push('Konteyner: PIR (Hareket)');
   if(konteynerKapi) l.push('Konteyner: Kapı');
   if(konteynerSwan) l.push('Konteyner: Swan PIR');
+  if(konteynerAlev) l.push('Konteyner: Alev/Duman');
   return l.length?l.join(', '):'-';
 }
 
@@ -2194,11 +2635,12 @@ function renderUI(d){
   const konteynerPirVar = konteynerEnabledMi && kz.pir_en!==false && !!kz.pir_alarm;
   const konteynerKapiVar = konteynerEnabledMi && kz.kapi_en!==false && !!kz.kapi_acik;
   const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_pir;
+  const konteynerAlevVar = konteynerEnabledMi && kz.alev_en!==false && !!kz.alev;
   // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
   // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
   // kapatilmisken panik basilinca banner hic gorunmuyordu.
-  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar || konteynerSwanVar));
+  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerAlevVar));
   ad.className = anyAlarm ? 'dot alarm' : 'dot active';
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
@@ -2210,6 +2652,7 @@ function renderUI(d){
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
     else if(konteynerSwanVar) at='ALARM: Konteyner Swan PIR hareket!';
+    else if(konteynerAlevVar) at='ALARM: Konteyner alev/duman!';
   }
   $('#alarm-text').textContent=at;
   // Buyuk uyari banner'i - ESP8266'daki gibi, tetiklendiginde sayfanin
@@ -2232,7 +2675,7 @@ function renderUI(d){
       const herhangiSusturulmus = (d.alarm && d.alarm.muted) || konteynerSusturulduMu;
       if(!panikAktif){
         if(herhangiSusturulmus) msg += ' (Susturuldu)';
-        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar, konteynerSwanVar);
+        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerAlevVar);
         msg += ' | Tetikleyen: '+tk;
       }
       let html = '⚠ '+msg;
@@ -2289,12 +2732,17 @@ function renderUI(d){
   const kzp=$('#kz-pir'); if(kzp) kzp.textContent = kz.pir?'Var':'Yok';
   const kzsw=$('#kz-swan'); if(kzsw) kzsw.textContent = kz.swan_pir?'Var':'Yok';
   const kzk=$('#kz-kapi'); if(kzk) kzk.textContent = kz.kapi_acik?'Açık':'Kapalı';
-  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
+  const kzav=$('#kz-alev'); if(kzav){ kzav.textContent = kz.alev?'VAR':'Yok'; kzav.style.color = kz.alev?'var(--danger)':''; }
+  const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
+  const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
+  const kzmq=$('#kz-mq3'); if(kzmq) kzmq.textContent = (kz.mq3_volt!=null) ? kz.mq3_volt.toFixed(2)+'V ('+kz.mq3_raw+')' : '--';
+  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.alev_en!==false&&kz.alev); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
   const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
   const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
   const kzpe=$('#kz_pirEtkin'); if(kzpe && document.activeElement!==kzpe) kzpe.checked = kz.pir_en!==false;
   const kzke=$('#kz_kapiEtkin'); if(kzke && document.activeElement!==kzke) kzke.checked = kz.kapi_en!==false;
   const kzsue=$('#kz_swanEtkin'); if(kzsue && document.activeElement!==kzsue) kzsue.checked = kz.swan_en!==false;
+  const kzale=$('#kz_alevEtkin'); if(kzale && document.activeElement!==kzale) kzale.checked = kz.alev_en!==false;
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
   // Nano IO - dashboard (K1/K2/R/LAMBA hepsi ESP8266'nin tek RS485 mesajinda
@@ -2354,6 +2802,54 @@ function renderUI(d){
     else bkalan.textContent = '⏳ Bu tüketimle ~'+bat.kalan_saat.toFixed(1)+' saat kaldı';
   }
   { const bkb=$('#batarya-koruma-btn'); if(bkb) bkb.textContent = bat.koruma_aktif ? 'Korumayı Kapat' : 'Korumayı Aç'; }
+  // İnvertör sekmesi - tum QPIGS/QMOD/QPIWS/QPIRI detaylari
+  {
+    const inv = bat.inverter || {};
+    const set = (id, val) => { const el = $(id); if(el) el.textContent = val; };
+    set('#inv-baglanti', batOk ? '✅ Bağlı' : '❌ Bağlantı yok');
+    set('#inv-mode', inv.mode_ok ? (inv.mode_text||'-') : '-');
+    set('#inv-warn', !inv.warn_ok ? '-' : (inv.warn_list ? ('⚠️ '+inv.warn_list) : '✅ Uyarı/arıza yok'));
+    set('#inv-load-on', batOk ? (inv.load_on?'Açık':'Kapalı') : '-');
+    set('#inv-charging', batOk ? ((inv.charging_on?'Genel:Açık':'Genel:Kapalı')+' / '+(inv.scc_charging_on?'Solar:Açık':'Solar:Kapalı')+' / '+(inv.ac_charging_on?'AC:Açık':'AC:Kapalı')) : '-');
+    set('#inv-batt-v', batOk ? (bat.voltage||0).toFixed(2)+' V' : '-');
+    set('#inv-soc', batOk && bat.soc!=null ? bat.soc+' %' : '-');
+    set('#inv-batt-charge-a', batOk ? (inv.batt_charge_a||0).toFixed(1)+' A' : '-');
+    set('#inv-batt-discharge-a', batOk ? (inv.batt_discharge_a||0).toFixed(1)+' A' : '-');
+    set('#inv-pv-v', batOk ? (bat.pv_volt||0).toFixed(1)+' V' : '-');
+    set('#inv-pv-a', batOk ? (bat.pv_amp||0).toFixed(1)+' A' : '-');
+    set('#inv-pv-w', batOk ? (bat.pv_watt||0).toFixed(0)+' W' : '-');
+    set('#inv-load-v', batOk ? (bat.load_volt||0).toFixed(1)+' V' : '-');
+    set('#inv-load-w', batOk ? (bat.load_watt||0).toFixed(0)+' W / '+(inv.apparent_va||0).toFixed(0)+' VA' : '-');
+    set('#inv-load-pct', batOk ? (inv.load_pct||0)+' %' : '-');
+    set('#inv-kalan', (batOk && bat.kalan_saat!=null && bat.kalan_saat>=0) ? ('~'+bat.kalan_saat.toFixed(1)+' saat') : '-');
+    set('#inv-grid', batOk ? (inv.grid_volt||0).toFixed(1)+'V / '+(inv.grid_hz||0).toFixed(1)+'Hz' : '-');
+    set('#inv-ac-hz', batOk ? (inv.ac_out_hz||0).toFixed(1)+' Hz' : '-');
+    set('#inv-bus-v', batOk ? (inv.bus_volt||0).toFixed(1)+' V' : '-');
+    set('#inv-temp', batOk ? (inv.temp_c||0).toFixed(0)+' °C' : '-');
+    const battTipleri = {0:'AGM',1:'Sulu',2:'Kullanıcı',3:'PYL',4:'SH'};
+    const oncelikler = {0:'Şebeke önce',1:'Solar önce',2:'SBU',3:'Sadece solar'};
+    set('#inv-ri-battv', inv.ri_ok ? (inv.ri_batt_v||0).toFixed(1)+' V' : '-');
+    set('#inv-ri-recharge', inv.ri_ok ? (inv.ri_batt_recharge_v||0).toFixed(1)+' V' : '-');
+    set('#inv-ri-under', inv.ri_ok ? (inv.ri_batt_under_v||0).toFixed(1)+' V' : '-');
+    set('#inv-ri-bulk', inv.ri_ok ? (inv.ri_batt_bulk_v||0).toFixed(1)+' V' : '-');
+    set('#inv-ri-float', inv.ri_ok ? (inv.ri_batt_float_v||0).toFixed(1)+' V' : '-');
+    set('#inv-ri-type', inv.ri_ok ? (battTipleri[inv.ri_batt_type]||('#'+inv.ri_batt_type)) : '-');
+    set('#inv-ri-maxac', inv.ri_ok ? inv.ri_max_ac_charge_a+' A' : '-');
+    set('#inv-ri-maxchg', inv.ri_ok ? inv.ri_max_charge_a+' A' : '-');
+    set('#inv-ri-outpri', inv.ri_ok ? (oncelikler[inv.ri_out_priority]||('#'+inv.ri_out_priority)) : '-');
+    set('#inv-ri-chgpri', inv.ri_ok ? (oncelikler[inv.ri_charger_priority]||('#'+inv.ri_charger_priority)) : '-');
+  }
+  // Yedek Aku - pasif donanimsal failover, sadece bilgi amacli gosterge
+  const yak = d.yedek_aku || {};
+  const yakOk = yak.guncel !== false;
+  const yakKpi=$('#kpi-yedek-aku'); if(yakKpi) yakKpi.textContent = yakOk ? (yak.volt||0).toFixed(1)+' V' : '--';
+  const yakDurum=$('#yedek-aku-durum');
+  if(yakDurum){
+    const etiket = {dolu:'✅ Dolu/boşta (devrede değil)', devrede:'🔋 Devrede', zayif:'⚠️ Zayıf - şarj/değişim gerekir', bilinmiyor:'-'};
+    const sarjMetin = yakOk ? (yak.sarj_aktif ? ' | ☀️ Şarj oluyor' : ' | 🌙 Şarj kapalı') : '';
+    yakDurum.textContent = (yakOk ? (etiket[yak.durum]||yak.durum||'-') : 'Bağlantı yok') + sarjMetin;
+    yakDurum.style.color = (yakOk && yak.durum==='zayif') ? 'var(--danger)' : '';
+  }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
   const bgv=$('#batarya-geri'); if(bgv&&!bgv.matches(':focus')&&!yakinKorumali('batarya-geri')&&bat.geri_volt!=null) bgv.value=bat.geri_volt;
   // Bilgiler sekmesi - sistem bilgileri
@@ -2584,7 +3080,8 @@ function konteynerSensorAktifKaydet(){
   const pir = $('#kz_pirEtkin').checked?1:0;
   const kapi = $('#kz_kapiEtkin').checked?1:0;
   const swan = $('#kz_swanEtkin').checked?1:0;
-  api('/api/konteyner/sensor_aktif?pir='+pir+'&kapi='+kapi+'&swan='+swan).then(()=>{
+  const alev = $('#kz_alevEtkin').checked?1:0;
+  api('/api/konteyner/sensor_aktif?pir='+pir+'&kapi='+kapi+'&swan='+swan+'&alev='+alev).then(()=>{
     $('#kz-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
@@ -2799,7 +3296,9 @@ irListesiYukle();
 }
 
 String durumJson() {
-  DynamicJsonDocument doc(1536);
+  // Invertor detay alanlari (QPIGS tam liste + QMOD + QPIWS + QPIRI)
+  // eklendiginden buffer 1536 -> 4096'ya cikarildi.
+  DynamicJsonDocument doc(4096);
 
   doc["level_cm"] = sensorData.level_cm;
   doc["level_percent"] = sensorData.level_percent;
@@ -2831,6 +3330,13 @@ String durumJson() {
   doc["konteyner"]["pir_en"] = konteynerPirEtkin;
   doc["konteyner"]["kapi_en"] = konteynerKapiEtkin;
   doc["konteyner"]["swan_en"] = konteynerSwanEtkin;
+  doc["konteyner"]["alev"] = konteynerAlevVar;
+  doc["konteyner"]["alev_en"] = konteynerAlevEtkin;
+  doc["konteyner"]["sicaklik"] = ahtData.sicaklik;
+  doc["konteyner"]["nem"] = ahtData.nem;
+  doc["konteyner"]["aht_ok"] = ahtData.read_ok;
+  doc["konteyner"]["mq3_raw"] = mq3Data.raw;
+  doc["konteyner"]["mq3_volt"] = mq3Data.volt;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
   doc["konteyner"]["susturuldu"] = konteynerSusturuldu;
   doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
@@ -2860,12 +3366,49 @@ String durumJson() {
     doc["battery"]["load_watt"] = mpptData.load_power;
     doc["battery"]["soc"] = mpptData.battery_soc;
     doc["battery"]["kalan_saat"] = mpptData.kalan_saat;
+
+    // "Invertor" sekmesi icin detay alanlar - ana sayfa bunlari kullanmaz.
+    JsonObject inv = doc.createNestedObject("inverter");
+    inv["grid_volt"] = mpptData.grid_voltage;
+    inv["grid_hz"] = mpptData.grid_freq;
+    inv["ac_out_hz"] = mpptData.ac_out_freq;
+    inv["apparent_va"] = mpptData.apparent_power;
+    inv["load_pct"] = mpptData.load_percent;
+    inv["bus_volt"] = mpptData.bus_voltage;
+    inv["temp_c"] = mpptData.temperature_c;
+    inv["batt_charge_a"] = mpptData.battery_charge_current;
+    inv["batt_discharge_a"] = mpptData.battery_discharge_current;
+    inv["load_on"] = mpptData.load_on;
+    inv["charging_on"] = mpptData.charging_on;
+    inv["scc_charging_on"] = mpptData.scc_charging_on;
+    inv["ac_charging_on"] = mpptData.ac_charging_on;
+    inv["mode_code"] = String(mpptData.mode_code);
+    inv["mode_text"] = mpptData.mode_text;
+    inv["mode_ok"] = mpptData.mode_read_ok;
+    inv["warn_list"] = mpptData.warn_list;
+    inv["warn_ok"] = mpptData.warn_read_ok;
+    inv["ri_batt_v"] = mpptData.qpiri_batt_voltage;
+    inv["ri_batt_recharge_v"] = mpptData.qpiri_batt_recharge_v;
+    inv["ri_batt_under_v"] = mpptData.qpiri_batt_under_v;
+    inv["ri_batt_bulk_v"] = mpptData.qpiri_batt_bulk_v;
+    inv["ri_batt_float_v"] = mpptData.qpiri_batt_float_v;
+    inv["ri_batt_type"] = mpptData.qpiri_batt_type;
+    inv["ri_max_ac_charge_a"] = mpptData.qpiri_max_ac_charge_a;
+    inv["ri_max_charge_a"] = mpptData.qpiri_max_charge_a;
+    inv["ri_out_priority"] = mpptData.qpiri_out_source_priority;
+    inv["ri_charger_priority"] = mpptData.qpiri_charger_source_priority;
+    inv["ri_ok"] = mpptData.qpiri_read_ok;
   }
   doc["battery"]["koruma_aktif"] = bateryaKorumaAktif;
   doc["battery"]["kritik"] = bateryaKritik;
   doc["battery"]["kesme_volt"] = bateryaKesmeVolt;
   doc["battery"]["geri_volt"] = bateryaGeriYuklemeVolt;
   doc["battery"]["esp8266_ack"] = esp8266BatteryLowAck;
+
+  doc["yedek_aku"]["volt"] = yedekAkuData.voltaj;
+  doc["yedek_aku"]["durum"] = yedekAkuDurumMetni();
+  doc["yedek_aku"]["sarj_aktif"] = yedekAkuData.sarj_aktif;
+  doc["yedek_aku"]["guncel"] = ((millis() - yedekAkuData.last_update_ms) < (YEDEK_AKU_POLL_INTERVAL_MS * 3)) && yedekAkuData.read_ok;
 
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
@@ -3216,13 +3759,15 @@ void handleAPI_KonteynerPirAyar() {
 // Her Konteyner sensorunun kendi aktif/pasif anahtari - verilmeyen parametre
 // mevcut degerini korur (tek tek de degistirilebilsin diye).
 void handleAPI_KonteynerSensorAktif() {
-  bool pir = konteynerPirEtkin, kapi = konteynerKapiEtkin, swan = konteynerSwanEtkin;
+  bool pir = konteynerPirEtkin, kapi = konteynerKapiEtkin, swan = konteynerSwanEtkin, alev = konteynerAlevEtkin;
   if (server.hasArg("pir")) pir = server.arg("pir").toInt() != 0;
   if (server.hasArg("kapi")) kapi = server.arg("kapi").toInt() != 0;
   if (server.hasArg("swan")) swan = server.arg("swan").toInt() != 0;
-  konteynerSensorAktifKaydet(pir, kapi, swan);
+  if (server.hasArg("alev")) alev = server.arg("alev").toInt() != 0;
+  konteynerSensorAktifKaydet(pir, kapi, swan, alev);
   server.send(200, "application/json", "{\"basarili\":true,\"pir\":" + String(pir ? "true" : "false") +
-              ",\"kapi\":" + String(kapi ? "true" : "false") + ",\"swan\":" + String(swan ? "true" : "false") + "}");
+              ",\"kapi\":" + String(kapi ? "true" : "false") + ",\"swan\":" + String(swan ? "true" : "false") +
+              ",\"alev\":" + String(alev ? "true" : "false") + "}");
 }
 
 // Batarya (MPPT) koruma ayarlari - "aktif" parametresi verilmezse mevcut
@@ -4176,6 +4721,8 @@ void setup() {
   // RS485 Initialize
   rs485_init();
   mppt_init();
+  yedekAku_init();
+  Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C
 
   // SPIFFS - kayit yedekleme icin (bkz esp8266KayitYedekle/GeriYukle)
   if (!SPIFFS.begin(true)) {
@@ -4268,6 +4815,11 @@ void loop() {
   // burada sadece son okunan degerle kritik-durum histerezisi hesaplanir.
   bateryaDurumHesapla();
   bateryaRS485Bildir();
+
+  // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
+  yedekAkuPoll();
+  ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
+  mq3Poll();  // MQ3 (analog, sadece gosterge)
 
   // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
   konteynerSensorleriOku();
