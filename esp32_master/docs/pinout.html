@@ -39,13 +39,14 @@
 │    siren, lamba - hepsi │                                            │ (470Ω seri + 1kΩ pull-down,
 │    ESP32'ye doğrudan    │                                 ┌──────────▼────────────┐
 │    bağlı, RS485 yok)    │                                 │  Arduino Nano          │
-└───────────────────────┘                                 │  D2/D3  Kapı 1/2       │
-                                                            │  D4     Alarm rölesi   │
-                                                            │  D5     Nem rölesi     │
-                                                            │  D6     PIR (Sudepo)   │
-                                                            │  D13    Depo lambası   │
-                                                            │  A0     Toprak nem     │
-                                                            └────────────────────────┘
+│  + MPPT (RS232/PI30,    │                                 │  D2/D3  Kapı 1/2       │
+│    UART2, GPIO40/41,    │                                 │  D4     Alarm rölesi   │
+│    MAX3232)             │                                 │  D5     Nem rölesi     │
+│  + Yedek Akü (ADC,       │                                 │  D6     PIR (Sudepo)   │
+│    GPIO2/21)            │                                 │  D13    Depo lambası   │
+│  + AHT10/MQ3/Alev        │                                 │  A0     Toprak nem     │
+│    (GPIO11/12/10/14)    │                                 └────────────────────────┘
+└───────────────────────┘
 </pre>
 <p><strong>Not:</strong> Konteyner Zonu (Kalburum'un bulunduğu konteynerdeki alarm/aydınlatma donanımı) tamamen
 ESP32-S3'e doğrudan bağlıdır, RS485/ESP8266/Nano'dan bağımsızdır — kendi PIR'ı, kapı reed switch'i, IR alıcısı,
@@ -66,44 +67,62 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>Röle çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
 <tr><td>9</td><td>Konteyner Lambası</td><td>Röle çıkışı (uyarı lambası/flaşör)</td><td>Varsayılan HIGH=aktif; siren ile birlikte VEYA tek başına (Onaylı mod "Sessiz (Lamba)" onayı, ya da Kontrol sekmesinden elle) aktif olabilir</td></tr>
-<tr><td>40</td><td>2. MAX485 (MPPT)</td><td>RO → ESP32 RX</td><td>UART2, Modbus RTU — ESP8266 hattından (UART1) tamamen ayrı, ikinci bir MAX485 modülü. RS485 (37/38/39) ile AYNI sağ sütunda — fiziksel montaj kolaylığı için.</td></tr>
-<tr><td>41</td><td>2. MAX485 (MPPT)</td><td>DI ← ESP32 TX</td><td>UART2, Modbus RTU</td></tr>
-<tr><td>42</td><td>2. MAX485 (MPPT)</td><td>DE + RE</td><td>UART2, Modbus RTU</td></tr>
+<tr><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT → ESP32 RX</td><td>UART2, RS232/PI30 — ESP8266 hattından (UART1) tamamen ayrı. MPPT portu RS485 DEĞİL, RS232 — MAX485 değil MAX3232 kullanılır. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı. <b>Not:</b> modülün silkscreen'indeki "TX/RX" etiketi üreticiye göre değişir — R1OUT/T1IN cip pin adları kesindir, işleve göre bağlayın.</td></tr>
+<tr><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ← ESP32 TX</td><td>UART2, RS232/PI30</td></tr>
+<tr><td>2</td><td>Yedek Akü (ADC)</td><td>Gerilim bölücü çıkışı → ADC1</td><td>3x 12V 20Ah yedek akü PARALEL bankasının (~12V, ~60Ah, sadece alarm elektroniğine diyot-OR ile yedek) voltajını izler — salt-okunur gösterge, hiçbir röleyi tetiklemez. Kalibrasyon: <code>config.h</code> → <code>YEDEK_AKU_ADC_OLCEK</code></td></tr>
+<tr><td>21</td><td>Yedek Akü Şarj Rölesi/MOSFET</td><td>Çıkış — ana 24V hattan yedek bankaya şarj yolunu açar/kapatır</td><td>Sadece gündüz/güneş varken (MPPT'nin <code>pv_power</code> değeri eşiğin üstündeyken) HIGH — RTC gerekmez, RS232/PI30 verisini kullanır. MPPT verisi bayat/yoksa FAIL-SAFE: LOW (şarj kapalı), gece ana batarya yorulmasın diye. (GPIO10 yerine buraya taşındı — MQ3'e ADC1 pini açmak için.)</td></tr>
+<tr><td>11</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SDA</td><td>Konteyner'e özel sıcaklık/nem sensörü — ESP8266'nın hep 0.0 gönderdiği eski "Sıcaklık" placeholder'ından ayrı, yeni alanlar (<code>konteyner.sicaklik/nem</code>). Kütüphane kullanılmadan elle I2C protokolüyle okunur (bkz <code>main.cpp</code> <code>ahtOku()</code>).</td></tr>
+<tr><td>12</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SCL</td><td>—</td></tr>
+<tr><td>10</td><td>MQ3 (gaz sensörü)</td><td>Analog giriş → ADC1</td><td>Kullanıcıda zaten var, sadece bilgi/gösterge amaçlı — hiçbir alarm/eşik kararına bağlı DEĞİL (bilinçli tercih)</td></tr>
+<tr><td>14</td><td>Alev Sensörü (IR)</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Aktif-LOW (alev algılanınca LOW) — Swan PIR ile birebir aynı desende Konteyner alarm/Telegram sistemine bağlı, kendi aktif/pasif anahtarı var</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (9600 baud)</td><td>PC'ye USB üzerinden</td></tr>
 <tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Quad Flash)</td><td>Bu karttaki flash için ayrılmış</td></tr>
-<tr><td>2, 10-18, 21, 33, 34, 36, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>—</td></tr>
+<tr><td>16, 17, 18, 33, 34, 36, 42</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>GPIO40/41 artık MPPT/MAX3232'de kullanılıyor</td></tr>
 </table>
+<p style="margin-top:8px">Yedek akü (GPIO2/GPIO21) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a></p>
 </div>
 
 <div class="section">
-<h2>Modül 4: MPPT Şarj Kontrolcü (Modbus RTU, "victor NML 3200-24")</h2>
+<h2>Modül 4: MPPT Şarj Kontrolcü (RS232/PI30, "victor NML 3200-24" / Solinved NML serisi)</h2>
 <p>Adım adım görsel kablolama kılavuzu: <a href="mppt-baglanti-kilavuzu.html">mppt-baglanti-kilavuzu.html</a></p>
-<p><strong>UYARI:</strong> Register adresleri/ölçek sahada multimetreyle doğrulanana kadar TAHMİNİ
-— bkz <code>esp32_master/include/config.h</code>'daki <code>MPPT_REG_*</code> tanımları yanındaki
-notlar. Model gerçek Victron ürün adlandırmasıyla uyuşmuyor, muhtemelen jenerik/OEM bir RS485+Modbus
-RTU cihaz — EPEVER B-series/Tracer ailesinin yaygın register haritası tahmin olarak kullanıldı.</p>
+<p><strong>2026-08-14 doğrulandı (servis şeması):</strong> Bu cihazın RJ45 "COM" portu (CN1,
+"RS232.WIFI") RS485 DEĞİL, RS-232 — datasheet "İletişim Arayüzü: RS232/WIFI" diyor, servis
+teknisyeninden alınan resmi CN1 şema fotosuyla pin ataması da kesinleşti. Menü kısaltmaları
+(USB/SBU/SUB çıkış önceliği, AGM/FLD/LIB akü tipi) Voltronic/Axpert ailesiyle birebir eşleşiyor —
+protokol <strong>PI30</strong> (ASCII komut-cevap + CRC16, örn. <code>QPIGS</code>), Modbus RTU
+DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port aynı zamanda üreticinin
+"730-90002-00" WiFi modülünün takıldığı port.</p>
 <table>
-<tr><th>2. MAX485 Pin</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
-<tr><td>RO</td><td>40</td><td>Data Output (MAX → ESP32 RX)</td></tr>
-<tr><td>DI</td><td>41</td><td>Data Input (ESP32 TX → MAX)</td></tr>
-<tr><td>DE + RE</td><td>42</td><td>Ortak Enable</td></tr>
-<tr><td>A / B</td><td>—</td><td>MPPT kontrolcünün RS485 A/B terminaline twisted pair</td></tr>
+<tr><th>MAX3232 Pin (cip adı)</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
+<tr><td>R1OUT</td><td>40 (RX)</td><td>MPPT → ESP32 (alınan veri çıkışı). Modül silkscreen'i "TX" yazsa da yazmasa da, ESP32 RX'ine bağlanacak pin budur — datasheet'teki R1OUT işlevine göre bağlayın, baskı etikete değil.</td></tr>
+<tr><td>T1IN</td><td>41 (TX)</td><td>ESP32 → MPPT (gönderilecek veri girişi)</td></tr>
+<tr><td>VCC</td><td>3V3</td><td style="color:#c0392b">SADECE 3.3V — 5V verilirse MAX3232'nin TTL çıkışı (R1OUT) ESP32 GPIO'suna ~5V basar, kalıcı hasar riski</td></tr>
+<tr><td>GND</td><td>GND</td><td>Ortak toprak</td></tr>
 </table>
-<p>Baudrate: <code>9600</code> (DOĞRULA). Bu bus, ESP8266 RS485 hattından (UART1) tamamen ayrı
-çalışır — aynı fiziksel hatta bağlanamaz.</p>
-<p><strong>Okunan register'lar</strong> (input registers, FC04):</p>
+<p><strong>RJ45 pin ataması</strong> (T568B renk sırası, CN1 "RS232.WIFI" şemasından):</p>
 <table>
-<tr><th>Adres</th><th>Alan</th><th>Ölçek</th></tr>
-<tr><td>0x3100</td><td>PV giriş voltajı</td><td>x0.01 V</td></tr>
-<tr><td>0x3101</td><td>PV giriş akımı</td><td>x0.01 A</td></tr>
-<tr><td>0x3102-0x3103</td><td>PV giriş gücü (32-bit L/H)</td><td>x0.01 W</td></tr>
-<tr><td>0x3104</td><td>Akü voltajı (şarj çıkış voltajı)</td><td>x0.01 V</td></tr>
-<tr><td>0x310C</td><td>Yük çıkış voltajı</td><td>x0.01 V</td></tr>
-<tr><td>0x310D</td><td>Yük çıkış akımı</td><td>x0.01 A</td></tr>
-<tr><td>0x310E-0x310F</td><td>Yük çıkış gücü (32-bit L/H)</td><td>x0.01 W</td></tr>
-<tr><td>0x311A</td><td>Akü doluluk yüzdesi (SOC)</td><td>% (ölçeksiz)</td></tr>
+<tr><th>Pin</th><th>Renk</th><th>Fonksiyon</th></tr>
+<tr><td>1</td><td>turuncu-beyaz</td><td>RXD (MPPT→ESP32, MAX3232 R1IN'e)</td></tr>
+<tr><td>2</td><td>turuncu</td><td>TXD (ESP32→MPPT, MAX3232 T1OUT'tan)</td></tr>
+<tr><td>3,5,6,7</td><td>—</td><td>Kullanılmıyor (NG)</td></tr>
+<tr><td>4</td><td>mavi</td><td style="color:#c0392b">+12V VCC — BAĞLAMAYIN (WiFi modülü beslemesi)</td></tr>
+<tr><td>8</td><td>kahverengi</td><td>GND</td></tr>
 </table>
+<p>Baudrate: <code>2400 8N1</code> (PI30 protokolü sabit — 9600 DEĞİL).</p>
+<p><strong>QPIGS cevabındaki alanlar</strong> (boşlukla ayrılmış, sırayla):</p>
+<table>
+<tr><th>#</th><th>Alan</th><th>Birim</th></tr>
+<tr><td>2</td><td>AC çıkış voltajı (yük)</td><td>V</td></tr>
+<tr><td>5</td><td>AC aktif güç (yük)</td><td>W</td></tr>
+<tr><td>8</td><td>Akü voltajı</td><td>V</td></tr>
+<tr><td>10</td><td>Akü doluluk yüzdesi (SOC)</td><td>%</td></tr>
+<tr><td>12</td><td>PV giriş akımı</td><td>A</td></tr>
+<tr><td>13</td><td>PV giriş voltajı</td><td>V</td></tr>
+<tr><td>19</td><td>PV şarj gücü</td><td>W</td></tr>
+</table>
+<p>Kaynak: "Axpert MKS II&amp;MKS III&amp;MKS IV RS232 Protocol" (Voltronic resmi dokümanı,
+<code>sudepo/05 belgeler/</code> altındaki datasheet'lerle birlikte saklanıyor).</p>
 </div>
 
 <div class="section">
@@ -179,6 +198,27 @@ GPIO6  ← PIR2 (HC-SR505) OUT
 GPIO7  ← Kapı Reed (INPUT_PULLUP)
 GPIO8  → Siren Rölesi IN
 GPIO9  → Lamba Rölesi IN
+GPIO14 ← Alev Sensörü (IR, aktif-LOW, INPUT_PULLUP)
+
+ESP32-S3         MAX3232 (MPPT, RS232/PI30) - UART2
+GPIO41 (RX) ← R1OUT (MAX3232 cip pini, silkscreen etiketi degil)
+GPIO40 (TX) → T1IN  (MAX3232 cip pini, silkscreen etiketi degil)
+             (2026-08-15 saha loopback testinde R1OUT/T1IN'in fiziksel
+              olarak ters bagli oldugu gorulup RX/TX GPIO atamasi
+              yazilimda degistirildi, bkz config.h)
+3V3        → VCC (MAX3232)  — ASLA 5V verme, bkz mppt-baglanti-kilavuzu.html
+GND        → GND
+
+ESP32-S3         Yedek Akü (3x12V paralel banka)
+GPIO2  ← Gerilim bölücü (100kΩ/27kΩ) çıkışı, ADC1
+GPIO21 → Şarj Rölesi/MOSFET IN (gündüz/güneş varken HIGH)
+
+ESP32-S3         AHT10 (Sıcaklık/Nem) - I2C
+GPIO11 ↔ SDA
+GPIO12 ↔ SCL
+
+ESP32-S3         MQ3 (gaz sensörü, gösterge amaçlı)
+GPIO10 ← Analog çıkış, ADC1
 </pre>
 </div>
 
