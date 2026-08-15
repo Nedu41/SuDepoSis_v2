@@ -86,13 +86,15 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
 <div class="wrap">
 <header>
   <h1>🔋 MPPT → ESP32-S3 Bağlantı Kılavuzu</h1>
-  <p class="sub">Kalburum'un akü voltajı/güç izlemesi için MPPT şarj kontrolcüsünü ("victor NML 3200-24") ikinci bir RS485 hattıyla bağlama adımları.</p>
+  <p class="sub">Kalburum'un akü voltajı/güç izlemesi için MPPT şarj kontrolcüsünü ("victor NML 3200-24" / Solinved NML serisi) ikinci bir RS232 hattıyla bağlama adımları.</p>
+  <div class="ok-box" style="margin-top:14px"><b>2026-08-14 güncelleme — pin ataması doğrulandı:</b> Bu cihazın portu RS485 DEĞİL, <b>RS-232</b> (datasheet "İletişim Arayüzü: RS232/WIFI" diyor, kutu üzerinde "RS-232 communication port" etiketli). A/B diye bir şey yok, MAX485 bu iş için GEÇERSİZ — <b>MAX3232</b> (RS232-TTL çevirici) gerekiyor. Protokol Modbus RTU değil, Voltronic/Axpert ailesinin <b>PI30</b> ASCII protokolü (ör. <code>QPIGS</code> komutu). Servisten alınan resmi şema fotosu sayesinde RJ45 pinleri (RXD=1, TXD=2, GND=8, +12V=4/bağlama) artık kesinleşti — bkz Adım 3.</div>
+  <div class="ok-box" style="margin-top:14px"><b>2026-08-15 güncelleme — loopback testiyle GPIO ataması netleşti:</b> Sahada yapılan bir loopback (jumper) testinde fiziksel kablolamanın R1OUT/T1IN'e göre ters olduğu görüldü. Lehimle uğraşmamak için telleri değiştirmek yerine <b>yazılımda RX/TX GPIO ataması</b> değiştirildi: artık <b>GPIO41 = RX</b> (R1OUT'tan gelir), <b>GPIO40 = TX</b> (T1IN'e gider) — aşağıdaki şema ve Adım 2 bu son duruma göre güncellendi.</div>
 </header>
 
 <section class="card">
   <h2><span class="num">1</span>Genel bağlantı şeması</h2>
   <figure style="margin:0">
-    <svg viewBox="0 0 680 300" role="img" aria-label="ESP32-S3, ikinci MAX485 modülü ve MPPT şarj kontrolcü arasındaki RS485 bağlantı şeması; ESP32 GPIO40/41/42 MAX485'e, MAX485'in A/B hatları MPPT'nin RJ45 portundaki A/B pinlerine gider">
+    <svg viewBox="0 0 680 300" role="img" aria-label="ESP32-S3, MAX3232 modülü ve MPPT şarj kontrolcü arasındaki RS232 bağlantı şeması; ESP32 GPIO40 (TX) / GPIO41 (RX) MAX3232'ye, MAX3232'nin TX/RX hatları MPPT'nin RJ45 portundaki TX/RX pinlerine gider">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -103,66 +105,72 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
         <rect x="16" y="70" width="150" height="130" rx="10" opacity="0.55"/>
         <text x="91" y="95" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">ESP32-S3</text>
         <text x="91" y="111" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.65">"Kalburum"</text>
-        <text x="30" y="140" font-size="11.5" stroke="none" fill="currentColor">GPIO40 (RX)</text>
-        <text x="30" y="160" font-size="11.5" stroke="none" fill="currentColor">GPIO41 (TX)</text>
-        <text x="30" y="180" font-size="11.5" stroke="none" fill="currentColor">GPIO42 (DE/RE)</text>
+        <text x="30" y="140" font-size="11.5" stroke="none" fill="currentColor">GPIO41 (RX)</text>
+        <text x="30" y="160" font-size="11.5" stroke="none" fill="currentColor">GPIO40 (TX)</text>
 
-        <!-- MAX485 box -->
+        <!-- MAX3232 box -->
         <rect x="265" y="55" width="150" height="160" rx="10" opacity="0.55"/>
-        <text x="340" y="78" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">2. MAX485</text>
-        <text x="340" y="94" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.65">(RS485 dönüştürücü)</text>
-        <text x="279" y="122" font-size="11.5" stroke="none" fill="currentColor">RO</text>
-        <text x="279" y="142" font-size="11.5" stroke="none" fill="currentColor">DI</text>
-        <text x="279" y="162" font-size="11.5" stroke="none" fill="currentColor">DE+RE</text>
-        <text x="279" y="192" font-size="11.5" stroke="none" fill="currentColor" opacity="0.8">A / B / GND</text>
+        <text x="340" y="78" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">MAX3232</text>
+        <text x="340" y="94" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.65">(RS232-TTL dönüştürücü)</text>
+        <text x="279" y="122" font-size="11.5" stroke="none" fill="currentColor">R1OUT</text>
+        <text x="279" y="142" font-size="11.5" stroke="none" fill="currentColor">T1IN</text>
+        <text x="279" y="162" font-size="11.5" stroke="none" fill="currentColor" opacity="0.6">(DE/RE yok)</text>
+        <text x="279" y="192" font-size="11.5" stroke="none" fill="currentColor" opacity="0.8">TX / RX / GND</text>
 
         <!-- MPPT box -->
         <rect x="500" y="70" width="164" height="130" rx="10" opacity="0.55"/>
         <text x="582" y="95" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">MPPT</text>
         <text x="582" y="111" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.65">NML 3200-24</text>
-        <text x="582" y="135" text-anchor="middle" font-size="11" stroke="none" fill="currentColor" opacity="0.8">RJ45 RS485 portu</text>
+        <text x="582" y="135" text-anchor="middle" font-size="11" stroke="none" fill="currentColor" opacity="0.8">RJ45 RS232 portu</text>
 
-        <!-- ESP32 -> MAX485 lines -->
+        <!-- ESP32 -> MAX3232 lines -->
         <line x1="166" y1="136" x2="263" y2="120" marker-end="url(#arrow)"/>
         <line x1="166" y1="156" x2="263" y2="140" marker-end="url(#arrow)"/>
-        <line x1="166" y1="176" x2="263" y2="160" marker-end="url(#arrow)"/>
 
-        <!-- MAX485 -> MPPT line (A/B twisted pair) -->
+        <!-- MAX3232 -> MPPT line (TX/RX/GND) -->
         <line x1="415" y1="188" x2="498" y2="188" marker-end="url(#arrow)" stroke-width="2"/>
       </g>
-      <text x="450" y="180" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">A/B/GND</text>
-      <text x="450" y="240" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.6">twisted pair (CAT5)</text>
+      <text x="450" y="180" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">TX/RX/GND</text>
+      <text x="450" y="240" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.6">RJ45 kablo</text>
       <text x="215" y="230" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.6">jumper kablo</text>
     </svg>
-    <p class="diagram-caption">Mevcut ESP8266 RS485 hattından (UART1) tamamen ayrı bir hat — aynı MAX485/hatta bağlanmaz.</p>
+    <p class="diagram-caption">Mevcut ESP8266 RS485 hattından (UART1) tamamen ayrı bir hat. Eski MPPT MAX485 modülü söküldü — MAX3232 onun yerine, GPIO40/41'e bağlanır.</p>
   </figure>
 </section>
 
 <section class="card">
   <h2><span class="num">2</span>Adım adım kablolama</h2>
   <ol class="steps">
-    <li><b>MPPT'nin RJ45 portunu bulun.</b> Cihazın üzerinde "RS485" veya "COM" yazan bir RJ45 (ethernet benzeri) jak olmalı. Yanında etiket/manuel varsa A/B/GND pinlerini orada da kontrol edin — aşağıdaki tablo standart bir tahmindir.</li>
-    <li><b>İkinci bir MAX485 modülü</b> edinin (ESP8266 hattındakiyle aynı tip). Bunu ESP32'nin <span class="pin">GPIO40</span> (RO→RX), <span class="pin">GPIO41</span> (DI←TX), <span class="pin">GPIO42</span> (DE+RE, ortak) pinlerine bağlayın; MAX485'in VCC/GND'sini uygun bir 3.3V veya 5V kaynaktan besleyin.</li>
-    <li><b>RJ45 kablosunu hazırlayın</b> — bir RJ45 fişten sadece A/B/GND kablolarını (aşağıdaki tablo) çıkarıp MAX485'in A/B/GND terminaline bağlayın.</li>
+    <li><b>MPPT'nin RJ45 portunu bulun.</b> Cihazın yan panelinde "RS-232 communication port" etiketli RJ45 (ethernet benzeri) jak var (kutu üzerinde 12 numaralı öğe, şemadaki adı CN1/"RS232.WIFI").</li>
+    <li><b>Bir MAX3232 (RS232-TTL) modülü</b> edinin — MAX485 DEĞİL. MAX3232'yi ESP32'nin <span class="pin">GPIO41</span> (R1OUT→RX), <span class="pin">GPIO40</span> (T1IN←TX) pinlerine bağlayın (eski MAX485 modülünün söküldüğü yer — modülün silkscreen'i "TX"/"RX" farklı yazabilir, R1OUT/T1IN çip pin adlarına göre bağlayın; 2026-08-15 saha loopback testinde bu ikisinin ters olduğu görüldü, kod bu son duruma göre ayarlandı — bkz <code>config.h</code>); VCC'sini ESP32'nin <span class="pin">3V3</span> pininden besleyin, GND'sini ESP32 GND'sine bağlayın.</li>
     <li>
-      <div class="danger-box"><b>⚠️ Asla Vcc pinlerine (1-2) dokunmayın</b> — RS485 kablosunu yanlışlıkla oraya bağlarsanız MPPT'ye kalıcı zarar verebilir.</div>
+      <div class="danger-box"><b>⚠️ MAX3232 VCC'sine asla 5V vermeyin</b> — MAX3232'nin TTL çıkışı (R1OUT → ESP32 RX) besleme voltajı kadar yükselir; 5V verirseniz ESP32'nin 3.3V'a dayanıklı GPIO'suna ~5V sinyal gelir, kalıcı hasar riski var. MAX3232, 3.3V'la beslenince de RS232 tarafında geçerli sinyal üretir (kendi şarj pompası bunu telafi eder) — 5V'a hiç gerek yok.</div>
     </li>
-    <li><b>Ortak toprak.</b> MAX485'in GND'si hem ESP32 GND'sine hem MPPT'nin RJ45 GND pinine bağlı olmalı — RS485 A/B sinyali ortak referans olmadan güvenilir çalışmaz.</li>
-    <li><b>Güç verip Serial Monitor'ı açın</b> (COM6, 9600 baud). <code class="inline">[MPPT] Vbat=.. PV=..W Yuk=..W SOC=..</code> satırlarını izleyin.</li>
+    <li><b>RS232 tarafını bağlayın (Adım 3'teki tablo).</b> RJ45 pin1 (turuncu-beyaz, RXD) → MAX3232'nin RS232-RX (R1IN) ucuna; pin2 (turuncu, TXD) → MAX3232'nin RS232-TX (T1OUT) ucuna; pin8 (kahverengi, GND) → MAX3232 GND.</li>
+    <li>
+      <div class="danger-box"><b>⚠️ Pin4'ü (mavi, +12V) asla bağlamayın</b> — WiFi modülü besleme pini, MAX3232/ESP32'yi kalıcı olarak yakabilir.</div>
+    </li>
+    <li><b>RJ45'i doğru yönde saydığınızdan emin olun</b> — 2026-08-13'teki ilk saha ölçümü pin sırasını tersten saymış görünüyor (GND/güç ters çıktı). Bağlamadan önce pin1'in gerçekten sol uçtaki (kesme ağzı aşağıda, kontak pinleri yukarıda bakıldığında) turuncu-beyaz tel olduğunu bir kez daha kontrol edin.</li>
+    <li><b>Ortak toprak.</b> MAX3232'nin GND'si hem ESP32 GND'sine hem MPPT'nin RJ45 pin8 (kahverengi, GND) ucuna bağlı olmalı.</li>
+    <li><b>Güç verip Serial Monitor'ı açın</b> (COM6, <b>2400 baud</b> — 9600 DEĞİL). <code class="inline">[MPPT] Vbat=.. PV=..W Yuk=..W SOC=..</code> satırlarını izleyin.</li>
     <li><b>Multimetreyle doğrulayın.</b> Akü uçlarından gerçek voltajı ölçüp Serial Monitor'daki <code class="inline">Vbat</code> ile karşılaştırın. Tutuyorsa harika — tutmuyorsa aşağıdaki "Doğrulama" bölümüne bakın.</li>
   </ol>
 </section>
 
 <section class="card">
-  <h2><span class="num">3</span>RJ45 pin ataması (tahmin — EPEVER/Tracer ailesi)</h2>
-  <div class="warn-box"><b>Doğrulanmadı:</b> Cihazınız gerçek Victron ürün adlandırmasıyla uyuşmuyor, muhtemelen jenerik/OEM bir cihaz. Aşağıdaki tablo bu sınıf cihazlarda (LS-B/VS-B/Tracer-B) yaygın kullanılan standart, ama kesin değil.</div>
+  <h2><span class="num">3</span>RJ45 pin ataması (doğrulandı — servis şeması, CN1 "RS232.WIFI" portu)</h2>
+  <div class="ok-box"><b>Doğrulandı (2026-08-14, servisten alınan resmi şema fotosu):</b> RS-232, Voltronic/PI30 ailesi. Bu port aynı zamanda üreticinin "730-90002-00" WiFi modülünün de takıldığı port — pin tanımları o modülün kendi bakış açısından (RXD/TXD modülün kendi alıcı/verici pinleri).</div>
   <div class="tablewrap">
     <table>
-      <tr><th>RJ45 Pin</th><th>Fonksiyon</th><th>Not</th></tr>
-      <tr><td class="mono">1–2</td><td>+5V / +7.5V güç çıkışı</td><td style="color:var(--danger)">BAĞLAMAYIN</td></tr>
-      <tr><td class="mono">3–4</td><td>RS-485 <b>B</b></td><td>MAX485 "B" terminaline</td></tr>
-      <tr><td class="mono">5–6</td><td>RS-485 <b>A</b></td><td>MAX485 "A" terminaline</td></tr>
-      <tr><td class="mono">7–8</td><td>GND</td><td>Ortak toprak</td></tr>
+      <tr><th>RJ45 Pin</th><th>Renk (T568B)</th><th>Fonksiyon</th><th>Not</th></tr>
+      <tr><td class="mono">1</td><td>turuncu-beyaz</td><td><b>RXD</b></td><td>MPPT → ESP32 (MAX3232 R1IN'e)</td></tr>
+      <tr><td class="mono">2</td><td>turuncu</td><td><b>TXD</b></td><td>ESP32 → MPPT (MAX3232 T1OUT'tan)</td></tr>
+      <tr><td class="mono">3</td><td>yeşil-beyaz</td><td>NG</td><td>Kullanılmıyor</td></tr>
+      <tr><td class="mono">4</td><td>mavi</td><td><b>+12V VCC</b></td><td style="color:var(--danger)">BAĞLAMAYIN — WiFi modülü beslemesi</td></tr>
+      <tr><td class="mono">5</td><td>mavi-beyaz</td><td>NG</td><td>Kullanılmıyor</td></tr>
+      <tr><td class="mono">6</td><td>yeşil</td><td>NG</td><td>Kullanılmıyor</td></tr>
+      <tr><td class="mono">7</td><td>kahve-beyaz</td><td>NG</td><td>Kullanılmıyor</td></tr>
+      <tr><td class="mono">8</td><td>kahverengi</td><td><b>GND</b></td><td>Ortak toprak</td></tr>
     </table>
   </div>
 </section>
@@ -171,28 +179,28 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
   <h2><span class="num">4</span>ESP32 tarafı pin özeti</h2>
   <div class="tablewrap">
     <table>
-      <tr><th>GPIO</th><th>MAX485 Pin</th><th>Yön</th></tr>
-      <tr><td class="mono">40</td><td>RO</td><td>MAX485 → ESP32 (RX)</td></tr>
-      <tr><td class="mono">41</td><td>DI</td><td>ESP32 → MAX485 (TX)</td></tr>
-      <tr><td class="mono">42</td><td>DE + RE</td><td>Ortak Enable</td></tr>
+      <tr><th>GPIO</th><th>MAX3232 Pin</th><th>Yön</th></tr>
+      <tr><td class="mono">40</td><td>R1OUT</td><td>MAX3232 → ESP32 (RX)</td></tr>
+      <tr><td class="mono">41</td><td>T1IN</td><td>ESP32 → MAX3232 (TX)</td></tr>
+      <tr><td class="mono">42</td><td>—</td><td>Serbest — RS232'de DE/RE (yön) pini yok</td></tr>
     </table>
   </div>
-  <p style="margin-top:12px">Tam kod tarafı tanımları: <code class="inline">esp32_master/include/config.h</code> içindeki <code class="inline">MPPT_*</code> satırları.</p>
+  <p style="margin-top:12px">Tam kod tarafı tanımları: <code class="inline">esp32_master/include/config.h</code> içindeki <code class="inline">MPPT_*</code> satırları. Baudrate: <b>2400 8N1</b> (PI30 protokolü sabit).</p>
 </section>
 
 <section class="card">
-  <h2><span class="num">5</span>Okunan değerler</h2>
+  <h2><span class="num">5</span>Okunan değerler (QPIGS komutu)</h2>
+  <p style="margin-bottom:10px">Modbus register değil — <code class="inline">QPIGS</code> ASCII komutuna cihazın döndüğü, boşlukla ayrılmış cevap alanları. Kaynak: "Axpert MKS II&MKS III&MKS IV RS232 Protocol" (<code class="inline">sudepo/05 belgeler/</code>).</p>
   <div class="tablewrap">
     <table>
-      <tr><th>Register</th><th>Alan</th><th>Ölçek</th></tr>
-      <tr><td class="mono">0x3100</td><td>PV giriş voltajı</td><td class="mono">×0.01 V</td></tr>
-      <tr><td class="mono">0x3101</td><td>PV giriş akımı</td><td class="mono">×0.01 A</td></tr>
-      <tr><td class="mono">0x3102–3</td><td>PV giriş gücü</td><td class="mono">×0.01 W</td></tr>
-      <tr><td class="mono">0x3104</td><td>Akü voltajı</td><td class="mono">×0.01 V</td></tr>
-      <tr><td class="mono">0x310C</td><td>Yük çıkış voltajı</td><td class="mono">×0.01 V</td></tr>
-      <tr><td class="mono">0x310D</td><td>Yük çıkış akımı</td><td class="mono">×0.01 A</td></tr>
-      <tr><td class="mono">0x310E–F</td><td>Yük çıkış gücü</td><td class="mono">×0.01 W</td></tr>
-      <tr><td class="mono">0x311A</td><td>Akü doluluk (SOC)</td><td class="mono">%</td></tr>
+      <tr><th>Alan #</th><th>Anlamı</th><th>Birim</th></tr>
+      <tr><td class="mono">2</td><td>AC çıkış voltajı (yük)</td><td class="mono">V</td></tr>
+      <tr><td class="mono">5</td><td>AC aktif güç (yük)</td><td class="mono">W</td></tr>
+      <tr><td class="mono">8</td><td>Akü voltajı</td><td class="mono">V</td></tr>
+      <tr><td class="mono">10</td><td>Akü doluluk (SOC)</td><td class="mono">%</td></tr>
+      <tr><td class="mono">12</td><td>PV giriş akımı</td><td class="mono">A</td></tr>
+      <tr><td class="mono">13</td><td>PV giriş voltajı</td><td class="mono">V</td></tr>
+      <tr><td class="mono">19</td><td>PV şarj gücü</td><td class="mono">W</td></tr>
     </table>
   </div>
 </section>
@@ -200,9 +208,9 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
 <section class="card">
   <h2><span class="num">6</span>Doğrulama ve sorun giderme</h2>
   <ul class="checklist">
-    <li>Serial Monitor'da <code class="inline">[MPPT] Modbus okuma hatasi</code> görüyorsanız: A/B ters bağlanmış olabilir (yer değiştirip deneyin), veya baud hızı <span class="pin">9600</span> değil.</li>
-    <li>Hiç veri gelmiyorsa: DE/RE (GPIO42) bağlantısını, ortak GND'yi ve MAX485'in beslendiğini kontrol edin.</li>
-    <li>Veri geliyor ama voltaj mantıksızsa (çok yüksek/düşük/sabit): register adresi yanlış olabilir — <code class="inline">config.h</code>'daki <code class="inline">MPPT_REG_*</code> tanımlarını MPPT'nizin gerçek manueline göre düzeltin.</li>
+    <li>Serial Monitor'da <code class="inline">[MPPT] QPIGS cevap yok/zaman asimi</code> görüyorsanız: TX/RX pinleri henüz doğru bulunmamış olabilir (Adım 3'ü tekrar deneyin), ortak GND eksik olabilir, veya baud hızı <span class="pin">2400</span> değil.</li>
+    <li>Hiç veri gelmiyorsa: MAX3232'nin RS232 tarafındaki T1IN/R1OUT bağlantılarını, ortak GND'yi ve modülün beslendiğini kontrol edin.</li>
+    <li>Veri geliyor ama alan sayısı azsa (<code class="inline">QPIGS cevabi eksik alan</code>): kablo gürültülü/kopuk olabilir, veya cihaz farklı bir protokol varyantı kullanıyor olabilir.</li>
     <li>Doğru çalışıyorsa: web arayüzü → Ayarlar → "Batarya (MPPT) Koruma Ayarları" → <b>Korumayı Aç</b> diyerek otomatik yük-kesme özelliğini etkinleştirebilirsiniz.</li>
   </ul>
   <div class="ok-box" style="margin-top:14px"><b>Hatırlatma:</b> Koruma açılana kadar sistem sadece izler, hiçbir röleyi otomatik kesmez — güvenle test edebilirsiniz.</div>

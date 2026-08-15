@@ -1581,6 +1581,10 @@ void yedekAku_init() {
   digitalWrite(YEDEK_AKU_SARJ_PIN, LOW); // guvenli varsayilan: sarj KAPALI, MPPT verisi henuz gelmedi
 }
 
+// Histerezis durumu: aku YEDEK_AKU_SARJ_KESME_V'ye ulasinca true olur,
+// YEDEK_AKU_SARJ_GERI_V'ye DUSENE kadar true kalir (bkz yedekAkuPoll()).
+static bool yedekAkuSarjDoluKilit = false;
+
 void yedekAkuPoll() {
   static unsigned long lastPoll = 0;
   if (millis() - lastPoll < YEDEK_AKU_POLL_INTERVAL_MS) return;
@@ -1601,8 +1605,18 @@ void yedekAkuPoll() {
     bool mpptTaze = (millis() - mpptData.last_update_ms) < MPPT_STALE_MS;
     gunesVar = mpptTaze && mpptData.read_ok && (mpptData.pv_power >= YEDEK_AKU_SARJ_PV_ESIK_W);
   }
-  yedekAkuData.sarj_aktif = gunesVar;
-  digitalWrite(YEDEK_AKU_SARJ_PIN, gunesVar ? HIGH : LOW);
+
+  // Aku doluysa (XL4015 kendi kesmesse diye ek guvenlik) role zorla LOW.
+  // Histerezis: KESME_V'ye ulasinca kilitlenir, GERI_V'ye dusene kadar acilmaz.
+  if (!yedekAkuSarjDoluKilit && yedekAkuData.voltaj >= YEDEK_AKU_SARJ_KESME_V) {
+    yedekAkuSarjDoluKilit = true;
+  } else if (yedekAkuSarjDoluKilit && yedekAkuData.voltaj <= YEDEK_AKU_SARJ_GERI_V) {
+    yedekAkuSarjDoluKilit = false;
+  }
+  bool sarjAc = gunesVar && !yedekAkuSarjDoluKilit;
+
+  yedekAkuData.sarj_aktif = sarjAc;
+  digitalWrite(YEDEK_AKU_SARJ_PIN, sarjAc ? HIGH : LOW);
 
   DEBUG_PRINT("[YedekAku] V="); DEBUG_PRINT(String(yedekAkuData.voltaj, 2));
   DEBUG_PRINT(" durum="); DEBUG_PRINT(yedekAkuDurumMetni());

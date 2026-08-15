@@ -33,7 +33,7 @@
   <h2>1. RJ45 — RS485</h2>
   <p>ESP32↔ESP8266 RS485 hattı için. Pin ataması ve kablolama detayları için:
   <a href="pinout.html">docs/pinout.html</a> (genel pinout) ve
-  <a href="mppt-baglanti-kilavuzu.html">docs/mppt-baglanti-kilavuzu.html</a> (MPPT için ikinci RS485 hattı, kutu içinde ayrı bir MAX485 modülü — GPIO40/41/42).</p>
+  <a href="mppt-baglanti-kilavuzu.html">docs/mppt-baglanti-kilavuzu.html</a> (MPPT için ayrı bir RS232 hattı, kutu içinde bir MAX3232 modülü — GPIO40/41).</p>
 </div>
 
 <div class="section">
@@ -111,7 +111,7 @@
     <tr><th>Renk</th><th>Fonksiyon</th><th>Not</th></tr>
     <tr><td><span class="swatch" style="background:#dc2626"></span>Kırmızı</td><td>PIR sensör</td><td>Konteyner PIR2 (GPIO6)</td></tr>
     <tr><td><span class="swatch" style="background:#f8fafc"></span>Beyaz</td><td>Reed switch (kapı)</td><td>Konteyner kapı reed (GPIO7)</td></tr>
-    <tr><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>Boş / yedek</td><td>Kart üzerindeki 13'lü soketin <b>9. pinine</b> bağlı ama henüz ESP'ye bağlı değil — ileride bir ESP pini atanacak</td></tr>
+    <tr><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>Yedek (ESP GPIO13 atandı)</td><td>Kart üzerindeki 13'lü soketin <b>9. pinine</b> bağlı, ESP tarafında <code>SARI_RCA_PIN</code> (GPIO13) atandı — henüz hangi sensör/işlev ve input/output yönü belirlenmedi</td></tr>
   </table>
 </div>
 

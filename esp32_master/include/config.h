@@ -111,8 +111,12 @@
 //   R1OUT = TTL cikis (RS232'den alinan veri buradan CIKAR)  -> ESP32 RX
 //   T1IN  = TTL giris (ESP32'nin gonderecegi veri buraya GIRER) <- ESP32 TX
 // Modulunuzdeki etiket ne yaziyorsa yazsin, ISLEVE gore baglayin.
-#define MPPT_UART_RX_PIN 40     // GPIO40 - MAX3232 R1OUT -> ESP32 RX (UART2)
-#define MPPT_UART_TX_PIN 41     // GPIO41 - ESP32 TX -> MAX3232 T1IN (UART2)
+// 2026-08-15 saha loopback testinde fiziksel kablolamanin R1OUT/T1IN'e gore
+// TERS oldugu ortaya cikti (bkz test/mppt_loopback_test.cpp); lehimle
+// ugrasmamak icin fiziksel telleri degistirmek yerine burada RX/TX GPIO
+// atamasi yer degistirildi - GERCEKTE R1OUT->GPIO41, T1IN<-GPIO40 baglidir.
+#define MPPT_UART_RX_PIN 41     // GPIO41 - MAX3232 R1OUT -> ESP32 RX (UART2)
+#define MPPT_UART_TX_PIN 40     // GPIO40 - ESP32 TX -> MAX3232 T1IN (UART2)
 #define MPPT_UART_NUM 2         // UART2
 #define MPPT_BAUDRATE 2400      // PI30 protokolu sabit: 2400 8N1
 #define MPPT_POLL_INTERVAL_MS 5000
@@ -166,6 +170,17 @@
 // Sensorler" bloğu.
 #define YEDEK_AKU_SARJ_PIN 21       // GPIO21 - sarj rolesi/MOSFET tetikleme cikisi
 #define YEDEK_AKU_SARJ_PV_ESIK_W 30.0f // Bu PV gucunun ustu "gunduz/gunes var" sayilir, sarj rolesi acilir
+// XL4015 (buck) kendi ic geri beslemesiyle kesmezse diye ek guvenlik: aku
+// voltaji YEDEK_AKU_SARJ_KESME_V'ye ulasinca role de LOW'a zorlanir.
+// Histerezis: YEDEK_AKU_SARJ_GERI_V'ye DUSENE kadar tekrar acilmaz (esik
+// sinirinda role'un hizli acip-kapanmasini onler).
+// ONEMLI: Bu 12.8V (YEDEK_AKU_DOLU_V) DEGIL - o dinlenme/rolanti voltaji,
+// sarj SIRASINDA (akim akarken) terminal voltaji ic direnc dususu yuzunden
+// daha yuksek olur. Kursun-asit tipik sarj (bulk/absorption) kesme voltaji
+// ~14.4V. DEGERLER TAHMINI - parcalar (XL4015) gelip trim potu ayarlanip
+// sahada gercek sarj voltaji olculdukten SONRA kesin degerlerle DOGRULA.
+#define YEDEK_AKU_SARJ_KESME_V 14.4f
+#define YEDEK_AKU_SARJ_GERI_V 13.6f
 
 // ===== Konteyner Ek Sensorler (AHT10 + MQ3 + Alev) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster

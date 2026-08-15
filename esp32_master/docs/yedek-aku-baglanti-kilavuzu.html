@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yedek Akü Bağlantı Kılavuzu — Kalburum</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --text:#1e293b; --muted:#64748b;
+  --border:#e2e8f0; --accent:#2563eb; --accent-soft:#eff4ff;
+  --warn:#b45309; --warn-bg:#fef3e2; --warn-border:#fbbf24;
+  --danger:#dc2626; --danger-bg:#fef2f2; --danger-border:#fca5a5;
+  --ok:#059669; --mono:ui-monospace,Menlo,Consolas,"SFMono-Regular",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1524; --card:#161d31; --text:#e6eaf3; --muted:#93a0bd;
+    --border:#2a3350; --accent:#5b8cff; --accent-soft:#182544;
+    --warn:#fbbf24; --warn-bg:#2b2110; --warn-border:#7c5a10;
+    --danger:#f87171; --danger-bg:#2a1414; --danger-border:#7f2323;
+    --ok:#34d399;
+  }
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--sans);
+  margin:0; padding:32px 20px 80px; line-height:1.55;
+}
+.wrap{max-width:760px; margin:0 auto}
+header{margin-bottom:28px}
+h1{font-size:26px; font-weight:800; margin:0 0 6px}
+.sub{color:var(--muted); font-size:15px; margin:0}
+h2{font-size:18px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:8px}
+h2 .num{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:50%; background:var(--accent);
+  color:#fff; font-size:13px; font-weight:800; flex:none;
+}
+section.card{
+  background:var(--card); border:1px solid var(--border); border-radius:14px;
+  padding:22px 22px 24px; margin-bottom:18px;
+}
+p{margin:0 0 12px; font-size:14.5px}
+p:last-child{margin-bottom:0}
+.pin{font-family:var(--mono); font-size:0.92em; background:var(--accent-soft); color:var(--accent); padding:1px 6px; border-radius:5px; font-weight:600}
+.warn-box, .danger-box, .ok-box{
+  border-radius:10px; padding:12px 14px; font-size:14px; margin:14px 0;
+  border:1px solid;
+}
+.warn-box{background:var(--warn-bg); border-color:var(--warn-border); color:var(--warn)}
+.danger-box{background:var(--danger-bg); border-color:var(--danger-border); color:var(--danger)}
+.ok-box{background:var(--accent-soft); border-color:var(--accent); color:var(--accent)}
+.warn-box b, .danger-box b, .ok-box b{color:inherit}
+ol.steps{margin:0; padding:0; list-style:none; counter-reset:step}
+ol.steps li{
+  counter-increment:step; position:relative; padding:0 0 18px 40px; font-size:14.5px;
+}
+ol.steps li:last-child{padding-bottom:0}
+ol.steps li::before{
+  content:counter(step); position:absolute; left:0; top:0;
+  width:26px; height:26px; border-radius:50%; background:var(--accent-soft);
+  color:var(--accent); font-weight:800; font-size:13px; font-family:var(--mono);
+  display:flex; align-items:center; justify-content:center;
+}
+ol.steps li::after{
+  content:""; position:absolute; left:13px; top:28px; bottom:0; width:2px;
+  background:var(--border);
+}
+ol.steps li:last-child::after{display:none}
+.tablewrap{overflow-x:auto; margin:12px 0}
+table{border-collapse:collapse; width:100%; font-size:13.5px}
+th,td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap}
+th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em}
+td.mono, th.mono{font-family:var(--mono)}
+.diagram-caption{color:var(--muted); font-size:13px; text-align:center; margin-top:10px}
+svg{max-width:100%; height:auto; display:block; margin:0 auto}
+.checklist{margin:0; padding:0; list-style:none}
+.checklist li{display:flex; gap:10px; align-items:flex-start; font-size:14.5px; padding:6px 0}
+.checklist li::before{content:"☐"; color:var(--muted); flex:none; font-size:16px; line-height:1.4}
+footer{color:var(--muted); font-size:12.5px; text-align:center; margin-top:30px}
+code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--accent); padding:1px 6px; border-radius:5px; font-size:0.9em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>🔋 Yedek Akü Bağlantı Kılavuzu — Kalburum</h1>
+  <p class="sub">3x 12V 20Ah kullanılmış (scooter) akünün, gece ana akü bankası tükendiğinde alarm elektroniğini beslemesi + gündüz otomatik şarj olması için kablolama adımları.</p>
+  <div class="ok-box" style="margin-top:14px"><b>2026-08-14 — mimari kesinleşti:</b> 3 akü PARALEL bağlanıyor (tek 12V ~60Ah banka). Deşarj (yedek besleme) TAMAMEN PASİF donanım (diyot-OR), şarj ise AKTİF/sistem kontrollü (ESP32 + röle + PV izleme). Kod tarafı (<code>config.h</code>, <code>main.cpp</code>) tamamlandı ve derlendi — bu sayfa sadece donanım kurulumu içindir.</div>
+</header>
+
+<section class="card">
+  <h2><span class="num">1</span>Genel mimari</h2>
+  <figure style="margin:0">
+    <svg viewBox="0 0 700 340" role="img" aria-label="3 aküden olusan 12V paralel yedek banka, bir yanda diyot uzerinden alarm elektronigine deşarj, diger yanda role+XL4015 uzerinden ana 24V hattan sarj">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1.4" font-family="ui-monospace,Menlo,Consolas,monospace">
+        <!-- Battery bank box -->
+        <rect x="270" y="130" width="160" height="90" rx="10" opacity="0.55"/>
+        <text x="350" y="160" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">3x 12V 20Ah</text>
+        <text x="350" y="178" text-anchor="middle" font-size="11" stroke="none" fill="currentColor" opacity="0.7">PARALEL, ~60Ah</text>
+        <text x="350" y="196" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.6">+ sigorta (her aküye 1)</text>
+
+        <!-- Discharge path (right) -->
+        <text x="500" y="90" text-anchor="middle" font-size="11" stroke="none" fill="currentColor" opacity="0.75">DEŞARJ (pasif)</text>
+        <rect x="470" y="105" width="90" height="40" rx="8" opacity="0.55"/>
+        <text x="515" y="129" text-anchor="middle" font-size="11" stroke="none" fill="currentColor">1x Diyot</text>
+        <line x1="430" y1="150" x2="468" y2="128" marker-end="url(#arrow)"/>
+        <line x1="560" y1="125" x2="610" y2="125" marker-end="url(#arrow)"/>
+        <text x="650" y="120" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.75">5V/12V</text>
+        <text x="650" y="133" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.75">alarm</text>
+        <text x="650" y="146" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.75">elektroniği</text>
+
+        <!-- Charge path (left) -->
+        <text x="200" y="90" text-anchor="middle" font-size="11" stroke="none" fill="currentColor" opacity="0.75">ŞARJ (aktif)</text>
+        <rect x="30" y="105" width="90" height="40" rx="8" opacity="0.55"/>
+        <text x="75" y="129" text-anchor="middle" font-size="11" stroke="none" fill="currentColor">Ana 24V</text>
+        <rect x="150" y="105" width="90" height="40" rx="8" opacity="0.55"/>
+        <text x="195" y="122" text-anchor="middle" font-size="10" stroke="none" fill="currentColor">Röle</text>
+        <text x="195" y="136" text-anchor="middle" font-size="9" stroke="none" fill="currentColor" opacity="0.6">(GPIO21)</text>
+        <line x1="120" y1="125" x2="148" y2="125" marker-end="url(#arrow)"/>
+        <rect x="150" y="160" width="90" height="40" rx="8" opacity="0.55"/>
+        <text x="195" y="180" text-anchor="middle" font-size="10" stroke="none" fill="currentColor">XL4015</text>
+        <text x="195" y="192" text-anchor="middle" font-size="9" stroke="none" fill="currentColor" opacity="0.6">13.8V/3A</text>
+        <line x1="195" y1="145" x2="195" y2="158" marker-end="url(#arrow)"/>
+        <rect x="270" y="160" width="90" height="40" rx="8" opacity="0.55"/>
+        <text x="315" y="180" text-anchor="middle" font-size="10" stroke="none" fill="currentColor">4x Diyot</text>
+        <text x="315" y="192" text-anchor="middle" font-size="9" stroke="none" fill="currentColor" opacity="0.6">paralel</text>
+        <line x1="240" y1="180" x2="268" y2="180" marker-end="url(#arrow)"/>
+        <line x1="360" y1="180" x2="272" y2="165" marker-end="url(#arrow)" opacity="0"/>
+
+        <!-- ADC sense -->
+        <text x="350" y="250" text-anchor="middle" font-size="10.5" stroke="none" fill="currentColor" opacity="0.7">gerilim bölücü (100kΩ/27kΩ) → ESP32 GPIO2 (ADC)</text>
+        <line x1="350" y1="220" x2="350" y2="238" marker-end="url(#arrow)"/>
+
+        <!-- ESP32 controlling relay -->
+        <rect x="30" y="230" width="120" height="50" rx="10" opacity="0.55"/>
+        <text x="90" y="252" text-anchor="middle" font-size="12" font-weight="700" stroke="none" fill="currentColor">ESP32-S3</text>
+        <text x="90" y="267" text-anchor="middle" font-size="9.5" stroke="none" fill="currentColor" opacity="0.65">PV verisine göre röle aç/kapa</text>
+        <line x1="150" y1="245" x2="192" y2="146" marker-end="url(#arrow)"/>
+      </g>
+    </svg>
+    <p class="diagram-caption">Deşarj (sağ) tamamen pasif — diyot sadece akü voltajı yük hattından yüksekken iletir. Şarj (sol) aktif — ESP32, MPPT'nin <code>pv_power</code> değerine bakıp gündüz/güneş varsa röleyi HIGH yapar.</p>
+  </figure>
+</section>
+
+<section class="card">
+  <h2><span class="num">2</span>Malzeme listesi</h2>
+  <ul class="checklist">
+    <li>3x 12V 20Ah akü (elde mevcut)</li>
+    <li>XL4015 (veya benzeri) ayarlanabilir CC/CV step-down şarj modülü, 5A</li>
+    <li>1 kanal, 5V tetikli röle modülü</li>
+    <li>5x 1N5819 Schottky diyot (4'ü şarj yolunda paralel, 1'i deşarj yolunda) — kalan 5 tane yedekte</li>
+    <li>100kΩ + 27kΩ direnç (%1 tolerans) — ADC gerilim bölücü</li>
+    <li>3x 15-20A bıçak sigorta + sigorta tutucusu — her aküye bir tane</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2><span class="num">3</span>Adım adım kablolama</h2>
+  <ol class="steps">
+    <li><b>3 aküyü paralel bağlayın.</b> Üçünün de + uçlarını birbirine, - uçlarını birbirine bağlayın. Her akünün + ucuna, ortak noktaya bağlanmadan ÖNCE bir sigorta (15-20A) koyun — biri arızalanırsa diğerlerini korur.</li>
+    <li><b>Deşarj (yedek besleme) yolu:</b> Akü bankasının + ucundan, 1 adet 1N5819 diyot üzerinden, alarm elektroniğinin (ESP32 kutusu) beslendiği 5V/12V hattına bağlayın. Diyotun yönü ÖNEMLİ: akım SADECE aküden yük hattına akmalı, tersi asla.
+      <div class="danger-box" style="margin-top:8px"><b>⚠️ Diyot yönünü ters takarsan</b> akü, normal çalışırken ana hattan sürekli (istenmeyen) akım çeker — bu, "pasif failover" mantığını tamamen bozar.</div>
+    </li>
+    <li><b>Şarj yolu:</b> Ana 24V hattan → röle modülünün ortak/NO kontağı → XL4015'in girişine. XL4015'in çıkışını (13.8V'a ayarlı) → 4x paralel 1N5819 diyot → akü bankasının + ucuna bağlayın.</li>
+    <li><b>Röleyi ESP32'ye bağlayın:</b> Röle modülünün <span class="pin">IN</span> ucu → ESP32 <span class="pin">GPIO21</span>. Röle VCC/GND'sini uygun bir 5V kaynaktan besleyin.</li>
+    <li><b>XL4015'i ayarlayın (aküye bağlamadan önce!):</b> Modülü yüksüz çalıştırıp trimpot'larla çıkış voltajını <b>13.8V</b>'a, akım limitini <b>3A</b>'e ayarlayın (multimetre + potansiyometreyle).</li>
+    <li><b>Gerilim bölücüyü bağlayın:</b> Akü bankasının + ucundan, 100kΩ direnç → ESP32 <span class="pin">GPIO2</span> → 27kΩ direnç → GND (seri, ortadaki nokta GPIO2'ye).</li>
+    <li><b>Güç verip Serial Monitor'ı açın</b> (COM6, 115200 baud). <code class="inline">[YedekAku] V=.. durum=.. sarj=..</code> satırlarını izleyin.</li>
+    <li><b>Multimetreyle doğrulayın.</b> Akü bankasının gerçek voltajını ölçüp Serial Monitor'daki <code class="inline">V=</code> ile karşılaştırın. Tutmuyorsa <code class="inline">config.h</code>'daki <code class="inline">YEDEK_AKU_ADC_OLCEK</code> değerini (gerçek_voltaj / okunan_voltaj) oranıyla düzeltin.</li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2><span class="num">4</span>ESP32 pin özeti</h2>
+  <div class="tablewrap">
+    <table>
+      <tr><th>GPIO</th><th>Bağlantı</th><th>Yön</th></tr>
+      <tr><td class="mono">2</td><td>Gerilim bölücü (100kΩ/27kΩ) çıkışı</td><td>Giriş (ADC1)</td></tr>
+      <tr><td class="mono">21</td><td>Röle modülü IN</td><td>Çıkış (dijital)</td></tr>
+    </table>
+  </div>
+  <p style="margin-top:12px">Tam kod tarafı tanımları: <code class="inline">esp32_master/include/config.h</code> içindeki <code class="inline">YEDEK_AKU_*</code> satırları.</p>
+</section>
+
+<section class="card">
+  <h2><span class="num">5</span>Şarj mantığı (nasıl çalışıyor)</h2>
+  <p>ESP32, ayrı bir RTC/saat kullanmadan "gündüz mü" sorusunu MPPT'den (RS232/PI30, bkz <a href="mppt-baglanti-kilavuzu.html">mppt-baglanti-kilavuzu.html</a>) zaten okuduğu <code class="inline">pv_power</code> değerine bakarak cevaplar:</p>
+  <ul class="checklist">
+    <li>MPPT verisi taze VE <code class="inline">pv_power ≥ 30W</code> (<code class="inline">YEDEK_AKU_SARJ_PV_ESIK_W</code>) → röle HIGH, şarj açık.</li>
+    <li>Gece veya bulutlu (PV düşük) → röle LOW, şarj kapalı — ana batarya boşuna yorulmaz.</li>
+    <li>MPPT verisi bayat/hiç okunamıyorsa (kablo kopuk vb.) → <b>FAIL-SAFE: röle LOW</b> — güneş olup olmadığı bilinmeden şarj açılmaz.</li>
+  </ul>
+  <p>Bu yüzden şarj rölesinin çalışması için MPPT bağlantısının da (ayrı kılavuz) sahada kurulu ve çalışır olması gerekir. MPPT bağlı değilken yedek akü sistemi yine de <b>izlenir</b> (voltaj gösterilir) ve <b>deşarj/failover</b> pasif olarak çalışmaya devam eder — sadece otomatik şarj devre dışı kalır.</p>
+</section>
+
+<section class="card">
+  <h2><span class="num">6</span>Doğrulama ve sorun giderme</h2>
+  <ul class="checklist">
+    <li>Serial Monitor'da <code class="inline">[YedekAku] V=0.00</code> görüyorsanız: gerilim bölücü bağlantısını (GPIO2, GND) kontrol edin.</li>
+    <li>Voltaj okunuyor ama gerçek değerle uyuşmuyorsa: <code class="inline">YEDEK_AKU_ADC_OLCEK</code>'i sahada multimetreyle kalibre edin.</li>
+    <li>Gündüz olmasına rağmen <code class="inline">sarj=0</code> kalıyorsa: önce MPPT'nin <code class="inline">[MPPT] ... ok=1</code> ile çalıştığını doğrulayın (bkz MPPT kılavuzu) — MPPT verisi yoksa şarj bilinçli olarak kapalı kalır.</li>
+    <li>Web arayüzünde "Yedek Akü" kartında voltaj/durum görünüyorsa (dolu/devrede/zayıf) sistem uçtan uca çalışıyor demektir.</li>
+  </ul>
+  <div class="ok-box" style="margin-top:14px"><b>Hatırlatma:</b> Deşarj yolu tamamen pasif donanım — kod hiçbir röleyi bu akü yüzünden tetiklemez, sadece izler. Yanlış giderse en kötü ihtimalle yedek akü devreye girmez (ana sistem etkilenmez).</div>
+</section>
+
+<footer>Kalburum / SuDepoSis v2 — bu sayfa <code class="inline">esp32_master/docs/pinout.html</code> ile aynı bilgiyi içerir, sahada referans için hazırlandı.</footer>
+</div>
+</body>
+</html>
