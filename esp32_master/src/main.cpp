@@ -5,6 +5,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiMulti.h>
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
@@ -4626,16 +4628,15 @@ void setup_ota() {
 // WiFi & MQTT KURULUM
 // ============================================================
 
+WiFiMulti wifiMulti;
+
 void wifi_connect() {
   // ESP8266'daki gibi: AP her zaman acik (STA basarisiz olsa da paneline
   // erisim kaybolmasin), STA kayitli ag varsa ona baglanir.
   wifiCredYukle();
   bool ozelAg = savedSSID.length() > 0;
-  String ssid = ozelAg ? savedSSID : String(WIFI_SSID);
-  String pass = ozelAg ? savedPass : String(WIFI_PASSWORD);
 
-  DEBUG_PRINT("[WiFi] Connecting to ");
-  DEBUG_PRINTLN(ssid);
+  DEBUG_PRINTLN("[WiFi] Connecting...");
 
   WiFi.mode(WIFI_AP_STA);
   // WiFi.setSleep(false) BILEREK KULLANILMIYOR: modem-sleep'i kapatmak WiFi
@@ -4647,17 +4648,46 @@ void wifi_connect() {
   // bir kez denenip bu riskten dolayi geri alindi. Besleme guclendirilirse
   // (kondansator/daha iyi adaptor) IR zamanlama iyilestirmesi icin tekrar
   // denenebilir, ama o zamana kadar KAPALI kalmali.
-  WiFi.softAP(AP_SSID, AP_PASSWORD, 6, 0, 4);
+  // WiFi.softAP sessizce basarisiz olabilir (ornegin AP_PASSWORD 8 karakterden
+  // kisaysa WPA2 gereksinimini karsilamaz) - donus degeri kontrol edilmezse
+  // cihaz farkedilmeden sifresiz/varsayilan (ESP_xxxxxx) AP'ye duser. Bir kez
+  // basimiza geldi (bkz proje hafizasi), o yuzden artik loglaniyor.
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, 6, 0, 4)) {
+    DEBUG_PRINTLN("[WiFi] UYARI: softAP baslatilamadi! (sifre >=8 karakter mi?)");
+  }
   WiFi.softAPConfig(
     IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
     IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
     IPAddress(255, 255, 255, 0)
   );
 
-  // Statik IP sadece varsayilan (config.h'daki) ag icin gecerli - farkli bir
-  // ag kaydedilirse o agin kendi DHCP'si kullanilir (sabit IP baglanti
-  // hatasina yol acabilirdi).
-  if (!ozelAg) {
+  // Ozel ag kaydedilmisse (web arayuzunden) sadece o denenir. Yoksa iki
+  // varsayilan ag da eklenir (WIFI_SSID/WIFI_SSID2) - WiFiMulti taranan
+  // aglar arasindan menzilde/bilinen olana (en guclu sinyalliye) baglanir.
+  if (ozelAg) {
+    wifiMulti.addAP(savedSSID.c_str(), savedPass.c_str());
+  } else {
+    wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
+    wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
+  }
+
+  int attempts = 0;
+  unsigned long start_ms = millis();
+  while (wifiMulti.run() != WL_CONNECTED && attempts < 20) {
+    if (millis() - start_ms > 100) {  // 100ms per attempt (no blocking)
+      DEBUG_PRINT(".");
+      attempts++;
+      start_ms = millis();
+      yield();  // ESP32 diğer görevleri yapsın
+    }
+  }
+
+  // Statik IP sadece varsayilan/birincil ag (WIFI_SSID) icin gecerli - hem
+  // ozel kaydedilmis ag hem de ikincil varsayilan ag (WIFI_SSID2, farkli bir
+  // fiziksel ag/router - orn. telefon hotspot'u) muhtemelen tamamen farkli
+  // bir subnet/gateway kullanir, config.h'daki sabit IP orada gecersiz olur
+  // ve baglantiyi bozar - o durumlarda DHCP'ye birakilir.
+  if (WiFi.status() == WL_CONNECTED && !ozelAg && WiFi.SSID() == String(WIFI_SSID)) {
     WiFi.config(
       IPAddress(WIFI_STATIC_IP_OCTET_1, WIFI_STATIC_IP_OCTET_2, WIFI_STATIC_IP_OCTET_3, WIFI_STATIC_IP_OCTET_4),
       IPAddress(WIFI_GATEWAY_OCTET_1, WIFI_GATEWAY_OCTET_2, WIFI_GATEWAY_OCTET_3, WIFI_GATEWAY_OCTET_4),
@@ -4665,21 +4695,6 @@ void wifi_connect() {
       IPAddress(WIFI_DNS1_OCTET_1, WIFI_DNS1_OCTET_2, WIFI_DNS1_OCTET_3, WIFI_DNS1_OCTET_4),
       IPAddress(WIFI_DNS2_OCTET_1, WIFI_DNS2_OCTET_2, WIFI_DNS2_OCTET_3, WIFI_DNS2_OCTET_4)
     );
-  }
-
-  if (ssid.length() > 0) {
-    WiFi.begin(ssid.c_str(), pass.c_str());
-
-    int attempts = 0;
-    unsigned long start_ms = millis();
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-      if (millis() - start_ms > 100) {  // 100ms per attempt (no blocking)
-        DEBUG_PRINT(".");
-        attempts++;
-        start_ms = millis();
-        yield();  // ESP32 diğer görevleri yapsın
-      }
-    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -4724,7 +4739,7 @@ void resetSebebiYazdir() {
 // ============================================================
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(1000);
   resetSebebiYazdir();
 
@@ -4753,6 +4768,17 @@ void setup() {
   // WiFi Connect
   wifi_connect();
   setup_ota();
+
+  // mDNS - MDNS_NAME zaten debug loglarinda/JSON'da "kalburum.local" olarak
+  // gosteriliyordu ama MDNS.begin() hic cagrilmiyordu, yani .local adresi
+  // gercekte hicbir zaman calismiyordu. AP modunda da (WiFi.softAP zaten
+  // basladi) STA baglantisi olmasa bile MDNS calisir.
+  if (MDNS.begin(MDNS_NAME)) {
+    MDNS.addService("http", "tcp", 80);
+    DEBUG_PRINT("[mDNS] Basladi: "); DEBUG_PRINT(MDNS_NAME); DEBUG_PRINTLN(".local");
+  } else {
+    DEBUG_PRINTLN("[mDNS] Baslatilamadi");
+  }
 
   // MQTT Setup
   if (ENABLE_MQTT) {
