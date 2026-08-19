@@ -182,7 +182,7 @@
 #define YEDEK_AKU_SARJ_KESME_V 14.4f
 #define YEDEK_AKU_SARJ_GERI_V 13.6f
 
-// ===== Konteyner Ek Sensorler (AHT10 + MQ3 + Alev) =====
+// ===== Konteyner Ek Sensorler (AHT10 + MQ3 + Duman Dedektoru) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
 // yerine elle CRC16, IRremote yerine ham kenar yakalama gibi) Wire.h ile elle
 // yazilir: tetikle (0xAC 0x33 0x00), 80ms bekle, 6 byte oku, 20-bit ham
@@ -194,18 +194,28 @@
 #define AHT10_I2C_ADDR 0x38
 #define AHT10_POLL_INTERVAL_MS 5000
 
-// MQ3 (gaz sensoru, kullanicida zaten var) - SADECE bilgi/gosterge amacli,
-// hicbir alarm/esik kararina BAGLANMAZ (kullanicinin acik istegi - "onemli
-// degil"). ADC1 kanali (ADC2 WiFi aktifken guvenilmez).
+// MQ3 (gaz sensoru) - artik alarma BAGLI (bkz config.h DUMAN_PIN yaninda
+// konteynerGazVar kullanimi, main.cpp). ADC1 kanali (ADC2 WiFi aktifken
+// guvenilmez). MQ3'un isitici elemani surekli guclendiginde onemli akim
+// cekiyor (gece batarya tuketimi icin kritik) - bu yuzden GUC DONGUSU
+// uygulanir: MQ3_POWER_PIN'den transistor/MOSFET uzerinden her
+// MQ3_CYCLE_MS'de bir MQ3_POWER_ON_MS kadar guc verilir, olcum alinir,
+// sonra tekrar kesilir (bkz main.cpp mq3Poll()).
 #define MQ3_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
+#define MQ3_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ3 VCC hattini anahtarlar
+#define MQ3_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
+#define MQ3_CYCLE_MS (10UL * 60UL * 1000UL)    // dongu periyodu - bu surenin MQ3_POWER_ON_MS'i acik, kalani kapali
 #define MQ3_POLL_INTERVAL_MS 5000
 
-// Basit IR alev sensoru - cogu modul ALEV VARKEN LOW cikis verir (aktif-LOW),
-// INPUT_PULLUP ile okunur. Mevcut Swan PIR deseniyle (konteynerSwanEtkin/
-// swanPirVar) birebir ayni sekilde alarm/telegram'a baglanir - panik gibi
-// anlik/moddan-bagimsiz DEGIL, kendi Etkin anahtarina tabi.
-#define ALEV_PIN 14
-#define ALEV_AKTIF_LOW true         // DOGRULA - modul tipine gore degisebilir
+// EFS-903R duman dedektoru - kendi ic rolesinin KURU KONTAGI (NO) buraya
+// baglanir, MOSFET/guc devresi YOK - dedektor duman algilayinca kontak GND'ye
+// kisa devre olup GPIO'yu LOW'a ceker (aktif-LOW), INPUT_PULLUP ile okunur.
+// Eskiden basit IR alev sensoru buradaydi, ayni elektriksel desen (aktif-LOW,
+// kuru kontak) korunarak sensor degistirildi. Mevcut Swan PIR deseniyle
+// (konteynerSwanEtkin/swanPirVar) birebir ayni sekilde alarm/telegram'a
+// baglanir - panik gibi anlik/moddan-bagimsiz DEGIL, kendi Etkin anahtarina tabi.
+#define DUMAN_PIN 14
+#define DUMAN_AKTIF_LOW true         // DOGRULA - role NO kontak varsayimiyla
 
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
@@ -225,7 +235,7 @@
 //                  GPIO21 (yukarida - Yedek Aku sarj rolesi/MOSFET cikisi)
 //                  GPIO11, GPIO12 (yukarida - AHT10 I2C SDA/SCL)
 //                  GPIO10 (yukarida - MQ3 analog giris, ADC1 kanali)
-//                  GPIO14 (yukarida - Alev sensoru dijital giris)
+//                  GPIO14 (yukarida - Duman sensoru dijital giris)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)

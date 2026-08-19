@@ -6,20 +6,36 @@ tags: [karar, alarm]
 
 ## Durum
 
-Kabul edildi
+Kabul edildi (2026-08-19'da güncellendi - desen değişti, mimari aynı kaldı)
 
 ## Bağlam
 
-Bir tetikleyici (kapı/PIR) başladığı anda siren doğrudan sürekli çalmaya başlıyordu - kısa/geçici tetiklenmelerde bile tam gürültü anında devreye giriyordu.
+Bir tetikleyici (kapı/PIR) başladığı anda siren doğrudan sürekli çalmaya başlıyordu - kısa/geçici tetiklenmelerde bile tam gürültü anında devreye giriyordu. İlk çözüm (2026-08-11, 1sn chirp/3sn gecikme) yeterince uzun bir doğrulama penceresi vermiyordu.
 
-## Karar
+## Karar (GÜNCEL - 2026-08-19)
 
-Panik hariç, bir tetikleyici episode'u başladığında siren ANINDA sürekli çalmaz: önce sadece 1 saniyelik kısa bir "chirp" çalar, sonra 3. saniyeye kadar sessiz kalır; tetikleyici hâlâ aktifse 3. saniyeden itibaren sürekli çalmaya başlar.
+Panik (ve artık gaz alarmı, bkz [[project_gaz_alarmi_susturma_ve_etkin_anahtari]]) hariç, bir tetikleyici episode'u başladığında siren şu **kademeli** deseni izler:
+- t=0: lamba hemen yanar (bu desenden BAĞIMSIZ, hep anında).
+- t=0..5sn: siren sessiz (ilk gecikme).
+- t=5sn'de 0.3sn'lik kısa bir "chirp".
+- chirp sonrası 10sn sessiz (bekleme).
+- tetikleyici hâlâ aktifse 5sn tam güçle çalar (aktif).
+- tetikleyici sürdükçe bu **10sn-bekle/5sn-aktif döngüsü** tekrarlanır.
+
+Tüm bu 4 süre (ilk gecikme, chirp süresi, bekleme süresi, aktif süre) artık web arayüzünden ayarlanabilir (NVS'de kalıcı) - eskiden `#define` sabitleriydi.
 
 ## Gerekçe
 
-Kısa/yanlışlıkla tetiklenmelerde (anlık kapı açılıp kapanması gibi) tam sirenin hemen gürlememesi için - "önce kısa bir uyarı, gerçekten uzun sürüyorsa tam alarm" mantığı, klasik alarm sistemlerindeki "giriş gecikmesi" konseptine benzer.
+Kısa/yanlışlıkla tetiklenmelerde tam sirenin hemen gürlememesi için. Eski 1sn/3sn deseni çok kısaydı; yeni 5sn+10sn'lik pencere, özellikle Konteyner PIR'ının kendi "Onay Süresi" (varsayılan 10sn) ile üst üste bindiğinde, kısa/yanlış hareketlerin tam siren çalmadan tamamen sönmesini sağlıyor.
 
 ## Sonuçlar
 
-Her iki zonda simetrik uygulandı: `konteynerSirenEpisodeMs`/`KONTEYNER_SIREN_CHIRP_SURE_MS`/`KONTEYNER_SIREN_GECIKME_SURE_MS` (ESP32), `sirenEpisodeBaslangicMs`/`SIREN_CHIRP_SURE_MS`/`SIREN_GECIKME_SURE_MS` (ESP8266). Lamba bu desenden etkilenmiyor, her zaman anında yanıyor (görsel uyarı gecikmemeli). Ayrıca: siren, panik hariç 2 dakika kesintisiz çalarsa otomatik susturulur (sensör arızası/unutulmuş tetiklenmeye karşı) - Konteyner'de bu ek olarak Telegram bildirimi de gönderir, Sudepo'da ESP8266'nın kendi Telegram entegrasyonu olmadığından sessizce susturulur.
+Her iki zonda simetrik uygulandı (faz-tabanlı state machine: 0=ilk gecikme,1=chirp,2=bekleme,3=aktif):
+- Konteyner/ESP32: `konteynerSirenGecikmeSaniye`/`konteynerSirenChirpMs`/`konteynerSirenBeklemeSaniye`/`konteynerSirenAktifSaniye` (NVS: `k_sir_gec`/`k_sir_chp`/`k_sir_bek`/`k_sir_akt`).
+- Sudepo/ESP8266: `ayar.sirenGecikmeSaniye`/`sirenChirpMs`/`sirenBeklemeSaniye`/`sirenAktifSaniye` (EEPROM struct alanı, EEPROM_MAGIC 0xA548→0xA549 - bu flaş kullanıcının TÜM Sudepo ayarlarını WiFi hariç fabrika değerine döndürdü, bilerek kabul edildi).
+
+Oto-sustur ölçümü (2dk kesintisiz çalarsa otomatik susturma) artık "kesintisiz çalma" yerine **epizot başlangıcından itibaren geçen TOPLAM süre** üzerinden yapılıyor - eski yöntem (chirp/bekleme aralıklarında sürekli sıfırlanan sayaç) yeni aralıklı desende asla 2dk'ya ulaşamıyordu, bu bug fark edilip düzeltildi.
+
+Lamba bu desenden hâlâ etkilenmiyor, her zaman anında yanıyor.
+
+Ayrıca aynı gün: Konteyner Ayarlar sayfasındaki "PIR Ayarları" kartı, artık siren zamanlamasını da içerdiği için "**Konteyner Alarm Ayarları**" olarak yeniden adlandırıldı.

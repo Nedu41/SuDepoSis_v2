@@ -411,7 +411,8 @@ bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
 // (pir2HareketVar) gibi yazilim tutma/onay suresine ihtiyaci yok, kendi
 // donanimsal debounce/pet-immunity'si var; kapi gibi ANINDA eskale eder.
 bool swanPirVar = false;
-bool konteynerAlevVar = false; // Basit IR alev sensoru - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok
+bool konteynerDumanVar = false; // EFS-903R duman dedektoru (kuru kontak rolesi) - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok
+bool konteynerGazVar = false; // MQ3 esik asildi mi - panik gibi ANINDA eskale eder (bkz alarmLedGuncelle, mq3Poll)
 bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
 bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
 unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an - 0 = HENUZ HIC true olmadi (sentinel, gercek bir zaman degil)
@@ -440,13 +441,10 @@ bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (L
 // (~600ms) ESP8266'nin kendi mute alaniyla eziliyor. Konteyner yerel
 // calistigindan (bkz PIR2 aciklamasi) kendi ayri, RS485'ten bagimsiz bayragi.
 bool konteynerSusturuldu = false;
-unsigned long konteynerSirenBaslangicMs = 0; // 0 = siren su an surekli calmiyor
 #define KONTEYNER_SIREN_MAX_MS (2UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi) otomatik susturulur
 unsigned long konteynerLambaMinSureBaslangicMs = 0; // 0 = MIN sure penceresi kapali
 #define KONTEYNER_LAMBA_MIN_SURE_MS (60UL * 1000UL) // alarm erken temizlense bile lamba en az bu kadar yanik kalir
-unsigned long konteynerSirenEpisodeMs = 0; // 0 = siren cikisi su an secili degil (bkz asagidaki chirp/gecikme deseni)
-#define KONTEYNER_SIREN_CHIRP_SURE_MS 1000UL   // ilk tetikte SADECE bu kadar kisa "chirp" calar
-#define KONTEYNER_SIREN_GECIKME_SURE_MS 3000UL // chirp sonrasi bu ana kadar sessiz - tetik hala surerse SUREKLI siren baslar
+unsigned long konteynerSirenEpisodeMs = 0; // 0 = siren cikisi su an secili degil (bkz asagidaki kademeli zamanlama deseni) - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir
 unsigned long konteynerLambaSurekliBaslangicMs = 0; // 0 = alarm-tetikli lamba su an surekli yanmiyor
 #define KONTEYNER_LAMBA_MAX_SURE_MS (10UL * 60UL * 1000UL) // alarm-tetikli lamba (manuel haric) bu kadar kesintisiz yanarsa zorla soner - enerji butcesi icin ust sinir
 bool konteynerOtoSusturBildirimBekliyor = false; // yukaridaki oto-sustur tetiklendiginde Telegram fonksiyonuna sinyal
@@ -486,6 +484,39 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
   ayarPrefs.end();
 }
 
+// Konteyner siren kademeli zamanlama ayari (NVS'de kalici, web'den
+// ayarlanabilir). Kullanici talebi ("yanlis tetiklerden etkilenmemek icin"):
+// lamba tetik aninda (t=0) hemen yanar (bu ayarlardan BAGIMSIZ, degismedi).
+// Siren ise: t=0..gecikmeSn sessiz, gecikmeSn..+chirpMs kisa "chirp",
+// chirp sonrasi beklemeSn sessiz, bekleme sonrasi aktifSn SUREKLI calar -
+// tetik surdukce bekleme/aktif dongusu (varsayilan 10+5=15sn) TEKRARLANIR.
+// Panik bu mantigi tamamen ATLAR (bkz alarmLedGuncelle, ayri dal).
+uint16_t konteynerSirenGecikmeSaniye = 5;   // ilk chirp'e kadar bekleme (tetik baslangicindan itibaren)
+uint16_t konteynerSirenChirpMs = 300;       // chirp suresi (ms)
+uint16_t konteynerSirenBeklemeSaniye = 10;  // chirp/aktif-periyot sonrasi sessizlik
+uint16_t konteynerSirenAktifSaniye = 5;     // dongudeki tam-aktif kalma suresi
+
+void konteynerSirenAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerSirenGecikmeSaniye = ayarPrefs.getUShort("k_sir_gec", 5);
+  konteynerSirenChirpMs = ayarPrefs.getUShort("k_sir_chp", 300);
+  konteynerSirenBeklemeSaniye = ayarPrefs.getUShort("k_sir_bek", 10);
+  konteynerSirenAktifSaniye = ayarPrefs.getUShort("k_sir_akt", 5);
+  ayarPrefs.end();
+}
+void konteynerSirenAyarKaydet(uint16_t gecikmeSn, uint16_t chirpMs, uint16_t beklemeSn, uint16_t aktifSn) {
+  konteynerSirenGecikmeSaniye = gecikmeSn;
+  konteynerSirenChirpMs = chirpMs;
+  konteynerSirenBeklemeSaniye = beklemeSn;
+  konteynerSirenAktifSaniye = aktifSn;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putUShort("k_sir_gec", gecikmeSn);
+  ayarPrefs.putUShort("k_sir_chp", chirpMs);
+  ayarPrefs.putUShort("k_sir_bek", beklemeSn);
+  ayarPrefs.putUShort("k_sir_akt", aktifSn);
+  ayarPrefs.end();
+}
+
 // Her Konteyner sensoru (PIR2, kapi reed, Swan PIR) ayri ayri aktif/pasif
 // yapilabilir - konteynerAlarmEtkin (zon geneli) bunun ustunde, o kapaliysa
 // hepsi zaten devre disi. Kullanici talebi: Swan PIR henuz donanima
@@ -495,25 +526,47 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
 bool konteynerPirEtkin = true;
 bool konteynerKapiEtkin = true;
 bool konteynerSwanEtkin = true;
-bool konteynerAlevEtkin = true;
+bool konteynerDumanEtkin = true;
+bool konteynerGazEtkin = true;
 void konteynerSensorAktifYukle() {
   ayarPrefs.begin("ayarlar", true);
   konteynerPirEtkin = ayarPrefs.getBool("k_pir_en", true);
   konteynerKapiEtkin = ayarPrefs.getBool("k_kapi_en", true);
   konteynerSwanEtkin = ayarPrefs.getBool("k_swan_en", true);
-  konteynerAlevEtkin = ayarPrefs.getBool("k_alev_en", true);
+  konteynerDumanEtkin = ayarPrefs.getBool("k_duman_en", true);
+  konteynerGazEtkin = ayarPrefs.getBool("k_gaz_en", true);
   ayarPrefs.end();
 }
-void konteynerSensorAktifKaydet(bool pirEtkin, bool kapiEtkin, bool swanEtkin, bool alevEtkin) {
+void konteynerSensorAktifKaydet(bool pirEtkin, bool kapiEtkin, bool swanEtkin, bool dumanEtkin, bool gazEtkin) {
   konteynerPirEtkin = pirEtkin;
   konteynerKapiEtkin = kapiEtkin;
   konteynerSwanEtkin = swanEtkin;
-  konteynerAlevEtkin = alevEtkin;
+  konteynerDumanEtkin = dumanEtkin;
+  konteynerGazEtkin = gazEtkin;
   ayarPrefs.begin("ayarlar", false);
   ayarPrefs.putBool("k_pir_en", pirEtkin);
   ayarPrefs.putBool("k_kapi_en", kapiEtkin);
   ayarPrefs.putBool("k_swan_en", swanEtkin);
-  ayarPrefs.putBool("k_alev_en", alevEtkin);
+  ayarPrefs.putBool("k_duman_en", dumanEtkin);
+  ayarPrefs.putBool("k_gaz_en", gazEtkin);
+  ayarPrefs.end();
+}
+
+// MQ3 gaz esigi (Volt) - NVS'de kalici, web'den ayarlanabilir. Varsayilan
+// KONSERVATIF/tahmini bir deger - MQ3'un kalibrasyon potu olmadigindan
+// (bu projede sadece ham ADC/volt okunuyor) sahada gercek gaz kaynagiyla
+// (cakmak gazi vb.) test edilip DOGRULANMALI, tetiklenmiyorsa dusurulmeli/
+// yanlis tetikliyorsa yukseltilmeli.
+float konteynerGazEsikVolt = 2.0f;
+void konteynerGazAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerGazEsikVolt = ayarPrefs.getFloat("k_gaz_esik", 2.0f);
+  ayarPrefs.end();
+}
+void konteynerGazAyarKaydet(float esikVolt) {
+  konteynerGazEsikVolt = esikVolt;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putFloat("k_gaz_esik", esikVolt);
   ayarPrefs.end();
 }
 
@@ -584,6 +637,8 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
+  pinMode(MQ3_POWER_PIN, OUTPUT);
+  digitalWrite(MQ3_POWER_PIN, LOW); // ilk dongu mq3Poll()'da baslar, o ana kadar kapali
   // INPUT_PULLDOWN denendi (float pin teorisiyle) ama kablo saglam oldugu
   // halde gercek hareketi de algilamaz hale getirdi (muhtemelen sensorun
   // zayif suruculu ciktisiyla dahili pull-down'in gerilim bolucu gibi
@@ -597,9 +652,9 @@ void konteynerDonanimiInit() {
   // Swan Quad PET PIR - reed switch ile ayni sekilde NC/COM kontak, kablolama
   // yonune gore ters gerekebilir (bkz SWAN_PIR_PIN yorumu, config.h).
   pinMode(SWAN_PIR_PIN, INPUT_PULLUP);
-  pinMode(ALEV_PIN, INPUT_PULLUP); // ALEV_AKTIF_LOW varsayimiyla (bkz config.h)
+  pinMode(DUMAN_PIN, INPUT_PULLUP); // DUMAN_AKTIF_LOW varsayimiyla (bkz config.h)
   irAliciBaslat(); // bkz asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumu
-  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/Alev hazir");
+  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/Duman hazir");
 }
 
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
@@ -616,41 +671,84 @@ void alarmLedGuncelle() {
   static unsigned long sonDegisimMs = 0;
   static bool onBipAktif = false;
   static unsigned long onBipBaslangicMs = 0;
+  static uint8_t sirenFaz = 0;          // 0=ilk gecikme,1=chirp,2=bekleme,3=aktif
+  static unsigned long sirenFazBaslangicMs = 0;
 
-  // Panik (elle acilan), sistemdeki DIGER tum panik kontrolleriyle (yerel
-  // LED+buzzer, Telegram, banner) TUTARLI olarak enabled/mod'dan BAGIMSIZ -
-  // "her seyin onunde calisir, elle ac/kapat anahtari gibi" davranisiyla
-  // Konteyner siren+lambasini da dogrudan (Sesli gibi) tetikler.
-  bool konteynerEskaleVar = alarmStatus.panic_mode || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerAlevEtkin && konteynerAlevVar)));
+  // Panik (elle acilan) VE gaz alarmi (MQ3 esigi asildi) - ikisi de enabled/
+  // mod'dan BAGIMSIZ, kademeli siren deseni ATLANIR, aninda surekli calar.
+  // Gaz icin bu kasitli tercih (kullanici talebi): parlayici/patlayici gaz
+  // birikiminde "dogrulama gecikmesi" (chirp/onay) guvenlik acisindan riskli,
+  // aninda uyarmak gerekir. FIX: konteynerGazEtkin burada da (mq3Poll()'daki
+  // gibi) kontrol edilir - MQ3 guc dongusunde CoGU zaman kapali oldugundan
+  // (10dk'da 60sn acik) konteynerGazVar sadece o kisa pencerede yeniden
+  // hesaplaniyor; kullanici sensoru pasif yaparsa bu degisikligin sonraki
+  // guc dongusune kadar (10dk'ya kadar) gec yansimasi yerine BURADA aninda
+  // etkili olmasi saglanir.
+  bool konteynerAcilDurum = alarmStatus.panic_mode || (konteynerGazEtkin && konteynerGazVar);
+  bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerDumanEtkin && konteynerDumanVar)));
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
   // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
-  // siren'i kessin, lamba yansin").
+  // siren'i kessin, lamba yansin"). Panik/gaz icin susturma zaten asagida
+  // (konteynerBuzzerVar hesabinda) tamamen bypass edilir.
   bool konteynerCikisIstenir = false;
   if (konteynerEskaleVar) {
-    if (alarmStatus.panic_mode) konteynerCikisIstenir = true; // Panik - susturmadan bagimsiz
+    if (konteynerAcilDurum) konteynerCikisIstenir = true; // Panik/gaz - susturmadan bagimsiz
     else if (alarmStatus.mode == 1) konteynerCikisIstenir = true; // Sesli
     else if (alarmStatus.mode == 3) konteynerCikisIstenir = konteynerOnayVerildi; // Onayli - onaydan sonra
-    // mode==2 (Sessiz) ve panik degilse: false kalir, Telegram/banner yine de calisir
+    // mode==2 (Sessiz) ve panik/gaz degilse: false kalir, Telegram/banner yine de calisir
   }
-  // Siren icin chirp+gecikme deseni (kullanici talebi): panik disinda ilk
-  // tetikte SADECE 1sn kisa "chirp" calar, sonra 3sn'ye kadar sessiz kalir -
-  // tetik hala suruyorsa o andan itibaren SUREKLI calar. Panik bu deseni
-  // atlar, aninda surekli.
+  // Siren icin kademeli zamanlama deseni (kullanici talebi, "yanlis
+  // tetiklerden etkilenmemek icin"): panik/gaz disinda tetik baslangicindan
+  // konteynerSirenGecikmeSaniye sonra kisa konteynerSirenChirpMs'lik bir
+  // "chirp" calar, sonra konteynerSirenBeklemeSaniye sessiz kalir - tetik
+  // hala suruyorsa konteynerSirenAktifSaniye boyunca SUREKLI calar; bu
+  // bekleme/aktif dongusu tetik bitene kadar TEKRARLANIR. Panik/gaz bu
+  // deseni atlar, aninda surekli.
   bool konteynerSirenRawHedef;
-  if (alarmStatus.panic_mode) {
+  if (konteynerAcilDurum) {
     konteynerSirenRawHedef = konteynerCikisIstenir;
-    konteynerSirenEpisodeMs = 0; // sonraki normal (panik-disi) tetiklenme sifirdan baslasin
+    konteynerSirenEpisodeMs = 0; // sonraki normal (panik/gaz-disi) tetiklenme sifirdan baslasin
+    sirenFaz = 0; sirenFazBaslangicMs = 0;
   } else if (konteynerCikisIstenir) {
-    if (konteynerSirenEpisodeMs == 0) konteynerSirenEpisodeMs = millis();
-    unsigned long gecen = millis() - konteynerSirenEpisodeMs;
-    if (gecen < KONTEYNER_SIREN_CHIRP_SURE_MS) konteynerSirenRawHedef = true;
-    else if (gecen < KONTEYNER_SIREN_GECIKME_SURE_MS) konteynerSirenRawHedef = false;
-    else konteynerSirenRawHedef = true;
+    if (konteynerSirenEpisodeMs == 0) {
+      konteynerSirenEpisodeMs = millis();
+      sirenFaz = 0;
+      sirenFazBaslangicMs = konteynerSirenEpisodeMs;
+    }
+    unsigned long simdiMs = millis();
+    unsigned long gecikmeMs = (unsigned long)konteynerSirenGecikmeSaniye * 1000UL;
+    unsigned long chirpMs = (unsigned long)konteynerSirenChirpMs;
+    unsigned long beklemeMs = (unsigned long)konteynerSirenBeklemeSaniye * 1000UL;
+    unsigned long aktifMs = (unsigned long)konteynerSirenAktifSaniye * 1000UL;
+    switch (sirenFaz) {
+      case 0: // ilk gecikme - sessiz
+        konteynerSirenRawHedef = false;
+        if (simdiMs - sirenFazBaslangicMs >= gecikmeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
+        break;
+      case 1: // chirp - kisa aktif
+        konteynerSirenRawHedef = true;
+        if (simdiMs - sirenFazBaslangicMs >= chirpMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+        break;
+      case 2: // bekleme (chirp sonrasi VEYA aktif-periyot sonrasi) - sessiz
+        konteynerSirenRawHedef = false;
+        if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 3; sirenFazBaslangicMs = simdiMs; }
+        break;
+      default: // 3: tam aktif
+        konteynerSirenRawHedef = true;
+        if (simdiMs - sirenFazBaslangicMs >= aktifMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+        break;
+    }
   } else {
     konteynerSirenEpisodeMs = 0;
+    sirenFaz = 0; sirenFazBaslangicMs = 0;
     konteynerSirenRawHedef = false;
   }
-  // Siren: hedef durum (chirp deseni uygulanmis) VE (panik VEYA susturulmamis).
+  // Siren: hedef durum (kademeli zamanlama uygulanmis) VE (panik VEYA susturulmamis).
+  // FIX (kullanici bulgusu): gaz alarmi da konteynerAcilDurum'a dahil oldugu
+  // icin susturmayi ATLIYORDU - "Sustur" basildiginda siren susmuyordu.
+  // Panik (elle acilan, kullanicinin kendi ac/kapa anahtari) susturmadan
+  // BAGIMSIZ kalmaya devam eder, ama gaz OTOMATIK bir sensor tetiklemesi -
+  // diger tum otomatik tetikleyiciler (PIR/kapi/duman) gibi susturulabilmeli.
   bool konteynerBuzzerVar = konteynerSirenRawHedef && (alarmStatus.panic_mode || !konteynerSusturuldu);
 
   // Lamba icin MIN sure: alarm/kapi/PIR erken temizlense bile (Sustur
@@ -670,8 +768,8 @@ void alarmLedGuncelle() {
   // manuel HARIC) kesintisiz KONTEYNER_LAMBA_MAX_SURE_MS'i (10dk) asarsa
   // zorla soner - siren'deki 2dk oto-sustur deseniyle simetrik.
   bool konteynerAlarmLambaHam = konteynerCikisIstenirTutulmus || konteynerLambaOnayVerildi;
-  if (alarmStatus.panic_mode) {
-    konteynerLambaSurekliBaslangicMs = 0; // panik disinda yeni bir normal tetiklenme sifirdan baslasin
+  if (konteynerAcilDurum) {
+    konteynerLambaSurekliBaslangicMs = 0; // panik/gaz disinda yeni bir normal tetiklenme sifirdan baslasin
   } else if (konteynerAlarmLambaHam) {
     if (konteynerLambaSurekliBaslangicMs == 0) konteynerLambaSurekliBaslangicMs = millis();
     else if (millis() - konteynerLambaSurekliBaslangicMs > KONTEYNER_LAMBA_MAX_SURE_MS) konteynerAlarmLambaHam = false;
@@ -680,17 +778,18 @@ void alarmLedGuncelle() {
   }
 
   // Sensor arizasi/unutulmus tetiklenmede siren SINIRSIZ calmasin diye
-  // kesintisiz KONTEYNER_SIREN_MAX_MS'i asarsa otomatik susturulur (panik
-  // haric - o elle ac/kapat, kullanicinin kendi muhakemesine birakilir).
-  if (konteynerBuzzerVar && !alarmStatus.panic_mode) {
-    if (konteynerSirenBaslangicMs == 0) konteynerSirenBaslangicMs = millis();
-    else if (millis() - konteynerSirenBaslangicMs > KONTEYNER_SIREN_MAX_MS) {
+  // EPIZOT BASLANGICINDAN itibaren gecen TOPLAM sure KONTEYNER_SIREN_MAX_MS'i
+  // asarsa otomatik susturulur (panik/gaz haric - bunlar elle ac/kapat ya da
+  // gaz kaynagi giderilene kadar kendiliginden susmamali). Kademeli zamanlama
+  // nedeniyle konteynerBuzzerVar bekleme fazlarinda sik sik false oldugundan,
+  // olcum "kesintisiz calma" yerine konteynerSirenEpisodeMs referans alinarak
+  // yapilir (aksi halde 2dk'ya asla ulasilamaz).
+  if (konteynerSirenEpisodeMs != 0 && !konteynerAcilDurum) {
+    if (millis() - konteynerSirenEpisodeMs > KONTEYNER_SIREN_MAX_MS) {
       konteynerSusturuldu = true;
       konteynerBuzzerVar = false;
       konteynerOtoSusturBildirimBekliyor = true;
     }
-  } else {
-    konteynerSirenBaslangicMs = 0;
   }
 
   // Siren + Lamba (ALARM_LED_PIN'deki kucuk LED+buzzer'dan AYRI, gercek role
@@ -754,8 +853,8 @@ void konteynerSensorleriOku() {
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   bool swanOncekiDurum = swanPirVar;
   swanPirVar = (digitalRead(SWAN_PIR_PIN) == HIGH);
-  bool alevOncekiDurum = konteynerAlevVar;
-  konteynerAlevVar = ALEV_AKTIF_LOW ? (digitalRead(ALEV_PIN) == LOW) : (digitalRead(ALEV_PIN) == HIGH);
+  bool dumanOncekiDurum = konteynerDumanVar;
+  konteynerDumanVar = DUMAN_AKTIF_LOW ? (digitalRead(DUMAN_PIN) == LOW) : (digitalRead(DUMAN_PIN) == HIGH);
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
 
   // Devre disi birakilan sensorler HAM okumaya devam eder (tani/gosterge
@@ -765,15 +864,15 @@ void konteynerSensorleriOku() {
   // asagidaki reset kosulunu sonsuza kadar engellerdi).
   bool kapiEfektif = konteynerKapiEtkin && kapi2Acik;
   bool swanEfektif = konteynerSwanEtkin && swanPirVar;
-  bool alevEfektif = konteynerAlevEtkin && konteynerAlevVar;
+  bool dumanEfektif = konteynerDumanEtkin && konteynerDumanVar;
 
-  // Kapi, Swan PIR ve Alev ANLIK/kesin tetikleyiciler (PIR2'deki gibi bir
+  // Kapi, Swan PIR ve Duman ANLIK/kesin tetikleyiciler (PIR2'deki gibi bir
   // "onay suresi" beklemesi gerekmiyor - bkz PIR eskalasyon yorumu asagida) -
   // bu yuzden Onayli modda yukselen kenarda DOGRUDAN onay beklemeye alinir.
   // ONCEDEN BUG (kapi icin): bu blok hic yoktu, sadece PIR'in kendi "bolum"
   // takibi konteynerOnayBekleniyor'u set ediyordu - PIR hic tetiklenmeden
   // sadece kapi acilirsa Onayli modda alarm sessizce hicbir sey yapmiyordu.
-  if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum) || (alevEfektif && !alevOncekiDurum)) && alarmStatus.mode == 3) {
+  if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum) || (dumanEfektif && !dumanOncekiDurum)) && alarmStatus.mode == 3) {
     konteynerOnayBekleniyor = true;
   }
 
@@ -973,7 +1072,7 @@ const char* alarmTetikleyiciAdlari[6] = {"Sudepo: Sol Kapi", "Sudepo: Sag Kapi",
 // ESP32'nin yerel Konteyner sensorleri (PIR2 + kapi reed) - ESP8266
 // bitmask'ina karistirilmiyor (o mask ESP8266'nin kendi kodlamasi, ileride
 // cakisma riski olmasin diye ayri tutuluyor).
-String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false, bool konteynerKapi = false, bool konteynerSwan = false, bool konteynerAlev = false) {
+String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false, bool konteynerKapi = false, bool konteynerSwan = false, bool konteynerDuman = false, bool konteynerGaz = false) {
   if (panik) return "Panik (elle acildi)";
   String s = "";
   for (int i = 0; i < 6; i++) {
@@ -994,9 +1093,13 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false,
     if (s.length() > 0) s += ", ";
     s += "Konteyner: Swan PIR";
   }
-  if (konteynerAlev) {
+  if (konteynerDuman) {
     if (s.length() > 0) s += ", ";
-    s += "Konteyner: Alev/Duman";
+    s += "Konteyner: Duman";
+  }
+  if (konteynerGaz) {
+    if (s.length() > 0) s += ", ";
+    s += "Konteyner: Gaz (MQ3)";
   }
   return s.length() > 0 ? s : "Bilinmiyor";
 }
@@ -1057,8 +1160,11 @@ void telegramAlarmKontrolEt() {
   bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
   bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && swanPirVar;
-  bool konteynerAlevTetik = konteynerAlarmEtkin && konteynerAlevEtkin && konteynerAlevVar;
-  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerAlevTetik;
+  bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
+  // Gaz (MQ3), panik gibi konteynerAlarmEtkin'den BAGIMSIZ (bkz alarmLedGuncelle
+  // konteynerAcilDurum) - burada da ayni sekilde zon ac/kapa anahtarina bakmaz.
+  bool konteynerGazTetik = konteynerGazEtkin && konteynerGazVar;
+  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanTetik || konteynerGazTetik;
   bool alarmVar = anyAlarm || alarmStatus.pending;
 
   if (!telegramBildirimAktif) {
@@ -1071,7 +1177,7 @@ void telegramAlarmKontrolEt() {
     // Yeni alarm basladi - mesaj hazirla, ilk denemeyi hemen yap.
     String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" :
                      (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
-    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerAlevTetik);
+    telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerDumanTetik, konteynerGazTetik);
     telegramBekleyenVar = true;
     telegramIlkDenemeMs = millis();
   }
@@ -1684,24 +1790,50 @@ void ahtPoll() {
 }
 
 // ============================================================
-// MQ3 (analog gaz sensoru, kullanicida zaten var) - SADECE bilgi/gosterge
-// amacli, hicbir alarm/esik kararina baglanmaz (kullanicinin acik istegi).
+// MQ3 (analog gaz sensoru) - artik alarma BAGLI (kullanici talebi: parlayici/
+// patlayici gaz riski nedeniyle gaz esigi asilinca Konteyner alarmini
+// tetikler, bkz alarmLedGuncelle() konteynerGazVar kullanimi). Esik
+// konteynerGazEsikVolt (NVS, web'den ayarlanabilir), etkin/pasif anahtari
+// konteynerGazEtkin.
 // ============================================================
 struct Mq3Data {
   int raw = 0;
   float volt = 0.0;
   unsigned long last_update_ms = 0;
+  bool powered = false; // MQ3_POWER_PIN'in guncel durumu (durumJson icin, kullaniciya "neden deger degismiyor" belirsizligini onlemek icin)
 };
 Mq3Data mq3Data;
 
+// Guc dongusu: her MQ3_CYCLE_MS'de bir MQ3_POWER_PIN uzerinden MQ3'e
+// MQ3_POWER_ON_MS kadar guc verilir (isinma+olcum penceresi), o pencere
+// icinde MQ3_POLL_INTERVAL_MS'de bir analogRead alinir, pencere bitince guc
+// kesilir. Kapali kaldigi surece mq3Data/konteynerGazVar SON OLCULEN degeri
+// korur (diger Konteyner sensorlerindeki "son bilinen deger" deseniyle
+// tutarli) - gunduz/gece ayrimi yok, kullanici talebi geceye ozel degil,
+// her zaman ayni 10dk/60sn dongusu.
 void mq3Poll() {
+  unsigned long now = millis();
+  static unsigned long cycleStart = 0;
+  unsigned long gecenDongu = now - cycleStart;
+  if (gecenDongu >= MQ3_CYCLE_MS) {
+    cycleStart = now;
+    gecenDongu = 0;
+  }
+  bool acikOlmali = gecenDongu < MQ3_POWER_ON_MS;
+  if (acikOlmali != mq3Data.powered) {
+    mq3Data.powered = acikOlmali;
+    digitalWrite(MQ3_POWER_PIN, mq3Data.powered ? HIGH : LOW);
+  }
+  if (!mq3Data.powered) return; // kapaliyken okuma alinmaz, son deger korunur
+
   static unsigned long lastPoll = 0;
-  if (millis() - lastPoll < MQ3_POLL_INTERVAL_MS) return;
-  lastPoll = millis();
+  if (now - lastPoll < MQ3_POLL_INTERVAL_MS) return;
+  lastPoll = now;
 
   mq3Data.raw = analogRead(MQ3_ADC_PIN);
   mq3Data.volt = (mq3Data.raw / 4095.0f) * 3.3f;
-  mq3Data.last_update_ms = millis();
+  mq3Data.last_update_ms = now;
+  konteynerGazVar = konteynerGazEtkin && (mq3Data.volt >= konteynerGazEsikVolt);
 }
 
 // bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
@@ -2014,7 +2146,7 @@ void handleRoot() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>SuDepoSis - Merkez Kontrol</title>
+<title>Kalburum - Merkez Kontrol</title>
 <style>
 :root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--shadow:0 1px 3px rgba(0,0,0,.1)}
 @media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--shadow:0 1px 3px rgba(0,0,0,.4)}}
@@ -2052,6 +2184,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .status{display:inline-flex;align-items:center;gap:6px;font-weight:600}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--muted)}
 .dot.active{background:var(--accent)}
+.dot.warn{background:var(--warn)}
 .dot.alarm{background:var(--danger);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
 #alarm-banner{background:var(--danger-bg);color:var(--danger);border:2px solid var(--danger);padding:16px;border-radius:12px;margin-bottom:14px;font-weight:700;font-size:16px;text-align:center;animation:pulse 1.2s infinite}
@@ -2078,7 +2211,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 <div class="container">
   <div class="header">
     <div>
-      <h1>SuDepoSis Merkez Kontrol</h1>
+      <h1>Kalburum Merkez Kontrol</h1>
       <div class="meta">ESP32-S3 Master • RS485 Hub</div>
     </div>
     <div style="text-align:right">
@@ -2103,7 +2236,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="card"><h3>Depo Doluluk</h3><div class="kpi" id="kpi-pct">--</div><div class="bar"><div id="bar-pct"></div></div></div>
       <div class="card"><h3>Seviye</h3><div class="kpi" id="kpi-cm">--</div><small>cm</small></div>
       <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div><small>Litre</small></div>
-      <div class="card"><h3>Sıcaklık</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small></div>
+      <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
       <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
@@ -2302,14 +2435,15 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </details>
 
     <details class="card zone-konteyner" open>
-      <summary>👁️ Konteyner Zonu - PIR Ayarları</summary>
+      <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505) artık genel <b>Alarm Modu</b>'na (Sesli/Sessiz/Onaylı) uyar, Telegram ve büyük uyarı banner'ına da yansır - Sudepo Zonu ile aynı ortak sistemi kullanır.</p>
       <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı hareketin büyüklüğüne bakmaksızın sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı). Bu yüzden "hassasiyet" iki kademeli süre mantığıyla ayarlanır: <b>1)</b> her yeni harekette hemen 1sn'lik kısa bir bip/LED darbesi verilir (henüz alarm değil, sadece "sensör gördü" işareti); <b>2)</b> hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır ve Alarm Modu'na göre tepki verir. Kısa/ufak/tek seferlik kıpırdamalar böylece sadece bir bip ile geçer, Telegram/siren tetiklemez.</p>
       <div class="row" style="gap:16px">
         <div>Hareket: <b id="kz-pir">-</b></div>
         <div>Swan PIR: <b id="kz-swan">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
-        <div>Alev: <b id="kz-alev">-</b></div>
+        <div>Duman: <b id="kz-duman">-</b></div>
+        <div>Gaz (MQ3): <b id="kz-gaz">-</b></div>
         <div>Yerel Uyarı (LED/Buzzer): <b id="kz-alarm">-</b></div>
         <div>Siren: <b id="kz-siren">-</b></div>
         <div>Lamba: <b id="kz-lamba">-</b></div>
@@ -2318,19 +2452,32 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> PIR2 Aktif</label>
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
-        <label><input type="checkbox" id="kz_alevEtkin" onchange="konteynerSensorAktifKaydet()"> Alev Sensörü Aktif</label>
+        <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
+        <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ3) Alarmı Aktif</label>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "Hareket/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
       <div class="row" style="gap:16px;margin-top:10px">
         <div>Sıcaklık: <b id="kz-sicaklik">-</b></div>
         <div>Nem: <b id="kz-nem">-</b></div>
-        <div style="font-size:12px;color:var(--muted)">MQ3 (gösterge): <b id="kz-mq3">-</b></div>
+        <div style="font-size:12px;color:var(--muted)">MQ3: <b id="kz-mq3">-</b></div>
       </div>
+      <div class="sz-grid" style="margin-top:10px">
+        <div><label class="sz-label">Gaz Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_gazEsik" onchange="konteynerGazAyarKaydet()"></div>
+      </div>
+      <p style="font-size:11px;color:var(--warn);margin-top:4px"><b>Not:</b> MQ3'ün kalibrasyon potu olmadığından bu eşik tahmini bir varsayılan - sahada gerçek bir gaz kaynağıyla (örn. çakmak gazı, kısa süreli ve güvenli mesafeden) test edip gerekirse yükseltin/düşürün. Gaz alarmı panik gibi davranır: mod/susturma/kademeli siren deseninden bağımsız anında tam güçle çalar (parlayıcı/patlayıcı gaz riskinde gecikme istenmez).</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ3'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - her 10 dk'da bir 60sn açılıp değer okunur, sonra kapanır. Bu yüzden gösterilen değer en fazla 10 dk eski olabilir.</p>
       <div class="sz-grid" style="margin-top:10px">
         <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
         <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği. Değer girip alandan çıkınca otomatik kaydedilir.</p>
+      <div class="sz-grid" style="margin-top:10px">
+        <div><label class="sz-label">Siren İlk Gecikme (sn)</label><input class="input" type="number" min="0" max="120" id="kz_sirGecikme" onchange="konteynerSirenAyarKaydet()"></div>
+        <div><label class="sz-label">Chirp Süresi (ms)</label><input class="input" type="number" min="50" max="5000" id="kz_sirChirp" onchange="konteynerSirenAyarKaydet()"></div>
+        <div><label class="sz-label">Siren Bekleme (sn)</label><input class="input" type="number" min="1" max="120" id="kz_sirBekleme" onchange="konteynerSirenAyarKaydet()"></div>
+        <div><label class="sz-label">Siren Aktif Süre (sn)</label><input class="input" type="number" min="1" max="120" id="kz_sirAktif" onchange="konteynerSirenAyarKaydet()"></div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">Lamba tetikte hemen yanar. Siren, İlk Gecikme sonra kısa bir Chirp verir, sonra Bekleme Süresi sessiz kalır; tetik hâlâ sürüyorsa Aktif Süre boyunca tam çalar - bu Bekleme+Aktif döngüsü tetik bitene kadar tekrarlar. Panik/gaz alarmı bu mantığı atlar (anında sürekli). Amaç: kısa/yanlış tetiklerin tam siren çalmadan sona ermesi.</p>
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
@@ -2474,16 +2621,16 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
         <tr><td>RX (UART2)</td><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT ucu bu pine (MAX3232 çip pin adı - modül silkscreen'i "TX"/"RX" farklı yazabilir, işleve göre bağlayın) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı. MPPT'nin portu RS485 DEĞİL, RS232 (bkz not) - MAX485 kullanılmaz. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı.</td></tr>
         <tr><td>TX (UART2)</td><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ucu bu pine</td></tr>
-        <tr><td>-</td><td>42</td><td>-</td><td>Serbest — RS232'de DE/RE (yön) pini yok, ihtiyaç yok</td></tr>
         <tr><td>ADC1</td><td>2</td><td>Yedek Akü (gerilim bölücü)</td><td>3x12V paralel yedek akü bankasının voltajını izler — salt-okunur, hiçbir röleyi tetiklemez</td></tr>
         <tr><td>-</td><td>21</td><td>Yedek Akü Şarj Rölesi</td><td>Ana 24V hattan yedek bankaya şarj yolu — sadece gündüz/güneş varken (MPPT <code>pv_power</code>) HIGH</td></tr>
         <tr><td>I2C SDA</td><td>11</td><td>AHT10 (Sıcaklık/Nem)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
         <tr><td>I2C SCL</td><td>12</td><td>AHT10 (Sıcaklık/Nem)</td><td>-</td></tr>
-        <tr><td>ADC1</td><td>10</td><td>MQ3 (gaz sensörü)</td><td>Sadece bilgi/gösterge amaçlı, alarma bağlı değil</td></tr>
-        <tr><td>-</td><td>14</td><td>Alev Sensörü (IR)</td><td>Aktif-LOW, INPUT_PULLUP — Swan PIR ile aynı desende alarm/Telegram'a bağlı</td></tr>
+        <tr><td>ADC1</td><td>10</td><td>MQ3 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
+        <tr><td>-</td><td>16</td><td>MQ3 Güç Kontrolü (MOSFET/transistör modül)</td><td>MQ3'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10 dk'da bir 60sn açılıp kapanır - modülün sinyal ucu bu pine</td></tr>
+        <tr><td>-</td><td>14</td><td>Duman Sensörü (EFS-903R, kuru kontak röle)</td><td>Aktif-LOW, INPUT_PULLUP — Swan PIR ile aynı desende alarm/Telegram'a bağlı</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 16, 17, 18, 33, 34, 36, 42. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 17, 18, 33, 34, 36, 42. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
     </details>
 
     <details class="card zone-sudepo">
@@ -2511,7 +2658,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>D1 (TX)</td><td>ESP8266 RX</td><td>Seri haberleşme</td></tr>
         <tr><td>D2</td><td>Kapı 1 sensör</td><td>INPUT_PULLUP</td></tr>
         <tr><td>D3</td><td>Kapı 2 sensör</td><td>INPUT_PULLUP</td></tr>
-        <tr><td>D4</td><td>Alarm rölesi</td><td>OUTPUT (HIGH=aktif)</td></tr>
+        <tr><td>D4</td><td>Alarm rölesi</td><td>OUTPUT (varsayılan LOW=aktif, NC röle) - polarite web'den (/role/polarite) çalışırken de değiştirilip EEPROM'a kalıcı yazılabilir</td></tr>
         <tr><td>D5</td><td>Nem rölesi</td><td>OUTPUT</td></tr>
         <tr><td>D6</td><td>PIR HC-SR501 hareket sensörü</td><td>INPUT - ESP8266 PIN_READ:6 ile okur (Nano kodu değişmez)</td></tr>
         <tr><td>D7-D12</td><td>Yedek GPIO</td><td>ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik</td></tr>
@@ -2537,7 +2684,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     <details class="card" open>
       <summary>Kullanım Kılavuzu</summary>
       <div style="font-size:13px;line-height:1.6">
-        <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer). Bu mod artık hem Sudepo Zonu hem Kalburum/Konteyner için ORTAK - Konteyner PIR'ı eskale olup gerçek alarma dönüştüğünde de aynı moda göre davranır (bkz Ayarlar → Konteyner Zonu PIR Ayarları).</p>
+        <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer). Bu mod artık hem Sudepo Zonu hem Kalburum/Konteyner için ORTAK - Konteyner PIR'ı eskale olup gerçek alarma dönüştüğünde de aynı moda göre davranır (bkz Ayarlar → Konteyner Alarm Ayarları).</p>
         <p><b>Sustur/Sireni Kapat:</b> Alarm koşulu sürse bile röleyi susturur; koşul temizlenince otomatik sıfırlanır.</p>
         <p><b>Panik:</b> Tetikleyicilerden bağımsız, elle aç/kapat anahtarı gibi çalışır - röleyi zorla açık tutar. Konteyner'in siren+lambasını da (Alarm Modu/etkin-pasif durumundan bağımsız) doğrudan tetikler.</p>
         <p><b>Kapı/PIR/Kaçak/Düşük seviye</b> tetikleyicileri ve gündüz/gece + mod bazlı senaryolar ESP8266 panelinin "Alarm" sekmesinden ayarlanır (bu panel sadece görüntüler ve mod/susturma/onay/panik komutlarını iletir).</p>
@@ -2589,14 +2736,15 @@ function bipSesi(){
 
 // Her ad hangi cihaza (Sudepo/Konteyner) ait oldugunu belirtir.
 const tetikleyiciAdlari=['Sudepo: Sol Kapı','Sudepo: Sağ Kapı','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
-function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwan,konteynerAlev){
+function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwan,konteynerDuman,konteynerGaz){
   if(panicAktif) return 'Panik (elle açıldı)';
   const l=[];
   for(let i=0;i<6;i++) if(mask&(1<<i)) l.push(tetikleyiciAdlari[i]);
   if(konteynerPir) l.push('Konteyner: PIR (Hareket)');
   if(konteynerKapi) l.push('Konteyner: Kapı');
   if(konteynerSwan) l.push('Konteyner: Swan PIR');
-  if(konteynerAlev) l.push('Konteyner: Alev/Duman');
+  if(konteynerDuman) l.push('Konteyner: Duman');
+  if(konteynerGaz) l.push('Konteyner: Gaz (MQ3)');
   return l.length?l.join(', '):'-';
 }
 
@@ -2620,15 +2768,19 @@ function renderUI(d){
     $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
     $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
     $('#kpi-litre').textContent=(d.level_liters||0).toFixed(0)+' L';
-    $('#kpi-temp').textContent=(d.temperature||0).toFixed(1)+' °C';
     $('#bar-pct').style.width=Math.max(0,Math.min(100,d.level_percent||0))+'%';
   } else {
     $('#kpi-pct').textContent='--';
     $('#kpi-cm').textContent='--';
     $('#kpi-litre').textContent='--';
-    $('#kpi-temp').textContent='--';
     $('#bar-pct').style.width='0%';
   }
+  // Dis Sicaklik/Nem - AHT10, Konteyner/ESP32'nin kendi yerel sensoru, ESP8266
+  // baglantisindan BAGIMSIZ (eskiden burada ESP8266'nin hep 0.0 gonderdigi
+  // olu bir yer tutucu - sensorData.temperature - gosteriliyordu).
+  const kzAhtOk = d.konteyner && d.konteyner.aht_ok;
+  $('#kpi-temp').textContent = kzAhtOk ? (d.konteyner.sicaklik||0).toFixed(1)+' °C' : '--';
+  $('#kpi-nem').textContent = kzAhtOk ? (d.konteyner.nem||0).toFixed(1)+' %' : '--';
   // Alarm
   const ad=$('#alarm-dot'); let at='Sistem Normal';
   // FIX: alarm sistemi kapaliyken (d.alarm.enabled===false) bile ham kapi/
@@ -2651,15 +2803,19 @@ function renderUI(d){
   const konteynerPirVar = konteynerEnabledMi && kz.pir_en!==false && !!kz.pir_alarm;
   const konteynerKapiVar = konteynerEnabledMi && kz.kapi_en!==false && !!kz.kapi_acik;
   const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_pir;
-  const konteynerAlevVar = konteynerEnabledMi && kz.alev_en!==false && !!kz.alev;
+  const konteynerDumanVar = konteynerEnabledMi && kz.duman_en!==false && !!kz.duman;
+  // Gaz (MQ3) panik gibi davranir - backend'de konteynerAlarmEtkin'den de
+  // BAGIMSIZ (bkz alarmLedGuncelle konteynerAcilDurum), bu yuzden burada da
+  // konteynerEnabledMi ile gate'lenmez, sadece kendi Etkin anahtarina bakar.
+  const konteynerGazVar = kz.gaz_en!==false && !!kz.gaz;
   // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
   // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
   // kapatilmisken panik basilinca banner hic gorunmuyordu.
-  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerAlevVar));
-  ad.className = anyAlarm ? 'dot alarm' : 'dot active';
+  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanVar || konteynerGazVar));
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
+    else if(konteynerGazVar) at='ALARM: Konteyner gaz sızıntısı!';
     else if(d.alarm.leak) at='ALARM: Sudepo kaçak!';
     else if(d.alarm.low_level) at='ALARM: Sudepo düşük seviye!';
     else if(d.alarm.door) at='ALARM: Sudepo kapı açık!';
@@ -2668,8 +2824,19 @@ function renderUI(d){
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
     else if(konteynerSwanVar) at='ALARM: Konteyner Swan PIR hareket!';
-    else if(konteynerAlevVar) at='ALARM: Konteyner alev/duman!';
+    else if(konteynerDumanVar) at='ALARM: Konteyner duman!';
   }
+  // ESP8266/Nano ile RS485 iletisimi kopuksa "Sistem Normal" YANLIS bir
+  // guven verir - kullanici talebi: iletisim sorunu varsa acikca belirt.
+  // Gercek bir alarm zaten varsa onun metnine eklenir (ikisi de gorunur
+  // olsun), yoksa "Sistem Normal" yerine dogrudan baglanti sorunu yazilir.
+  const baglantiSorunu = (d.esp8266_online === false) || (d.nano_online === false);
+  if(baglantiSorunu){
+    const sorunMetni = (d.esp8266_online === false && d.nano_online === false) ? 'ESP8266 VE Nano bağlantısı yok'
+      : (d.esp8266_online === false) ? 'ESP8266 (Sudepo) bağlantısı yok' : 'Nano bağlantısı yok';
+    at = (at === 'Sistem Normal') ? sorunMetni : at + ' | ' + sorunMetni;
+  }
+  ad.className = anyAlarm ? 'dot alarm' : (baglantiSorunu ? 'dot warn' : 'dot active');
   $('#alarm-text').textContent=at;
   // Buyuk uyari banner'i - ESP8266'daki gibi, tetiklendiginde sayfanin
   // her sekmesinde gorunur olsun diye header'in hemen altina konuldu.
@@ -2691,7 +2858,7 @@ function renderUI(d){
       const herhangiSusturulmus = (d.alarm && d.alarm.muted) || konteynerSusturulduMu;
       if(!panikAktif){
         if(herhangiSusturulmus) msg += ' (Susturuldu)';
-        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerAlevVar);
+        const tk = tetikleyenMetni((d.alarm&&d.alarm.trigger_mask)||0, false, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerDumanVar, konteynerGazVar);
         msg += ' | Tetikleyen: '+tk;
       }
       let html = '⚠ '+msg;
@@ -2748,19 +2915,26 @@ function renderUI(d){
   const kzp=$('#kz-pir'); if(kzp) kzp.textContent = kz.pir?'Var':'Yok';
   const kzsw=$('#kz-swan'); if(kzsw) kzsw.textContent = kz.swan_pir?'Var':'Yok';
   const kzk=$('#kz-kapi'); if(kzk) kzk.textContent = kz.kapi_acik?'Açık':'Kapalı';
-  const kzav=$('#kz-alev'); if(kzav){ kzav.textContent = kz.alev?'VAR':'Yok'; kzav.style.color = kz.alev?'var(--danger)':''; }
+  const kzav=$('#kz-duman'); if(kzav){ kzav.textContent = kz.duman?'VAR':'Yok'; kzav.style.color = kz.duman?'var(--danger)':''; }
+  const kzgv=$('#kz-gaz'); if(kzgv){ kzgv.textContent = kz.gaz?'VAR':'Yok'; kzgv.style.color = kz.gaz?'var(--danger)':''; }
   const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
   const kzmq=$('#kz-mq3'); if(kzmq) kzmq.textContent = (kz.mq3_volt!=null) ? kz.mq3_volt.toFixed(2)+'V ('+kz.mq3_raw+')' : '--';
-  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.alev_en!==false&&kz.alev); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
+  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
   const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
   const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
   const kzpe=$('#kz_pirEtkin'); if(kzpe && document.activeElement!==kzpe) kzpe.checked = kz.pir_en!==false;
   const kzke=$('#kz_kapiEtkin'); if(kzke && document.activeElement!==kzke) kzke.checked = kz.kapi_en!==false;
   const kzsue=$('#kz_swanEtkin'); if(kzsue && document.activeElement!==kzsue) kzsue.checked = kz.swan_en!==false;
-  const kzale=$('#kz_alevEtkin'); if(kzale && document.activeElement!==kzale) kzale.checked = kz.alev_en!==false;
+  const kzale=$('#kz_dumanEtkin'); if(kzale && document.activeElement!==kzale) kzale.checked = kz.duman_en!==false;
+  const kzge=$('#kz_gazEtkin'); if(kzge && document.activeElement!==kzge) kzge.checked = kz.gaz_en!==false;
+  const kzges=$('#kz_gazEsik'); if(kzges && !kzges.matches(':focus') && !yakinKorumali('kz_gazEsik') && kz.gaz_esik!=null) kzges.value=kz.gaz_esik;
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
+  const kzsg=$('#kz_sirGecikme'); if(kzsg && !kzsg.matches(':focus') && !yakinKorumali('kz_sirGecikme') && kz.siren_gecikme!=null) kzsg.value=kz.siren_gecikme;
+  const kzsc=$('#kz_sirChirp'); if(kzsc && !kzsc.matches(':focus') && !yakinKorumali('kz_sirChirp') && kz.siren_chirp!=null) kzsc.value=kz.siren_chirp;
+  const kzsb=$('#kz_sirBekleme'); if(kzsb && !kzsb.matches(':focus') && !yakinKorumali('kz_sirBekleme') && kz.siren_bekleme!=null) kzsb.value=kz.siren_bekleme;
+  const kzsa=$('#kz_sirAktif'); if(kzsa && !kzsa.matches(':focus') && !yakinKorumali('kz_sirAktif') && kz.siren_aktif!=null) kzsa.value=kz.siren_aktif;
   // Nano IO - dashboard (K1/K2/R/LAMBA hepsi ESP8266'nin tek RS485 mesajinda
   // geliyor - esp8266Baglı degilse hepsi ayni sekilde bayat kalir, level/
   // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
@@ -3092,12 +3266,29 @@ function konteynerPirKaydet(){
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
 
+function konteynerSirenAyarKaydet(){
+  yakinDuzenlendi('kz_sirGecikme'); yakinDuzenlendi('kz_sirChirp'); yakinDuzenlendi('kz_sirBekleme'); yakinDuzenlendi('kz_sirAktif');
+  const gecikme=$('#kz_sirGecikme').value, chirp=$('#kz_sirChirp').value, bekleme=$('#kz_sirBekleme').value, aktif=$('#kz_sirAktif').value;
+  api('/api/konteyner/siren_ayar?gecikme='+encodeURIComponent(gecikme)+'&chirp='+encodeURIComponent(chirp)+'&bekleme='+encodeURIComponent(bekleme)+'&aktif='+encodeURIComponent(aktif)).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
 function konteynerSensorAktifKaydet(){
   const pir = $('#kz_pirEtkin').checked?1:0;
   const kapi = $('#kz_kapiEtkin').checked?1:0;
   const swan = $('#kz_swanEtkin').checked?1:0;
-  const alev = $('#kz_alevEtkin').checked?1:0;
-  api('/api/konteyner/sensor_aktif?pir='+pir+'&kapi='+kapi+'&swan='+swan+'&alev='+alev).then(()=>{
+  const duman = $('#kz_dumanEtkin').checked?1:0;
+  const gaz = $('#kz_gazEtkin').checked?1:0;
+  api('/api/konteyner/sensor_aktif?pir='+pir+'&kapi='+kapi+'&swan='+swan+'&duman='+duman+'&gaz='+gaz).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
+function konteynerGazAyarKaydet(){
+  yakinDuzenlendi('kz_gazEsik');
+  const esik=$('#kz_gazEsik').value;
+  api('/api/konteyner/gaz_ayar?esik='+encodeURIComponent(esik)).then(()=>{
     $('#kz-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
@@ -3346,8 +3537,11 @@ String durumJson() {
   doc["konteyner"]["pir_en"] = konteynerPirEtkin;
   doc["konteyner"]["kapi_en"] = konteynerKapiEtkin;
   doc["konteyner"]["swan_en"] = konteynerSwanEtkin;
-  doc["konteyner"]["alev"] = konteynerAlevVar;
-  doc["konteyner"]["alev_en"] = konteynerAlevEtkin;
+  doc["konteyner"]["duman"] = konteynerDumanVar;
+  doc["konteyner"]["duman_en"] = konteynerDumanEtkin;
+  doc["konteyner"]["gaz"] = konteynerGazVar;
+  doc["konteyner"]["gaz_en"] = konteynerGazEtkin;
+  doc["konteyner"]["gaz_esik"] = konteynerGazEsikVolt;
   doc["konteyner"]["sicaklik"] = ahtData.sicaklik;
   doc["konteyner"]["nem"] = ahtData.nem;
   doc["konteyner"]["aht_ok"] = ahtData.read_ok;
@@ -3357,6 +3551,10 @@ String durumJson() {
   doc["konteyner"]["susturuldu"] = konteynerSusturuldu;
   doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
   doc["konteyner"]["pir_onay"] = konteynerPirOnaySaniye;
+  doc["konteyner"]["siren_gecikme"] = konteynerSirenGecikmeSaniye;
+  doc["konteyner"]["siren_chirp"] = konteynerSirenChirpMs;
+  doc["konteyner"]["siren_bekleme"] = konteynerSirenBeklemeSaniye;
+  doc["konteyner"]["siren_aktif"] = konteynerSirenAktifSaniye;
   doc["konteyner"]["pending"] = konteynerOnayBekleniyor;
   doc["konteyner"]["siren"] = konteynerSirenAktif;
   doc["konteyner"]["lamba"] = konteynerLambaAktif;
@@ -3772,18 +3970,58 @@ void handleAPI_KonteynerPirAyar() {
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
 }
 
+void handleAPI_KonteynerSirenAyar() {
+  uint16_t gecikme = konteynerSirenGecikmeSaniye;
+  uint16_t chirp = konteynerSirenChirpMs;
+  uint16_t bekleme = konteynerSirenBeklemeSaniye;
+  uint16_t aktif = konteynerSirenAktifSaniye;
+  if (server.hasArg("gecikme")) {
+    gecikme = (uint16_t)server.arg("gecikme").toInt();
+    if (gecikme > 120) gecikme = 120;
+  }
+  if (server.hasArg("chirp")) {
+    chirp = (uint16_t)server.arg("chirp").toInt();
+    if (chirp < 50) chirp = 50;
+    if (chirp > 5000) chirp = 5000;
+  }
+  if (server.hasArg("bekleme")) {
+    bekleme = (uint16_t)server.arg("bekleme").toInt();
+    if (bekleme < 1) bekleme = 1;
+    if (bekleme > 120) bekleme = 120;
+  }
+  if (server.hasArg("aktif")) {
+    aktif = (uint16_t)server.arg("aktif").toInt();
+    if (aktif < 1) aktif = 1;
+    if (aktif > 120) aktif = 120;
+  }
+  konteynerSirenAyarKaydet(gecikme, chirp, bekleme, aktif);
+  server.send(200, "application/json", "{\"basarili\":true,\"gecikme\":" + String(konteynerSirenGecikmeSaniye) + ",\"chirp\":" + String(konteynerSirenChirpMs) + ",\"bekleme\":" + String(konteynerSirenBeklemeSaniye) + ",\"aktif\":" + String(konteynerSirenAktifSaniye) + "}");
+}
+
 // Her Konteyner sensorunun kendi aktif/pasif anahtari - verilmeyen parametre
 // mevcut degerini korur (tek tek de degistirilebilsin diye).
 void handleAPI_KonteynerSensorAktif() {
-  bool pir = konteynerPirEtkin, kapi = konteynerKapiEtkin, swan = konteynerSwanEtkin, alev = konteynerAlevEtkin;
+  bool pir = konteynerPirEtkin, kapi = konteynerKapiEtkin, swan = konteynerSwanEtkin, duman = konteynerDumanEtkin, gaz = konteynerGazEtkin;
   if (server.hasArg("pir")) pir = server.arg("pir").toInt() != 0;
   if (server.hasArg("kapi")) kapi = server.arg("kapi").toInt() != 0;
   if (server.hasArg("swan")) swan = server.arg("swan").toInt() != 0;
-  if (server.hasArg("alev")) alev = server.arg("alev").toInt() != 0;
-  konteynerSensorAktifKaydet(pir, kapi, swan, alev);
+  if (server.hasArg("duman")) duman = server.arg("duman").toInt() != 0;
+  if (server.hasArg("gaz")) gaz = server.arg("gaz").toInt() != 0;
+  konteynerSensorAktifKaydet(pir, kapi, swan, duman, gaz);
   server.send(200, "application/json", "{\"basarili\":true,\"pir\":" + String(pir ? "true" : "false") +
               ",\"kapi\":" + String(kapi ? "true" : "false") + ",\"swan\":" + String(swan ? "true" : "false") +
-              ",\"alev\":" + String(alev ? "true" : "false") + "}");
+              ",\"duman\":" + String(duman ? "true" : "false") + ",\"gaz\":" + String(gaz ? "true" : "false") + "}");
+}
+
+void handleAPI_KonteynerGazAyar() {
+  float esik = konteynerGazEsikVolt;
+  if (server.hasArg("esik")) {
+    esik = server.arg("esik").toFloat();
+    if (esik < 0.1f) esik = 0.1f;
+    if (esik > 3.3f) esik = 3.3f;
+  }
+  konteynerGazAyarKaydet(esik);
+  server.send(200, "application/json", "{\"basarili\":true,\"esik\":" + String(konteynerGazEsikVolt, 2) + "}");
 }
 
 // Batarya (MPPT) koruma ayarlari - "aktif" parametresi verilmezse mevcut
@@ -4575,7 +4813,9 @@ void setupWebServer() {
   server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
+  server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyar);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
+  server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
   server.on("/api/batarya/ayar", handleAPI_BateryaAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
@@ -4761,8 +5001,10 @@ void setup() {
   irEslesmeYukle();
   telegramAyarYukle();
   konteynerPirAyarYukle();
+  konteynerSirenAyarYukle();
   konteynerAlarmAyarYukle();
   konteynerSensorAktifYukle();
+  konteynerGazAyarYukle();
   bateryaAyarlariYukle();
 
   // WiFi Connect
