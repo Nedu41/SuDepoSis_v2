@@ -69,11 +69,12 @@
 #define TANK_HORIZONTAL 1  // 1=Yatay Silindirik, 0=Dikey/Dikdörtgenn
 
 // ===== EEPROM =====
-// DİKKAT: Ayarlar struct'ı ~100 byte. 128 byte sınırda;
-// struct'a yeni alan eklenirse taşma riski var.
+// DİKKAT: Ayarlar struct'ı WIFI_EEPROM_ADDR (256) ile başlayan WiFi
+// bölgesinden ÖNCE bitmeli - struct'a alan eklerken bu sınırı aşmadığından
+// emin olun (mevcut struct + siren zamanlama alanları ~70 byte, bolca marj var).
 // 512 byte, ESP8266 EEPROM (4096 max) için güvenli ve geleceğe dönük.
 #define EEPROM_SIZE 512
-#define EEPROM_MAGIC 0xA548  // alarmSensorEtkin eklendi (eski: 0xA547)
+#define EEPROM_MAGIC 0xA549  // siren zamanlama ayarlari eklendi (eski: 0xA548)
 
 // Alarm CIKISLARI (siren/role, lamba) - mod basina bitmask, ALARM_TRIGGER_*
 // (girdi/sensor) bitmask'inden bagimsiz ayri bir kume.

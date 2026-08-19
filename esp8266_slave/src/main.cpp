@@ -73,6 +73,13 @@ struct Ayarlar {
   // bakiyoruz (bkz. nanoStatusAyristir).
   uint8_t pirPencereSaniye;  // Bu sn'lik pencere icinde darbeler sayilir (0 = filtre yok, ham deger aninda gecerli)
   uint8_t pirMinTetiklenme;  // Pencere icinde PIR tetiklenmis sayilmasi icin gereken minimum ayri darbe sayisi
+  // Siren kademeli zamanlama ayari (Konteyner/ESP32 ile ayni mantik, kullanici
+  // talebi: "yanlis tetiklerden etkilenmemek icin"). Lamba bu ayarlardan
+  // BAGIMSIZ, tetik aninda hemen yanar. Bkz asagidaki state machine (loop()).
+  uint16_t sirenGecikmeSaniye;   // ilk chirp'e kadar bekleme (tetik baslangicindan itibaren)
+  uint16_t sirenChirpMs;         // chirp suresi (ms)
+  uint16_t sirenBeklemeSaniye;   // chirp/aktif-periyot sonrasi sessizlik
+  uint16_t sirenAktifSaniye;     // dongudeki tam-aktif kalma suresi
 };
 Ayarlar ayar;
 
@@ -135,6 +142,10 @@ void varsayilanAyarlar() {
   ayar.moistureThresholdHigh = 70;
   ayar.pirPencereSaniye = 10;
   ayar.pirMinTetiklenme = 2;
+  ayar.sirenGecikmeSaniye = 5;
+  ayar.sirenChirpMs = 300;
+  ayar.sirenBeklemeSaniye = 10;
+  ayar.sirenAktifSaniye = 5;
 }
 
 void ayarlariKaydet() {
@@ -196,10 +207,9 @@ bool alarmCikisLambaIstenen = false; // Bu dongude lamba flasinin acik olmasi ge
 unsigned long lambaMinSureBaslangicMs = 0; // 0 = lamba hedefi su an kapali; !=0 ise bu andan itibaren LAMBA_MIN_SURE_MS boyunca lamba acik tutulur
 #define LAMBA_MIN_SURE_MS (60UL * 1000UL) // Sustur/tetikleyici erken temizlense bile lamba en az bu kadar yanik kalir
 bool alarmSusturuldu = false;   // Susturma - tetikleyici aktifken siren susturulur (mesaj/banner kalir)
-unsigned long sirenEpisodeBaslangicMs = 0; // 0 = siren cikisi su an secili degil (bkz asagidaki chirp/gecikme deseni)
-#define SIREN_CHIRP_SURE_MS 1000UL   // ilk tetikte SADECE bu kadar kisa "chirp" calar
-#define SIREN_GECIKME_SURE_MS 3000UL // chirp sonrasi bu ana kadar sessiz - tetik hala surerse SUREKLI siren baslar
-unsigned long sirenSurekliBaslangicMs = 0; // 0 = siren su an fiziksel olarak calmiyor
+unsigned long sirenEpisodeBaslangicMs = 0; // 0 = siren cikisi su an secili degil - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir (bkz asagidaki kademeli zamanlama deseni)
+uint8_t sirenFaz = 0;              // 0=ilk gecikme,1=chirp,2=bekleme,3=aktif (Konteyner/ESP32 ile ayni mantik)
+unsigned long sirenFazBaslangicMs = 0;
 #define SIREN_MAX_SURE_MS (2UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi, Konteyner/ESP32 ile ayni deger) otomatik susturulur - ESP8266'nin Telegram'i olmadigindan bildirim gitmez, sadece susturulur
 unsigned long lambaSurekliBaslangicMs = 0; // 0 = alarm-tetikli lamba su an surekli yanmiyor
 #define LAMBA_MAX_SURE_MS (10UL * 60UL * 1000UL) // alarm-tetikli lamba (manuel haric) bu kadar kesintisiz yanarsa zorla soner - Konteyner/ESP32 ile ayni deger, enerji butcesi ust siniri
@@ -754,15 +764,16 @@ void rs485KomutDinle() {
           // Kalburum (ESP32) Ayarlar sekmesinden bu Sudepo-zonu ayarlarini
           // gorup degistirebilsin diye - ESP8266 hala tek dogru kaynak/
           // yurutucu, ESP32 sadece okuyup RS485 ile geri yaziyor.
-          char buf[460];
+          char buf[540];
           snprintf(buf, sizeof(buf),
-            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d",
+            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d,sirenGecikmeSaniye=%d,sirenChirpMs=%d,sirenBeklemeSaniye=%d,sirenAktifSaniye=%d",
             ayar.bosMesafe, ayar.doluMesafe, ayar.depoKapasiteLitre, ayar.alarmSeviyeYuzde,
             ayar.geceBaslangicSaat, ayar.geceBitisSaat, ayar.minDolumLitre, ayar.kacakEsikDakika,
             ayar.depoYatay, ayar.moistureAutomatic, ayar.moistureThresholdLow, ayar.moistureThresholdHigh,
             ayar.alarmTriggerGunduz, ayar.alarmTriggerGece, ayar.alarmMod, ayar.alarmSensorEtkin, ayar.alarmMaskSesli,
             ayar.alarmMaskSessiz, ayar.alarmMaskOnayli, ayar.alarmOutputSesli, ayar.alarmOutputSessiz,
-            ayar.pirPencereSaniye, ayar.pirMinTetiklenme);
+            ayar.pirPencereSaniye, ayar.pirMinTetiklenme,
+            ayar.sirenGecikmeSaniye, ayar.sirenChirpMs, ayar.sirenBeklemeSaniye, ayar.sirenAktifSaniye);
           response = "ACK:AYARLAR=" + String(buf);
         } else if (komut.startsWith("SET_AYARLAR=")) {
           String veri = komut.substring(12);
@@ -793,6 +804,10 @@ void rs485KomutDinle() {
           v = ayarDegerAl(veri, "alarmOutputSessiz"); if (v.length()) ayar.alarmOutputSessiz = v.toInt();
           v = ayarDegerAl(veri, "pirPencereSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.pirPencereSaniye = x; }
           v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > PIR_DARBE_GECMISI_BOYUTU) x = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = x; }
+          v = ayarDegerAl(veri, "sirenGecikmeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.sirenGecikmeSaniye = x; }
+          v = ayarDegerAl(veri, "sirenChirpMs"); if (v.length()) { int x = v.toInt(); if (x < 50) x = 50; if (x > 5000) x = 5000; ayar.sirenChirpMs = x; }
+          v = ayarDegerAl(veri, "sirenBeklemeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenBeklemeSaniye = x; }
+          v = ayarDegerAl(veri, "sirenAktifSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenAktifSaniye = x; }
           ayarlariKaydet();
           response = "ACK:SET_AYARLAR";
         }
@@ -1258,7 +1273,7 @@ void handleSetTime() {
 }
 void handleGetSettings() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + "}";
   server.send(200, "application/json", j);
 }
 void handleSaveSettings() {
@@ -1296,6 +1311,10 @@ void handleSaveSettings() {
   if (server.hasArg("pirMinTetiklenme")) {
     int v = server.arg("pirMinTetiklenme").toInt(); if (v < 1) v = 1; if (v > PIR_DARBE_GECMISI_BOYUTU) v = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = v;
   }
+  if (server.hasArg("sirenGecikmeSaniye")) { int v = server.arg("sirenGecikmeSaniye").toInt(); if (v < 0) v = 0; if (v > 120) v = 120; ayar.sirenGecikmeSaniye = v; }
+  if (server.hasArg("sirenChirpMs")) { int v = server.arg("sirenChirpMs").toInt(); if (v < 50) v = 50; if (v > 5000) v = 5000; ayar.sirenChirpMs = v; }
+  if (server.hasArg("sirenBeklemeSaniye")) { int v = server.arg("sirenBeklemeSaniye").toInt(); if (v < 1) v = 1; if (v > 120) v = 120; ayar.sirenBeklemeSaniye = v; }
+  if (server.hasArg("sirenAktifSaniye")) { int v = server.arg("sirenAktifSaniye").toInt(); if (v < 1) v = 1; if (v > 120) v = 120; ayar.sirenAktifSaniye = v; }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
 }
@@ -1841,14 +1860,14 @@ void loop() {
     if (panicRoleAktif) {
       alarmTetikleyenMask = 0; // panikte sensor tetikleyicisi yok, elle acildi
       alarmCikisLambaIstenen = true; // panikte her zaman hem siren hem lamba
-      sirenEpisodeBaslangicMs = 0; sirenSurekliBaslangicMs = 0; lambaSurekliBaslangicMs = 0; // panik chirp/gecikme desenini atlar - sonraki normal tetiklenme sifirdan baslasin
+      sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; lambaSurekliBaslangicMs = 0; // panik kademeli zamanlama desenini atlar - sonraki normal tetiklenme sifirdan baslasin
       if (!roleFizikselDurum) nanoRoleKontrol(true);
     } else if (!ayar.alarmRoleAktif) {
       // Alarm sistemi kapali: hicbir tetikleyici sirene/roleye yansimamali
       alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
       alarmTetikleyenMask = 0;
       alarmCikisLambaIstenen = false;
-      sirenEpisodeBaslangicMs = 0; sirenSurekliBaslangicMs = 0; lambaSurekliBaslangicMs = 0;
+      sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; lambaSurekliBaslangicMs = 0;
       if (roleFizikselDurum) nanoRoleKontrol(false);
     } else {
       // Zaman bazli (gunduz/gece) VE secili modun kendi senaryosu (hangi sensorler
@@ -1879,7 +1898,7 @@ void loop() {
         // Tetikleyici temizlendi - susturma/onay durumlari sifirlanir (bir sonraki
         // tetiklenmede modun varsayilan davranisi yeniden gecerli olsun)
         alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
-        sirenEpisodeBaslangicMs = 0; sirenSurekliBaslangicMs = 0; lambaSurekliBaslangicMs = 0;
+        sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; lambaSurekliBaslangicMs = 0;
         if (roleFizikselDurum) nanoRoleKontrol(false);
       } else {
         bool sirenSeciliHam; // susturma/chirp'ten BAGIMSIZ, sadece mod/cikis secimine gore siren istenip istenmedigi
@@ -1907,32 +1926,58 @@ void loop() {
           sirenSeciliHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_SIREN) != 0;
           lambaHedefHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_LAMBA) != 0;
         }
-        // Chirp + gecikme deseni (kullanici talebi): ilk tetikte SADECE 1sn
-        // kisa "chirp" calar, sonra SIREN_GECIKME_SURE_MS'e (3sn) kadar
-        // sessiz kalir - tetik hala suruyorsa o andan itibaren SUREKLI calar.
+        // Kademeli zamanlama deseni (kullanici talebi, "yanlis tetiklerden
+        // etkilenmemek icin", Konteyner/ESP32 ile ayni mantik): tetik
+        // baslangicindan ayar.sirenGecikmeSaniye sonra kisa ayar.sirenChirpMs'lik
+        // bir "chirp" calar, sonra ayar.sirenBeklemeSaniye sessiz kalir - tetik
+        // hala suruyorsa ayar.sirenAktifSaniye boyunca SUREKLI calar; bu
+        // bekleme/aktif dongusu tetik bitene kadar TEKRARLANIR.
         bool sirenIstenen;
         if (sirenSeciliHam) {
-          if (sirenEpisodeBaslangicMs == 0) sirenEpisodeBaslangicMs = millis();
-          unsigned long gecen = millis() - sirenEpisodeBaslangicMs;
-          if (gecen < SIREN_CHIRP_SURE_MS) sirenIstenen = true;
-          else if (gecen < SIREN_GECIKME_SURE_MS) sirenIstenen = false;
-          else sirenIstenen = true;
+          unsigned long simdiMs = millis();
+          if (sirenEpisodeBaslangicMs == 0) {
+            sirenEpisodeBaslangicMs = simdiMs;
+            sirenFaz = 0;
+            sirenFazBaslangicMs = simdiMs;
+          }
+          unsigned long gecikmeMs = (unsigned long)ayar.sirenGecikmeSaniye * 1000UL;
+          unsigned long chirpMs = (unsigned long)ayar.sirenChirpMs;
+          unsigned long beklemeMs = (unsigned long)ayar.sirenBeklemeSaniye * 1000UL;
+          unsigned long aktifMs = (unsigned long)ayar.sirenAktifSaniye * 1000UL;
+          switch (sirenFaz) {
+            case 0: // ilk gecikme - sessiz
+              sirenIstenen = false;
+              if (simdiMs - sirenFazBaslangicMs >= gecikmeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
+              break;
+            case 1: // chirp
+              sirenIstenen = true;
+              if (simdiMs - sirenFazBaslangicMs >= chirpMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+              break;
+            case 2: // bekleme (chirp sonrasi VEYA aktif-periyot sonrasi)
+              sirenIstenen = false;
+              if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 3; sirenFazBaslangicMs = simdiMs; }
+              break;
+            default: // 3: tam aktif
+              sirenIstenen = true;
+              if (simdiMs - sirenFazBaslangicMs >= aktifMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+              break;
+          }
         } else {
           sirenEpisodeBaslangicMs = 0;
+          sirenFaz = 0; sirenFazBaslangicMs = 0;
           sirenIstenen = false;
         }
         sirenIstenen = sirenIstenen && !alarmSusturuldu;
         // Sensor arizasi/unutulmus tetiklenmede siren SINIRSIZ calmasin diye
-        // kesintisiz SIREN_MAX_SURE_MS'i asarsa otomatik susturulur (panik
-        // haric - panik zaten bu blogun disinda, kendi ayri dalinda).
-        if (sirenIstenen) {
-          if (sirenSurekliBaslangicMs == 0) sirenSurekliBaslangicMs = millis();
-          else if (millis() - sirenSurekliBaslangicMs > SIREN_MAX_SURE_MS) {
-            alarmSusturuldu = true;
-            sirenIstenen = false;
-          }
-        } else {
-          sirenSurekliBaslangicMs = 0;
+        // EPIZOT BASLANGICINDAN itibaren gecen TOPLAM sure SIREN_MAX_SURE_MS'i
+        // asarsa otomatik susturulur (panik haric - panik zaten bu blogun
+        // disinda, kendi ayri dalinda). Kademeli zamanlama nedeniyle
+        // sirenIstenen bekleme fazlarinda sik sik false oldugundan, olcum
+        // "kesintisiz calma" yerine sirenEpisodeBaslangicMs referans alinarak
+        // yapilir (aksi halde 2dk'ya asla ulasilamaz).
+        if (sirenEpisodeBaslangicMs != 0 && millis() - sirenEpisodeBaslangicMs > SIREN_MAX_SURE_MS) {
+          alarmSusturuldu = true;
+          sirenIstenen = false;
         }
         if (sirenIstenen && !roleFizikselDurum) nanoRoleKontrol(true);
         else if (!sirenIstenen && roleFizikselDurum) nanoRoleKontrol(false);
