@@ -411,8 +411,8 @@ bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
 // (pir2HareketVar) gibi yazilim tutma/onay suresine ihtiyaci yok, kendi
 // donanimsal debounce/pet-immunity'si var; kapi gibi ANINDA eskale eder.
 bool swanPirVar = false;
-bool konteynerDumanVar = false; // EFS-903R duman dedektoru (kuru kontak rolesi) - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok
-bool konteynerGazVar = false; // MQ3 esik asildi mi - panik gibi ANINDA eskale eder (bkz alarmLedGuncelle, mq3Poll)
+bool konteynerDumanVar = false; // GP2Y10 (optik toz/duman sensoru) esik asildi mi - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok (bkz gp2y10Poll)
+bool konteynerGazVar = false; // MQ6 esik asildi mi - panik gibi ANINDA eskale eder (bkz alarmLedGuncelle, mq6Poll)
 bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
 bool konteynerPirAlarmVar = false; // Hareket VAR veya tutma suresi icinde (ham "bolum" durumu)
 unsigned long konteynerPirSonHareketMs = 0; // pir2HareketVar'in en son true goruldugu an - 0 = HENUZ HIC true olmadi (sentinel, gercek bir zaman degil)
@@ -552,8 +552,8 @@ void konteynerSensorAktifKaydet(bool pirEtkin, bool kapiEtkin, bool swanEtkin, b
   ayarPrefs.end();
 }
 
-// MQ3 gaz esigi (Volt) - NVS'de kalici, web'den ayarlanabilir. Varsayilan
-// KONSERVATIF/tahmini bir deger - MQ3'un kalibrasyon potu olmadigindan
+// MQ6 gaz esigi (Volt) - NVS'de kalici, web'den ayarlanabilir. Varsayilan
+// KONSERVATIF/tahmini bir deger - MQ6'un kalibrasyon potu olmadigindan
 // (bu projede sadece ham ADC/volt okunuyor) sahada gercek gaz kaynagiyla
 // (cakmak gazi vb.) test edilip DOGRULANMALI, tetiklenmiyorsa dusurulmeli/
 // yanlis tetikliyorsa yukseltilmeli.
@@ -567,6 +567,24 @@ void konteynerGazAyarKaydet(float esikVolt) {
   konteynerGazEsikVolt = esikVolt;
   ayarPrefs.begin("ayarlar", false);
   ayarPrefs.putFloat("k_gaz_esik", esikVolt);
+  ayarPrefs.end();
+}
+
+// GP2Y10 duman/toz esigi (Volt) - NVS'de kalici, web'den ayarlanabilir.
+// MQ6 esigiyle AYNI desen: kalibrasyon potu yok, ham Vo okunuyor, sahada
+// gercek dumanla (guvenli mesafeden, orn. mum/tutusturucu) test edilip
+// DOGRULANMALI. Sensorun kendi sifir-nokta gerilimi tipik ~0.5-0.9V civari
+// (partikul yokken), duman/toz artinca yukselir.
+float konteynerDumanEsikVolt = 1.5f;
+void konteynerDumanAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerDumanEsikVolt = ayarPrefs.getFloat("k_duman_esik", 1.5f);
+  ayarPrefs.end();
+}
+void konteynerDumanAyarKaydet(float esikVolt) {
+  konteynerDumanEsikVolt = esikVolt;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putFloat("k_duman_esik", esikVolt);
   ayarPrefs.end();
 }
 
@@ -637,8 +655,8 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
-  pinMode(MQ3_POWER_PIN, OUTPUT);
-  digitalWrite(MQ3_POWER_PIN, LOW); // ilk dongu mq3Poll()'da baslar, o ana kadar kapali
+  pinMode(MQ6_POWER_PIN, OUTPUT);
+  digitalWrite(MQ6_POWER_PIN, LOW); // ilk dongu mq6Poll()'da baslar, o ana kadar kapali
   // INPUT_PULLDOWN denendi (float pin teorisiyle) ama kablo saglam oldugu
   // halde gercek hareketi de algilamaz hale getirdi (muhtemelen sensorun
   // zayif suruculu ciktisiyla dahili pull-down'in gerilim bolucu gibi
@@ -652,9 +670,10 @@ void konteynerDonanimiInit() {
   // Swan Quad PET PIR - reed switch ile ayni sekilde NC/COM kontak, kablolama
   // yonune gore ters gerekebilir (bkz SWAN_PIR_PIN yorumu, config.h).
   pinMode(SWAN_PIR_PIN, INPUT_PULLUP);
-  pinMode(DUMAN_PIN, INPUT_PULLUP); // DUMAN_AKTIF_LOW varsayimiyla (bkz config.h)
+  pinMode(GP2Y10_LED_PIN, OUTPUT);
+  digitalWrite(GP2Y10_LED_PIN, LOW); // ilk dongu gp2y10Poll()'da baslar, o ana kadar kapali
   irAliciBaslat(); // bkz asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumu
-  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/Duman hazir");
+  DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/GP2Y10 hazir");
 }
 
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
@@ -674,12 +693,12 @@ void alarmLedGuncelle() {
   static uint8_t sirenFaz = 0;          // 0=ilk gecikme,1=chirp,2=bekleme,3=aktif
   static unsigned long sirenFazBaslangicMs = 0;
 
-  // Panik (elle acilan) VE gaz alarmi (MQ3 esigi asildi) - ikisi de enabled/
+  // Panik (elle acilan) VE gaz alarmi (MQ6 esigi asildi) - ikisi de enabled/
   // mod'dan BAGIMSIZ, kademeli siren deseni ATLANIR, aninda surekli calar.
   // Gaz icin bu kasitli tercih (kullanici talebi): parlayici/patlayici gaz
   // birikiminde "dogrulama gecikmesi" (chirp/onay) guvenlik acisindan riskli,
-  // aninda uyarmak gerekir. FIX: konteynerGazEtkin burada da (mq3Poll()'daki
-  // gibi) kontrol edilir - MQ3 guc dongusunde CoGU zaman kapali oldugundan
+  // aninda uyarmak gerekir. FIX: konteynerGazEtkin burada da (mq6Poll()'daki
+  // gibi) kontrol edilir - MQ6 guc dongusunde CoGU zaman kapali oldugundan
   // (10dk'da 60sn acik) konteynerGazVar sadece o kisa pencerede yeniden
   // hesaplaniyor; kullanici sensoru pasif yaparsa bu degisikligin sonraki
   // guc dongusune kadar (10dk'ya kadar) gec yansimasi yerine BURADA aninda
@@ -853,8 +872,13 @@ void konteynerSensorleriOku() {
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
   bool swanOncekiDurum = swanPirVar;
   swanPirVar = (digitalRead(SWAN_PIR_PIN) == HIGH);
-  bool dumanOncekiDurum = konteynerDumanVar;
-  konteynerDumanVar = DUMAN_AKTIF_LOW ? (digitalRead(DUMAN_PIN) == LOW) : (digitalRead(DUMAN_PIN) == HIGH);
+  // konteynerDumanVar artik burada degil, ayri gp2y10Poll() dongusunde (2sn'de
+  // bir) guncelleniyor - bu yuzden "onceki durum" burada normal local degisken
+  // yerine STATIC olmali, aksi halde her cagirida dumanOncekiDurum daima
+  // konteynerDumanVar'a esit cikar (kenar/yukselis hic yakalanamaz, Onayli
+  // moddaki anlik onay-bekleme tetiklemesi kirilir).
+  static bool dumanOncekiDurum = false;
+  bool dumanBuTur = konteynerDumanVar;
   pir2HareketVar = (digitalRead(PIR2_PIN) == HIGH);
 
   // Devre disi birakilan sensorler HAM okumaya devam eder (tani/gosterge
@@ -875,6 +899,7 @@ void konteynerSensorleriOku() {
   if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum) || (dumanEfektif && !dumanOncekiDurum)) && alarmStatus.mode == 3) {
     konteynerOnayBekleniyor = true;
   }
+  dumanOncekiDurum = dumanBuTur; // bir sonraki cagiri icin sakla
 
   if (konteynerPirEtkin) {
     // Yeni hareket "bolumu" mu basliyor? (bolum = kesintisiz/tutma-suresiyle-
@@ -1099,7 +1124,7 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false,
   }
   if (konteynerGaz) {
     if (s.length() > 0) s += ", ";
-    s += "Konteyner: Gaz (MQ3)";
+    s += "Konteyner: Gaz (MQ6)";
   }
   return s.length() > 0 ? s : "Bilinmiyor";
 }
@@ -1161,7 +1186,7 @@ void telegramAlarmKontrolEt() {
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
   bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && swanPirVar;
   bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
-  // Gaz (MQ3), panik gibi konteynerAlarmEtkin'den BAGIMSIZ (bkz alarmLedGuncelle
+  // Gaz (MQ6), panik gibi konteynerAlarmEtkin'den BAGIMSIZ (bkz alarmLedGuncelle
   // konteynerAcilDurum) - burada da ayni sekilde zon ac/kapa anahtarina bakmaz.
   bool konteynerGazTetik = konteynerGazEtkin && konteynerGazVar;
   bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanTetik || konteynerGazTetik;
@@ -1790,50 +1815,89 @@ void ahtPoll() {
 }
 
 // ============================================================
-// MQ3 (analog gaz sensoru) - artik alarma BAGLI (kullanici talebi: parlayici/
+// MQ6 (analog gaz sensoru) - artik alarma BAGLI (kullanici talebi: parlayici/
 // patlayici gaz riski nedeniyle gaz esigi asilinca Konteyner alarmini
 // tetikler, bkz alarmLedGuncelle() konteynerGazVar kullanimi). Esik
 // konteynerGazEsikVolt (NVS, web'den ayarlanabilir), etkin/pasif anahtari
 // konteynerGazEtkin.
 // ============================================================
-struct Mq3Data {
+struct Mq6Data {
   int raw = 0;
   float volt = 0.0;
   unsigned long last_update_ms = 0;
-  bool powered = false; // MQ3_POWER_PIN'in guncel durumu (durumJson icin, kullaniciya "neden deger degismiyor" belirsizligini onlemek icin)
+  bool powered = false; // MQ6_POWER_PIN'in guncel durumu (durumJson icin, kullaniciya "neden deger degismiyor" belirsizligini onlemek icin)
 };
-Mq3Data mq3Data;
+Mq6Data mq6Data;
 
-// Guc dongusu: her MQ3_CYCLE_MS'de bir MQ3_POWER_PIN uzerinden MQ3'e
-// MQ3_POWER_ON_MS kadar guc verilir (isinma+olcum penceresi), o pencere
-// icinde MQ3_POLL_INTERVAL_MS'de bir analogRead alinir, pencere bitince guc
-// kesilir. Kapali kaldigi surece mq3Data/konteynerGazVar SON OLCULEN degeri
+// Guc dongusu: her MQ6_CYCLE_MS'de bir MQ6_POWER_PIN uzerinden MQ6'e
+// MQ6_POWER_ON_MS kadar guc verilir (isinma+olcum penceresi), o pencere
+// icinde MQ6_POLL_INTERVAL_MS'de bir analogRead alinir, pencere bitince guc
+// kesilir. Kapali kaldigi surece mq6Data/konteynerGazVar SON OLCULEN degeri
 // korur (diger Konteyner sensorlerindeki "son bilinen deger" deseniyle
 // tutarli) - gunduz/gece ayrimi yok, kullanici talebi geceye ozel degil,
 // her zaman ayni 10dk/60sn dongusu.
-void mq3Poll() {
+void mq6Poll() {
   unsigned long now = millis();
   static unsigned long cycleStart = 0;
   unsigned long gecenDongu = now - cycleStart;
-  if (gecenDongu >= MQ3_CYCLE_MS) {
+  if (gecenDongu >= MQ6_CYCLE_MS) {
     cycleStart = now;
     gecenDongu = 0;
   }
-  bool acikOlmali = gecenDongu < MQ3_POWER_ON_MS;
-  if (acikOlmali != mq3Data.powered) {
-    mq3Data.powered = acikOlmali;
-    digitalWrite(MQ3_POWER_PIN, mq3Data.powered ? HIGH : LOW);
+  bool acikOlmali = gecenDongu < MQ6_POWER_ON_MS;
+  if (acikOlmali != mq6Data.powered) {
+    mq6Data.powered = acikOlmali;
+    digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
   }
-  if (!mq3Data.powered) return; // kapaliyken okuma alinmaz, son deger korunur
+  if (!mq6Data.powered) return; // kapaliyken okuma alinmaz, son deger korunur
 
   static unsigned long lastPoll = 0;
-  if (now - lastPoll < MQ3_POLL_INTERVAL_MS) return;
+  if (now - lastPoll < MQ6_POLL_INTERVAL_MS) return;
   lastPoll = now;
 
-  mq3Data.raw = analogRead(MQ3_ADC_PIN);
-  mq3Data.volt = (mq3Data.raw / 4095.0f) * 3.3f;
-  mq3Data.last_update_ms = now;
-  konteynerGazVar = konteynerGazEtkin && (mq3Data.volt >= konteynerGazEsikVolt);
+  mq6Data.raw = analogRead(MQ6_ADC_PIN);
+  mq6Data.volt = (mq6Data.raw / 4095.0f) * 3.3f;
+  mq6Data.last_update_ms = now;
+  konteynerGazVar = konteynerGazEtkin && (mq6Data.volt >= konteynerGazEsikVolt);
+}
+
+// ============================================================
+// GP2Y1014AU0F / GP2Y1010AU0F (optik toz/duman sensoru) - EFS-903R'in
+// yerine gecti (bkz config.h GP2Y10_* yorumu). MQ6'dan farkli olarak isitici
+// elemani YOK - guc dongusune gerek yok, her GP2Y10_POLL_INTERVAL_MS'de bir
+// tek LED darbesi (datasheet: ~320us) atilip Vo ADC'den okunur. Esik
+// konteynerDumanEsikVolt (NVS, web'den ayarlanabilir), etkin/pasif anahtari
+// konteynerDumanEtkin - konteynerDumanVar burada set edilir, kapi/Swan PIR
+// ile ayni ANLIK/kesin tetikleyici mantigina (konteynerSensorleriOku()'daki
+// dumanOncekiDurum/dumanEfektif) girer.
+// ============================================================
+struct Gp2y10Data {
+  int raw = 0;
+  float volt = 0.0;
+  unsigned long last_update_ms = 0;
+};
+Gp2y10Data gp2y10Data;
+
+void gp2y10Poll() {
+  unsigned long now = millis();
+  static unsigned long lastPoll = 0;
+  if (now - lastPoll < GP2Y10_POLL_INTERVAL_MS) return;
+  lastPoll = now;
+
+  // Sharp datasheet uygulama devresi: LED'i ac, GP2Y10_SAMPLE_DELAY_US
+  // bekle (sinyal bu noktada stabil), ADC oku, darbenin geri kalanini
+  // (GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US) bekleyip LED'i kapat.
+  // Toplam ~320us - loop()'u bloklamasi HC-SR04 tetik darbesiyle ayni
+  // mertebede, ihmal edilebilir.
+  digitalWrite(GP2Y10_LED_PIN, HIGH);
+  delayMicroseconds(GP2Y10_SAMPLE_DELAY_US);
+  gp2y10Data.raw = analogRead(GP2Y10_ADC_PIN);
+  gp2y10Data.volt = (gp2y10Data.raw / 4095.0f) * 3.3f;
+  delayMicroseconds(GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US);
+  digitalWrite(GP2Y10_LED_PIN, LOW);
+
+  gp2y10Data.last_update_ms = now;
+  konteynerDumanVar = konteynerDumanEtkin && (gp2y10Data.volt >= konteynerDumanEsikVolt);
 }
 
 // bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
@@ -2443,7 +2507,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <div>Swan PIR: <b id="kz-swan">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
         <div>Duman: <b id="kz-duman">-</b></div>
-        <div>Gaz (MQ3): <b id="kz-gaz">-</b></div>
+        <div>Gaz (MQ6): <b id="kz-gaz">-</b></div>
         <div>Yerel Uyarı (LED/Buzzer): <b id="kz-alarm">-</b></div>
         <div>Siren: <b id="kz-siren">-</b></div>
         <div>Lamba: <b id="kz-lamba">-</b></div>
@@ -2453,19 +2517,21 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
         <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
-        <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ3) Alarmı Aktif</label>
+        <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ6) Alarmı Aktif</label>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "Hareket/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
       <div class="row" style="gap:16px;margin-top:10px">
         <div>Sıcaklık: <b id="kz-sicaklik">-</b></div>
         <div>Nem: <b id="kz-nem">-</b></div>
-        <div style="font-size:12px;color:var(--muted)">MQ3: <b id="kz-mq3">-</b></div>
+        <div style="font-size:12px;color:var(--muted)">MQ6: <b id="kz-mq6">-</b></div>
+        <div style="font-size:12px;color:var(--muted)">GP2Y10 (duman/toz): <b id="kz-gp2y10">-</b></div>
       </div>
       <div class="sz-grid" style="margin-top:10px">
         <div><label class="sz-label">Gaz Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_gazEsik" onchange="konteynerGazAyarKaydet()"></div>
+        <div><label class="sz-label">Duman Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_dumanEsik" onchange="konteynerDumanAyarKaydet()"></div>
       </div>
-      <p style="font-size:11px;color:var(--warn);margin-top:4px"><b>Not:</b> MQ3'ün kalibrasyon potu olmadığından bu eşik tahmini bir varsayılan - sahada gerçek bir gaz kaynağıyla (örn. çakmak gazı, kısa süreli ve güvenli mesafeden) test edip gerekirse yükseltin/düşürün. Gaz alarmı panik gibi davranır: mod/susturma/kademeli siren deseninden bağımsız anında tam güçle çalar (parlayıcı/patlayıcı gaz riskinde gecikme istenmez).</p>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ3'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - her 10 dk'da bir 60sn açılıp değer okunur, sonra kapanır. Bu yüzden gösterilen değer en fazla 10 dk eski olabilir.</p>
+      <p style="font-size:11px;color:var(--warn);margin-top:4px"><b>Not:</b> MQ6'ün ve GP2Y10'un kalibrasyon potu olmadığından bu eşikler tahmini varsayılan - sahada gerçek bir gaz/duman kaynağıyla (örn. çakmak gazı / güvenli mesafeden mum-tütsü dumanı, kısa süreli) test edip gerekirse yükseltin/düşürün. Gaz ve duman alarmı panik gibi davranır: mod/susturma/kademeli siren deseninden bağımsız anında tam güçle çalar (gecikme istenmez).</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - her 10 dk'da bir 60sn açılıp değer okunur, sonra kapanır. Bu yüzden gösterilen değer en fazla 10 dk eski olabilir. GP2Y10'un ısıtıcısı yok, her 2 saniyede bir kısa bir LED darbesiyle tazelenir.</p>
       <div class="sz-grid" style="margin-top:10px">
         <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
         <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
@@ -2615,7 +2681,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>UART0</td><td>1/3</td><td>Debug Serial</td><td>9600 baud (USB programlama/monitör)</td></tr>
         <tr><td>D4</td><td>4</td><td>IR Alıcı Modülü</td><td>OUT/sinyal ucu bu pine; VCC/GND ayrı (3.3V veya 5V modüle göre) besleme hattından</td></tr>
         <tr><td>D5</td><td>5</td><td>Kırmızı LED + Buzzer</td><td>İkisi PARALEL bu pine bağlı (pin tasarrufu) - LED'e seri direnç (~220-330Ω) şart, buzzer aktif tip olmalı (kendi osilatörü olan, doğrudan HIGH/LOW ile çalışan)</td></tr>
-        <tr><td>D6</td><td>6</td><td>PIR HC-SR505 (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (mini tip, 3.3-5V)</td></tr>
+        <tr><td>-</td><td>6</td><td>GP2Y10 (duman/toz sensörü) analog çıkış (Vo)</td><td>ADC1 kanal 5 — 2026-08-20'de PIR2'den boşaltıldı</td></tr>
+        <tr><td>D17</td><td>17</td><td>PIR HC-SR505 (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (mini tip, 3.3-5V) — eski GPIO6'dan buraya taşındı</td></tr>
         <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
         <tr><td>D8</td><td>8</td><td>Alarm Sireni Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif (Sudepo Zonu'ndaki "Alarm Rölesi" ile aynı mantık)</td></tr>
         <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
@@ -2625,9 +2692,9 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>-</td><td>21</td><td>Yedek Akü Şarj Rölesi</td><td>Ana 24V hattan yedek bankaya şarj yolu — sadece gündüz/güneş varken (MPPT <code>pv_power</code>) HIGH</td></tr>
         <tr><td>I2C SDA</td><td>11</td><td>AHT10 (Sıcaklık/Nem)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
         <tr><td>I2C SCL</td><td>12</td><td>AHT10 (Sıcaklık/Nem)</td><td>-</td></tr>
-        <tr><td>ADC1</td><td>10</td><td>MQ3 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
-        <tr><td>-</td><td>16</td><td>MQ3 Güç Kontrolü (MOSFET/transistör modül)</td><td>MQ3'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10 dk'da bir 60sn açılıp kapanır - modülün sinyal ucu bu pine</td></tr>
-        <tr><td>-</td><td>14</td><td>Duman Sensörü (EFS-903R, kuru kontak röle)</td><td>Aktif-LOW, INPUT_PULLUP — Swan PIR ile aynı desende alarm/Telegram'a bağlı</td></tr>
+        <tr><td>ADC1</td><td>10</td><td>MQ6 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
+        <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>MQ6'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10 dk'da bir 60sn açılıp kapanır - modülün sinyal ucu bu pine</td></tr>
+        <tr><td>-</td><td>18</td><td>GP2Y10 (duman/toz sensörü) LED sürücü kontrol</td><td>MOSFET modülü üzerinden, ~320us darbe — Ayarlar → Konteyner Alarm Ayarları, Duman Alarm Eşiği</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
       <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 17, 18, 33, 34, 36, 42. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
@@ -2744,7 +2811,7 @@ function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwa
   if(konteynerKapi) l.push('Konteyner: Kapı');
   if(konteynerSwan) l.push('Konteyner: Swan PIR');
   if(konteynerDuman) l.push('Konteyner: Duman');
-  if(konteynerGaz) l.push('Konteyner: Gaz (MQ3)');
+  if(konteynerGaz) l.push('Konteyner: Gaz (MQ6)');
   return l.length?l.join(', '):'-';
 }
 
@@ -2804,7 +2871,7 @@ function renderUI(d){
   const konteynerKapiVar = konteynerEnabledMi && kz.kapi_en!==false && !!kz.kapi_acik;
   const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_pir;
   const konteynerDumanVar = konteynerEnabledMi && kz.duman_en!==false && !!kz.duman;
-  // Gaz (MQ3) panik gibi davranir - backend'de konteynerAlarmEtkin'den de
+  // Gaz (MQ6) panik gibi davranir - backend'de konteynerAlarmEtkin'den de
   // BAGIMSIZ (bkz alarmLedGuncelle konteynerAcilDurum), bu yuzden burada da
   // konteynerEnabledMi ile gate'lenmez, sadece kendi Etkin anahtarina bakar.
   const konteynerGazVar = kz.gaz_en!==false && !!kz.gaz;
@@ -2919,7 +2986,8 @@ function renderUI(d){
   const kzgv=$('#kz-gaz'); if(kzgv){ kzgv.textContent = kz.gaz?'VAR':'Yok'; kzgv.style.color = kz.gaz?'var(--danger)':''; }
   const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
-  const kzmq=$('#kz-mq3'); if(kzmq) kzmq.textContent = (kz.mq3_volt!=null) ? kz.mq3_volt.toFixed(2)+'V ('+kz.mq3_raw+')' : '--';
+  const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+')' : '--';
+  const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
   const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
   const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
   const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
@@ -2929,6 +2997,7 @@ function renderUI(d){
   const kzale=$('#kz_dumanEtkin'); if(kzale && document.activeElement!==kzale) kzale.checked = kz.duman_en!==false;
   const kzge=$('#kz_gazEtkin'); if(kzge && document.activeElement!==kzge) kzge.checked = kz.gaz_en!==false;
   const kzges=$('#kz_gazEsik'); if(kzges && !kzges.matches(':focus') && !yakinKorumali('kz_gazEsik') && kz.gaz_esik!=null) kzges.value=kz.gaz_esik;
+  const kzdes=$('#kz_dumanEsik'); if(kzdes && !kzdes.matches(':focus') && !yakinKorumali('kz_dumanEsik') && kz.duman_esik!=null) kzdes.value=kz.duman_esik;
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
   const kzsg=$('#kz_sirGecikme'); if(kzsg && !kzsg.matches(':focus') && !yakinKorumali('kz_sirGecikme') && kz.siren_gecikme!=null) kzsg.value=kz.siren_gecikme;
@@ -3293,6 +3362,14 @@ function konteynerGazAyarKaydet(){
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
 
+function konteynerDumanAyarKaydet(){
+  yakinDuzenlendi('kz_dumanEsik');
+  const esik=$('#kz_dumanEsik').value;
+  api('/api/konteyner/duman_ayar?esik='+encodeURIComponent(esik)).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
 function bateryaKorumaToggle(){
   const acik = $('#batarya-koruma-btn').textContent.trim().startsWith('Korumayı Kapat');
   api('/api/batarya/ayar?aktif='+(acik?0:1)).then(()=>{
@@ -3542,11 +3619,14 @@ String durumJson() {
   doc["konteyner"]["gaz"] = konteynerGazVar;
   doc["konteyner"]["gaz_en"] = konteynerGazEtkin;
   doc["konteyner"]["gaz_esik"] = konteynerGazEsikVolt;
+  doc["konteyner"]["duman_esik"] = konteynerDumanEsikVolt;
   doc["konteyner"]["sicaklik"] = ahtData.sicaklik;
   doc["konteyner"]["nem"] = ahtData.nem;
   doc["konteyner"]["aht_ok"] = ahtData.read_ok;
-  doc["konteyner"]["mq3_raw"] = mq3Data.raw;
-  doc["konteyner"]["mq3_volt"] = mq3Data.volt;
+  doc["konteyner"]["mq6_raw"] = mq6Data.raw;
+  doc["konteyner"]["mq6_volt"] = mq6Data.volt;
+  doc["konteyner"]["gp2y10_raw"] = gp2y10Data.raw;
+  doc["konteyner"]["gp2y10_volt"] = gp2y10Data.volt;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
   doc["konteyner"]["susturuldu"] = konteynerSusturuldu;
   doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
@@ -4022,6 +4102,17 @@ void handleAPI_KonteynerGazAyar() {
   }
   konteynerGazAyarKaydet(esik);
   server.send(200, "application/json", "{\"basarili\":true,\"esik\":" + String(konteynerGazEsikVolt, 2) + "}");
+}
+
+void handleAPI_KonteynerDumanAyar() {
+  float esik = konteynerDumanEsikVolt;
+  if (server.hasArg("esik")) {
+    esik = server.arg("esik").toFloat();
+    if (esik < 0.1f) esik = 0.1f;
+    if (esik > 3.3f) esik = 3.3f;
+  }
+  konteynerDumanAyarKaydet(esik);
+  server.send(200, "application/json", "{\"basarili\":true,\"esik\":" + String(konteynerDumanEsikVolt, 2) + "}");
 }
 
 // Batarya (MPPT) koruma ayarlari - "aktif" parametresi verilmezse mevcut
@@ -4816,6 +4907,7 @@ void setupWebServer() {
   server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyar);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
+  server.on("/api/konteyner/duman_ayar", handleAPI_KonteynerDumanAyar);
   server.on("/api/batarya/ayar", handleAPI_BateryaAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
@@ -5005,6 +5097,7 @@ void setup() {
   konteynerAlarmAyarYukle();
   konteynerSensorAktifYukle();
   konteynerGazAyarYukle();
+  konteynerDumanAyarYukle();
   bateryaAyarlariYukle();
 
   // WiFi Connect
@@ -5101,7 +5194,8 @@ void loop() {
   // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
   yedekAkuPoll();
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
-  mq3Poll();  // MQ3 (analog, sadece gosterge)
+  mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
+  gp2y10Poll();  // GP2Y10 duman/toz sensoru (analog, alarma bagli - bkz konteynerDumanVar)
 
   // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
   konteynerSensorleriOku();
