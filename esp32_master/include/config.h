@@ -165,7 +165,7 @@
 #define YEDEK_AKU_POLL_INTERVAL_MS 5000
 #define YEDEK_AKU_DOLU_V 12.8f      // Bu voltajin ustu: "Dolu" (12V kursun-asit, dinlenme voltaji)
 #define YEDEK_AKU_ZAYIF_V 11.5f     // Bu voltajin altı: "Zayif" (sarj/degisim gerekir, derin desarjdan kacinilir)
-// GPIO10 (ADC1 kanal 9) MQ3 icin acilmasi gerektiginden sarj rolesi GPIO21'e
+// GPIO10 (ADC1 kanal 9) MQ6 icin acilmasi gerektiginden sarj rolesi GPIO21'e
 // tasindi (dijital cikis, ADC ihtiyaci yok) - bkz asagidaki "Konteyner Ek
 // Sensorler" bloğu.
 #define YEDEK_AKU_SARJ_PIN 21       // GPIO21 - sarj rolesi/MOSFET tetikleme cikisi
@@ -182,7 +182,7 @@
 #define YEDEK_AKU_SARJ_KESME_V 14.4f
 #define YEDEK_AKU_SARJ_GERI_V 13.6f
 
-// ===== Konteyner Ek Sensorler (AHT10 + MQ3 + Duman Dedektoru) =====
+// ===== Konteyner Ek Sensorler (AHT10 + MQ6 + Duman Dedektoru) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
 // yerine elle CRC16, IRremote yerine ham kenar yakalama gibi) Wire.h ile elle
 // yazilir: tetikle (0xAC 0x33 0x00), 80ms bekle, 6 byte oku, 20-bit ham
@@ -194,28 +194,38 @@
 #define AHT10_I2C_ADDR 0x38
 #define AHT10_POLL_INTERVAL_MS 5000
 
-// MQ3 (gaz sensoru) - artik alarma BAGLI (bkz config.h DUMAN_PIN yaninda
-// konteynerGazVar kullanimi, main.cpp). ADC1 kanali (ADC2 WiFi aktifken
-// guvenilmez). MQ3'un isitici elemani surekli guclendiginde onemli akim
+// MQ6 (gaz sensoru) - artik alarma BAGLI (bkz main.cpp konteynerGazVar
+// kullanimi). ADC1 kanali (ADC2 WiFi aktifken
+// guvenilmez). MQ6'un isitici elemani surekli guclendiginde onemli akim
 // cekiyor (gece batarya tuketimi icin kritik) - bu yuzden GUC DONGUSU
-// uygulanir: MQ3_POWER_PIN'den transistor/MOSFET uzerinden her
-// MQ3_CYCLE_MS'de bir MQ3_POWER_ON_MS kadar guc verilir, olcum alinir,
-// sonra tekrar kesilir (bkz main.cpp mq3Poll()).
-#define MQ3_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
-#define MQ3_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ3 VCC hattini anahtarlar
-#define MQ3_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
-#define MQ3_CYCLE_MS (10UL * 60UL * 1000UL)    // dongu periyodu - bu surenin MQ3_POWER_ON_MS'i acik, kalani kapali
-#define MQ3_POLL_INTERVAL_MS 5000
+// uygulanir: MQ6_POWER_PIN'den transistor/MOSFET uzerinden her
+// MQ6_CYCLE_MS'de bir MQ6_POWER_ON_MS kadar guc verilir, olcum alinir,
+// sonra tekrar kesilir (bkz main.cpp mq6Poll()).
+#define MQ6_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
+#define MQ6_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ6 VCC hattini anahtarlar
+#define MQ6_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
+#define MQ6_CYCLE_MS (10UL * 60UL * 1000UL)    // dongu periyodu - bu surenin MQ6_POWER_ON_MS'i acik, kalani kapali
+#define MQ6_POLL_INTERVAL_MS 5000
 
-// EFS-903R duman dedektoru - kendi ic rolesinin KURU KONTAGI (NO) buraya
-// baglanir, MOSFET/guc devresi YOK - dedektor duman algilayinca kontak GND'ye
-// kisa devre olup GPIO'yu LOW'a ceker (aktif-LOW), INPUT_PULLUP ile okunur.
-// Eskiden basit IR alev sensoru buradaydi, ayni elektriksel desen (aktif-LOW,
-// kuru kontak) korunarak sensor degistirildi. Mevcut Swan PIR deseniyle
-// (konteynerSwanEtkin/swanPirVar) birebir ayni sekilde alarm/telegram'a
-// baglanir - panik gibi anlik/moddan-bagimsiz DEGIL, kendi Etkin anahtarina tabi.
-#define DUMAN_PIN 14
-#define DUMAN_AKTIF_LOW true         // DOGRULA - role NO kontak varsayimiyla
+// EFS-903R (kuru kontak röleli duman dedektörü) sahada test edilip
+// çalıştırılamadı (muhtemelen arızalı) - yerine Sharp GP2Y1014AU0F/GP2Y1010AU0F
+// (optik/ışık-saçılımlı toz+duman sensörü) geçildi (2026-08-20, kullanıcı
+// kararı, bkz [[project_konteyner_sensor_eklentileri]]). Bu sensör, gerçek
+// fotoelektrik duman dedektörleriyle AYNI prensiple çalışır (kuru kontak
+// DEĞİL, LED darbesi + ADC okuma) - MQ6 gibi ADC1 kanalı ister (ADC2 WiFi
+// aktifken güvenilmez). ADC1 (GPIO1-10) tamamen doluydu - PIR2_PIN GPIO6'dan
+// GPIO17'ye TAŞINDI (kullanıcı sahada PIR2 kablosunu fiziksel olarak taşıyacak),
+// boşalan GPIO6 GP2Y10'un analog çıkışına (Vo) verildi.
+//
+// Darbe zamanlaması Sharp datasheet'ine göre: LED'i GP2Y10_LED_PIN üzerinden
+// (MOSFET modülüyle) HIGH yap, GP2Y10_SAMPLE_DELAY_US bekle, ADC oku, toplam
+// GP2Y10_LED_PULSE_US dolunca LED'i LOW yap. Bu tek ölçüm ~320us sürer, loop()'u
+// bloklaması ihmal edilebilir (HC-SR04 tetik darbesiyle aynı mantık).
+#define GP2Y10_LED_PIN 18            // GPIO18 - LED sürücü MOSFET modülünün sinyal ucu
+#define GP2Y10_ADC_PIN 6             // GPIO6 - ADC1 kanal 5 (PIR2'den boşaltıldı), sensörün Vo çıkışı
+#define GP2Y10_LED_PULSE_US 320      // LED'in toplam açık kalma süresi (datasheet: 320us ±20us)
+#define GP2Y10_SAMPLE_DELAY_US 280   // LED açıldıktan sonra ADC örneklemesi için bekleme (sinyal bu noktada stabil)
+#define GP2Y10_POLL_INTERVAL_MS 2000 // İki ölçüm arası bekleme - ısıtıcı olmadığından MQ6 gibi güç döngüsüne gerek yok
 
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
@@ -228,23 +238,26 @@
 // ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti
 // eklerken cakisma olmasin diye:
 //   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485 - ESP8266'ya)
-//                  GPIO4, GPIO5, GPIO6, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/PIR/Reed/Siren/Lamba)
+//                  GPIO4, GPIO5, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/Reed/Siren/Lamba)
 //                  GPIO40, GPIO41 (yukarida - MPPT RS232/PI30, MAX3232 - eski
 //                    MAX485'in yerinde, 2026-08-14'te sokulup buraya tasindi)
 //                  GPIO2 (yukarida - Yedek Aku ADC voltaj bolucu girisi, ADC1 kanali)
 //                  GPIO21 (yukarida - Yedek Aku sarj rolesi/MOSFET cikisi)
 //                  GPIO11, GPIO12 (yukarida - AHT10 I2C SDA/SCL)
-//                  GPIO10 (yukarida - MQ3 analog giris, ADC1 kanali)
-//                  GPIO14 (yukarida - Duman sensoru dijital giris)
+//                  GPIO10 (yukarida - MQ6 analog giris, ADC1 kanali)
+//                  GPIO6 (yukarida - GP2Y10 duman/toz sensoru analog cikisi, ADC1 kanali -
+//                    2026-08-20'de PIR2'den boşaltıldı, bkz GP2Y10_ADC_PIN yorumu)
+//                  GPIO17 (asagida - PIR2, GPIO6'dan buraya TASINDI)
+//                  GPIO18 (yukarida - GP2Y10 LED surucu kontrolu)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO16, 17, 18, 33, 34, 36, GPIO42
-//                  (GPIO40/41 artik MPPT/MAX3232'de kullaniliyor)
+//   SERBEST (gelecekteki eklentiler icin): GPIO33, GPIO34, GPIO36, GPIO42
+//                  (GPIO40/41 artik MPPT/MAX3232'de kullaniliyor, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da)
 //   GPIO13: Sari RCA'ya ayrildi (bkz SARI_RCA_PIN asagida) - henuz kullanilmiyor
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
-#define PIR2_PIN 6        // GPIO6 - Konteynerdaki PIR hareket sensorunun OUT ucu
+#define PIR2_PIN 17       // GPIO17 - Konteynerdaki PIR hareket sensorunun OUT ucu (2026-08-20: eski GPIO6'dan tasindi, GP2Y10 sensorune ADC1 kanali acmak icin - kullanici sahada kabloyu fiziksel olarak tasidi)
 #define KAPI_REED_PIN 7   // GPIO7 - Konteyner kapisi reed (manyetik) switch, digital (INPUT_PULLUP)
 // Swan Quad PET PIR (ticari alarm dedektoru) - NC/COM role kontagi, reed
 // switch ile AYNI mantik (INPUT_PULLUP): kontak kapaliyken (hareket/kurcalama

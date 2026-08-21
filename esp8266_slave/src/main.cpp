@@ -1926,6 +1926,14 @@ void loop() {
           sirenSeciliHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_SIREN) != 0;
           lambaHedefHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_LAMBA) != 0;
         }
+        // Su seviyesi dusuk bir guvenlik tehdidi degil (kullanici talebi) -
+        // siren/lamba TETIKLEMESIN, sadece banner/mesaj olarak gorunsun.
+        // Ayni anda baska bir tetikleyici (kapi/PIR/kacak/sensor) da aktifse
+        // o normal siren/lamba davranisini tetiklemeye devam eder.
+        if ((tetikleyenMask & ~ALARM_TRIGGER_SU_SEVIYE) == 0) {
+          sirenSeciliHam = false;
+          lambaHedefHam = false;
+        }
         // Kademeli zamanlama deseni (kullanici talebi, "yanlis tetiklerden
         // etkilenmemek icin", Konteyner/ESP32 ile ayni mantik): tetik
         // baslangicindan ayar.sirenGecikmeSaniye sonra kisa ayar.sirenChirpMs'lik

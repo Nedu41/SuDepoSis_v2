@@ -35,7 +35,7 @@
 │  GPIO39    → DE/RE      │                                 │  D3     → DE/RE       │
 │                         │                                 │  + HC-SR04, DS1307 RTC│
 │  + Konteyner Zonu       │                                 └──────────┬────────────┘
-│    (IR, PIR2, kapı reed,│                                            │ UART0 (9600 baud)
+│    (IR, PIR2 (GPIO17), │                                            │ UART0 (9600 baud)
 │    siren, lamba - hepsi │                                            │ (470Ω seri + 1kΩ pull-down,
 │    ESP32'ye doğrudan    │                                 ┌──────────▼────────────┐
 │    bağlı, RS485 yok)    │                                 │  Arduino Nano          │
@@ -44,8 +44,8 @@
 │    MAX3232)             │                                 │  D5     Nem rölesi     │
 │  + Yedek Akü (ADC,       │                                 │  D6     PIR (Sudepo)   │
 │    GPIO2/21)            │                                 │  D13    Depo lambası   │
-│  + AHT10/MQ3/Duman        │                                 │  A0     Toprak nem     │
-│    (GPIO11/12/10/14)    │                                 └────────────────────────┘
+│  + AHT10/MQ6/GP2Y10       │                                 │  A0     Toprak nem     │
+│    (GPIO11/12/10/6/18)  │                                 └────────────────────────┘
 └───────────────────────┘
 </pre>
 <p><strong>Not:</strong> Konteyner Zonu (Kalburum'un bulunduğu konteynerdeki alarm/aydınlatma donanımı) tamamen
@@ -63,23 +63,24 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>39</td><td>MAX485 RS485</td><td>DE + RE (Driver/Receiver Enable)</td><td>HIGH = gönderim, LOW = alım</td></tr>
 <tr><td>4</td><td>IR Alıcı</td><td>OUT/sinyal ucu</td><td>VCC/GND ayrı beslenir</td></tr>
 <tr><td>5</td><td>Alarm LED + Buzzer</td><td>Küçük görsel/sesli uyarı (yerel)</td><td>LED (seri dirençli) ve buzzer paralel, aynı sinyali paylaşır</td></tr>
-<tr><td>6</td><td>PIR2 (Konteyner)</td><td>Hareket sensörü OUT</td><td>HC-SR505 — sabit ~8sn HIGH tutar, HC-SR501'den farklı olarak art arda kenar vermez</td></tr>
+<tr><td>17</td><td>PIR2 (Konteyner)</td><td>Hareket sensörü OUT</td><td>HC-SR505 — sabit ~8sn HIGH tutar, HC-SR501'den farklı olarak art arda kenar vermez. 2026-08-20: eski GPIO6'dan buraya taşındı (GP2Y10 sensörüne ADC1 kanalı açmak için)</td></tr>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>Röle çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
 <tr><td>9</td><td>Konteyner Lambası</td><td>Röle çıkışı (uyarı lambası/flaşör)</td><td>Varsayılan HIGH=aktif; siren ile birlikte VEYA tek başına (Onaylı mod "Sessiz (Lamba)" onayı, ya da Kontrol sekmesinden elle) aktif olabilir</td></tr>
 <tr><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT → ESP32 RX</td><td>UART2, RS232/PI30 — ESP8266 hattından (UART1) tamamen ayrı. MPPT portu RS485 DEĞİL, RS232 — MAX485 değil MAX3232 kullanılır. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı. <b>Not:</b> modülün silkscreen'indeki "TX/RX" etiketi üreticiye göre değişir — R1OUT/T1IN cip pin adları kesindir, işleve göre bağlayın.</td></tr>
 <tr><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ← ESP32 TX</td><td>UART2, RS232/PI30</td></tr>
 <tr><td>2</td><td>Yedek Akü (ADC)</td><td>Gerilim bölücü çıkışı → ADC1</td><td>3x 12V 20Ah yedek akü PARALEL bankasının (~12V, ~60Ah, sadece alarm elektroniğine diyot-OR ile yedek) voltajını izler — salt-okunur gösterge, hiçbir röleyi tetiklemez. Kalibrasyon: <code>config.h</code> → <code>YEDEK_AKU_ADC_OLCEK</code></td></tr>
-<tr><td>21</td><td>Yedek Akü Şarj Rölesi/MOSFET</td><td>Çıkış — ana 24V hattan yedek bankaya şarj yolunu açar/kapatır</td><td>Sadece gündüz/güneş varken (MPPT'nin <code>pv_power</code> değeri eşiğin üstündeyken) HIGH — RTC gerekmez, RS232/PI30 verisini kullanır. MPPT verisi bayat/yoksa FAIL-SAFE: LOW (şarj kapalı), gece ana batarya yorulmasın diye. (GPIO10 yerine buraya taşındı — MQ3'e ADC1 pini açmak için.)</td></tr>
+<tr><td>21</td><td>Yedek Akü Şarj Rölesi/MOSFET</td><td>Çıkış — ana 24V hattan yedek bankaya şarj yolunu açar/kapatır</td><td>Sadece gündüz/güneş varken (MPPT'nin <code>pv_power</code> değeri eşiğin üstündeyken) HIGH — RTC gerekmez, RS232/PI30 verisini kullanır. MPPT verisi bayat/yoksa FAIL-SAFE: LOW (şarj kapalı), gece ana batarya yorulmasın diye. (GPIO10 yerine buraya taşındı — MQ6'ya ADC1 pini açmak için.)</td></tr>
 <tr><td>11</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SDA</td><td>Konteyner'e özel sıcaklık/nem sensörü — ESP8266'nın hep 0.0 gönderdiği eski "Sıcaklık" placeholder'ından ayrı, yeni alanlar (<code>konteyner.sicaklik/nem</code>). Kütüphane kullanılmadan elle I2C protokolüyle okunur (bkz <code>main.cpp</code> <code>ahtOku()</code>).</td></tr>
 <tr><td>12</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SCL</td><td>—</td></tr>
-<tr><td>10</td><td>MQ3 (gaz sensörü)</td><td>Analog giriş → ADC1</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler — güç dongusu için bkz GPIO16</td></tr>
-<tr><td>16</td><td>MQ3 Güç Kontrolü (MOSFET/transistör modül)</td><td>Dijital çıkış (OUTPUT)</td><td>MQ3'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10dk'da bir 60sn açılıp kapanır — modülün sinyal ucu bu pine, MQ3 VCC'si modül üzerinden anahtarlanır</td></tr>
-<tr><td>14</td><td>Duman Sensörü (EFS-903R, kuru kontak röle)</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Aktif-LOW (duman algılanınca röle NO kontağı GND'ye kısa devre, LOW) — Swan PIR ile birebir aynı desende Konteyner alarm/Telegram sistemine bağlı, kendi aktif/pasif anahtarı var</td></tr>
+<tr><td>10</td><td>MQ6 (gaz sensörü)</td><td>Analog giriş → ADC1</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler — güç dongusu için bkz GPIO16. 2026-08-20: MQ3'ten MQ6'ya geçildi (tüp gaz/LPG için daha uygun sensör), pin/mantık aynı kaldı</td></tr>
+<tr><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>Dijital çıkış (OUTPUT)</td><td>MQ6'nın ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10dk'da bir 60sn açılıp kapanır — modülün sinyal ucu bu pine, MQ6 VCC'si modül üzerinden anahtarlanır. İlk kurulumda 24-48 saat kesintisiz ısıtılıp stabilize edilmeli.</td></tr>
+<tr><td>6</td><td>GP2Y10 (duman/toz sensörü, Sharp GP2Y1014AU0F/GP2Y1010AU0F)</td><td>Analog giriş (Vo) → ADC1</td><td>2026-08-20: EFS-903R (kuru kontak röleli dedektör, sahada arızalı çıktı) yerine geçti. Isıtıcı yok, ~320us LED darbesiyle her 2sn'de bir ölçüm alınır (bkz GPIO18). Eşik aşılınca panik gibi anında Konteyner alarmını tetikler.</td></tr>
+<tr><td>18</td><td>GP2Y10 LED Sürücü Kontrolü (MOSFET modül)</td><td>Dijital çıkış (OUTPUT)</td><td>~320us'lik darbe ile LED'i sürer, darbe içinde GPIO6'dan örnekleme alınır (Sharp datasheet uygulama devresi)</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (9600 baud)</td><td>PC'ye USB üzerinden</td></tr>
 <tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Quad Flash)</td><td>Bu karttaki flash için ayrılmış</td></tr>
-<tr><td>17, 18, 33, 34, 36, 42</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>GPIO40/41 artık MPPT/MAX3232'de kullanılıyor</td></tr>
+<tr><td>33, 34, 36, 42</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>GPIO40/41 artık MPPT/MAX3232'de, GPIO16/17/18 artık MQ6/PIR2/GP2Y10'da kullanılıyor</td></tr>
 </table>
 <p style="margin-top:8px">Yedek akü (GPIO2/GPIO21) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a></p>
 </div>
@@ -155,7 +156,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <h2>Modül 3: Konteyner Alarm Donanımı (PIR2, Kapı Reed, LED+Buzzer, Siren, Lamba)</h2>
 <table>
 <tr><th>Parça</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
-<tr><td>PIR2 (HC-SR505)</td><td>6</td><td>OUT dijital, HIGH=hareket. Sabit ~8sn HIGH tutar (potansiyometre/jumper yok) — debounce "min tetiklenme" ayarı en az 1 olmalı, 2+ hiç tetiklenmez</td></tr>
+<tr><td>PIR2 (HC-SR505)</td><td>17</td><td>OUT dijital, HIGH=hareket. Sabit ~8sn HIGH tutar (potansiyometre/jumper yok) — debounce "min tetiklenme" ayarı en az 1 olmalı, 2+ hiç tetiklenmez. 2026-08-20: eski GPIO6'dan buraya taşındı.</td></tr>
 <tr><td>Kapı Reed Switch</td><td>7</td><td>INPUT_PULLUP, manyetik switch açılınca alarm eskalasyonuna girer (Alarm Modu'na göre)</td></tr>
 <tr><td>Alarm LED + Buzzer</td><td>5</td><td>Küçük yerel gösterge — gerçek alarm çalmıyorsa PIR bölümü başladığında 1sn'lik "ön uyarı" darbesi de verir</td></tr>
 <tr><td>Siren Rölesi</td><td>8</td><td>Gerçek fiziksel siren/alarm çıkışı — Sesli modda hemen, Onaylı modda onaydan sonra aktif</td></tr>
@@ -195,11 +196,12 @@ GND    → GND
 
 ESP32-S3         Konteyner Alarm Donanımı
 GPIO5  → LED + Buzzer (paralel)
-GPIO6  ← PIR2 (HC-SR505) OUT
+GPIO17 ← PIR2 (HC-SR505) OUT (2026-08-20: eski GPIO6'dan tasindi)
 GPIO7  ← Kapı Reed (INPUT_PULLUP)
 GPIO8  → Siren Rölesi IN
 GPIO9  → Lamba Rölesi IN
-GPIO14 ← Duman Sensörü (EFS-903R kuru kontak röle, aktif-LOW, INPUT_PULLUP)
+GPIO6  ← GP2Y10 (duman/toz sensörü) analog cikis (Vo), ADC1
+GPIO18 → GP2Y10 LED surucu kontrolu (MOSFET modul)
 
 ESP32-S3         MAX3232 (MPPT, RS232/PI30) - UART2
 GPIO41 (RX) ← R1OUT (MAX3232 cip pini, silkscreen etiketi degil)
@@ -218,7 +220,7 @@ ESP32-S3         AHT10 (Sıcaklık/Nem) - I2C
 GPIO11 ↔ SDA
 GPIO12 ↔ SCL
 
-ESP32-S3         MQ3 (gaz sensörü, alarma bağlı)
+ESP32-S3         MQ6 (gaz sensörü, alarma bağlı, 2026-08-20: MQ3'ten degistirildi)
 GPIO10 ← Analog çıkış, ADC1
 GPIO16 → Güç kontrolü (MOSFET/transistör, 10dk'da bir 60sn açık)
 </pre>
