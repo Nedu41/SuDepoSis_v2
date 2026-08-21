@@ -1423,6 +1423,7 @@ String rs485_read_line() {
 
 void parse_esp8266_data(String payload);
 void ssePush();
+void guvenliRestart(); // bkz tanimi asagida - BLE/WiFi'yi duzgunce kapatip ESP.restart() cagirir
 
 void parse_rs485_message(String msg) {
   if (msg.length() == 0) return;
@@ -3842,7 +3843,7 @@ void handleOTA() {
   server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
   if (basarili) {
     delay(200);
-    ESP.restart();
+    guvenliRestart();
   }
 }
 
@@ -3851,7 +3852,7 @@ void handleFileUploadUpdate() {
   server.sendHeader("Connection", "close");
   server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
   delay(100);
-  ESP.restart();
+  guvenliRestart();
 }
 
 void handleFileUploadProgress() {
@@ -4901,10 +4902,28 @@ void handleAPI_WifiScan() {
   server.send(200, "application/json", j);
 }
 
+// Duz ESP.restart() BLE (NimBLE) baglantisi acikken veya WiFi radyosu tam
+// kapatilmadan cagrilirsa bazen RF/PHY kalibrasyonunu "kirli" birakiyor -
+// belirti: yazilim resetinden sonra WiFi/web sayfasi hic gelmiyor, ancak
+// komple guc kesilip verilince (gercek power-on, PHY sifirdan kalibre
+// olur) sorunsuz acilir. Duzeltme: restart'tan ONCE BLE denetleyiciyi
+// duzgunce serbest birak (NimBLEDevice::deinit) ve WiFi radyosunu tamamen
+// kapat (disconnect+mode(WIFI_OFF)) - boylece ESP.restart() radyo hala
+// calisirken degil, temiz bir durumdan cagrilir.
+void guvenliRestart() {
+#if ENABLE_BLE
+  NimBLEDevice::deinit(true);
+#endif
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(150);
+  ESP.restart();
+}
+
 void handleAPI_Restart() {
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Yeniden baslatiliyor\"}");
   delay(500);
-  ESP.restart();
+  guvenliRestart();
 }
 
 void setupWebServer() {
