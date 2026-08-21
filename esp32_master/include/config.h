@@ -362,7 +362,15 @@
 #define BLE_SAFE_MIN_HEAP 40000
 
 // ===== Özellikler =====
-#define ENABLE_MQTT 1
+// MQTT_BROKER "127.0.0.1" hicbir zaman gercek bir broker'a isaret etmiyordu
+// (ESP32 kendi kendini gosteriyordu, lwIP'de gercek bir loopback arayuzu de
+// yok) - mqtt_connect() yine de loop()'ta HER 10 SANIYEDE BIR baglanmayi
+// deniyor, PubSubClient'in varsayilan soket zaman asimi (15sn) boyunca
+// server.handleClient()'i bloke ediyordu. Bu, reset sonrasi web sayfasinin
+// "bazen" acilmamasinin (RST/USB/guc ile degil, sadece refresh'in bu bloke
+// pencereye denk gelip gelmemesiyle ilgili) asil sebebiydi. Kullanici su an
+// MQTT kullanmiyor - ileride gercek bir broker adresiyle tekrar acilabilir.
+#define ENABLE_MQTT 0
 #define ENABLE_OTA 1
 #define ENABLE_SPIFFS 1
 #define DEBUG_SERIAL 1
