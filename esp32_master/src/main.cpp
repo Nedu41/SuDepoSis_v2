@@ -676,6 +676,23 @@ void konteynerDonanimiInit() {
   DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/GP2Y10 hazir");
 }
 
+// Acilis "hazir" onay sesi - setup() sonunda (hem power-on hem OTA/yazilim
+// resetinde) BIR KEZ calinir. ALARM_LED_PIN aktif tip buzzer oldugundan
+// (kendi osilatoru var, dogrudan HIGH/LOW ile calisir - bkz config.h/pinout)
+// PWM/tone() ile perde/nota DEGISTIRILEMEZ, sadece ac/kapa suresi ayarlanabilir.
+// Bu yuzden "melodi" tek notalik kisa-kisa-uzun bir ritim olarak yapildi
+// (eskiden guc kesintisi sonrasi pinin bir an float kalmasindan kaynaklanan,
+// kasitsiz "uzun biip" glitch'inin yerine gecen, KASITLI ve KISA bir onay sesi).
+void acilisSesiCal() {
+  const int ritim[] = {80, 80, 80, 80, 220};
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(ALARM_LED_PIN, HIGH);
+    delay(ritim[i]);
+    digitalWrite(ALARM_LED_PIN, LOW);
+    delay(70);
+  }
+}
+
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
 // mevcut alarm durumunu okur (banner'in gorunurlugüyle ayni mantik) VE yerel
 // Konteyner sensorlerini (kapi reed + ESKALE OLMUS PIR) de hesaba katar -
@@ -5160,6 +5177,8 @@ void setup() {
   DEBUG_PRINT("🌍 Web: http://"); DEBUG_PRINT(MDNS_NAME); DEBUG_PRINTLN(".local");
   DEBUG_PRINT("🌍 Web AP: http://"); DEBUG_PRINTLN(WiFi.softAPIP());
   DEBUG_PRINTLN("========================================\n");
+
+  acilisSesiCal(); // "hazir" onay sesi - bkz fonksiyon yorumu (konteynerDonanimiInit ustunde)
 }
 
 // ============================================================
