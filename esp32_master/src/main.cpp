@@ -2038,7 +2038,19 @@ void gp2y10Poll() {
   digitalWrite(GP2Y10_LED_PIN, LOW);
 
   gp2y10Data.last_update_ms = now;
-  konteynerDumanVar = konteynerDumanEtkin && (gp2y10Data.volt >= konteynerDumanEsikVolt);
+
+  // Tek olcume gore ANINDA tetiklemek yerine (5-6m korumasiz kabloda EMI/
+  // gurultu tek bir yanlis-pozitif okumaya sebep olabilir), esik asimi
+  // art arda 2 olcumde (bu POLL_INTERVAL ile ~4sn) dogrulanmadan alarm
+  // verilmez. Esigin ALTINA dusme ise ANINDA temizlenir (fail-safe).
+  static uint8_t esikUstuSayaci = 0;
+  bool esikAsildi = konteynerDumanEtkin && (gp2y10Data.volt >= konteynerDumanEsikVolt);
+  if (esikAsildi) {
+    if (esikUstuSayaci < 2) esikUstuSayaci++;
+  } else {
+    esikUstuSayaci = 0;
+  }
+  konteynerDumanVar = (esikUstuSayaci >= 2);
 }
 
 // bateryaKritik hesaba katilmadan, sadece SOC + net guc (yuk - PV) ile
