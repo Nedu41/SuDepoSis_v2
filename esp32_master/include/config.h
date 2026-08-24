@@ -165,22 +165,41 @@
 #define YEDEK_AKU_POLL_INTERVAL_MS 5000
 #define YEDEK_AKU_DOLU_V 12.8f      // Bu voltajin ustu: "Dolu" (12V kursun-asit, dinlenme voltaji)
 #define YEDEK_AKU_ZAYIF_V 11.5f     // Bu voltajin altı: "Zayif" (sarj/degisim gerekir, derin desarjdan kacinilir)
-// GPIO10 (ADC1 kanal 9) MQ6 icin acilmasi gerektiginden sarj rolesi GPIO21'e
-// tasindi (dijital cikis, ADC ihtiyaci yok) - bkz asagidaki "Konteyner Ek
-// Sensorler" bloğu.
-#define YEDEK_AKU_SARJ_PIN 21       // GPIO21 - sarj rolesi/MOSFET tetikleme cikisi
-#define YEDEK_AKU_SARJ_PV_ESIK_W 30.0f // Bu PV gucunun ustu "gunduz/gunes var" sayilir, sarj rolesi acilir
-// XL4015 (buck) kendi ic geri beslemesiyle kesmezse diye ek guvenlik: aku
-// voltaji YEDEK_AKU_SARJ_KESME_V'ye ulasinca role de LOW'a zorlanir.
-// Histerezis: YEDEK_AKU_SARJ_GERI_V'ye DUSENE kadar tekrar acilmaz (esik
-// sinirinda role'un hizli acip-kapanmasini onler).
-// ONEMLI: Bu 12.8V (YEDEK_AKU_DOLU_V) DEGIL - o dinlenme/rolanti voltaji,
-// sarj SIRASINDA (akim akarken) terminal voltaji ic direnc dususu yuzunden
-// daha yuksek olur. Kursun-asit tipik sarj (bulk/absorption) kesme voltaji
-// ~14.4V. DEGERLER TAHMINI - parcalar (XL4015) gelip trim potu ayarlanip
-// sahada gercek sarj voltaji olculdukten SONRA kesin degerlerle DOGRULA.
-#define YEDEK_AKU_SARJ_KESME_V 14.4f
-#define YEDEK_AKU_SARJ_GERI_V 13.6f
+// GPIO21 ESKIDEN yedek aku sarj rolesi/MOSFET tetiklemesiydi (bkz git
+// gecmisi) - Schulzz marka PWM solar sarj kontrolcusu bu isi artik kendi
+// basina (donanimsal) yaptigindan bu mantik TAMAMEN KALDIRILDI (2026-08-24).
+// Ayni GPIO21 + ayni fiziksel MOSFET modulu simdi "Acil Durum Lambasi"
+// icin yeniden kullaniliyor (bkz asagidaki ACIL_LAMBA_PIN) - MOSFET'in yuk
+// tarafina artik sari RCA uzerinden 12V veriliyor, cikisi acil durum
+// lambasina gidiyor.
+#define ACIL_LAMBA_PIN 21           // GPIO21 - Acil Durum Lambasi MOSFET tetikleme cikisi (eski sarj rolesi pini)
+
+// ===== Ana Guc (24V ana hat) Izleme - ADS1115 (I2C, harici ADC) =====
+// ADC1 (GPIO1-10) tamamen dolu (GPIO2/6/10 - bkz Konteyner Ek Sensorler),
+// ADC2 WiFi aktifken guvenilmez - bu yuzden ana akunun 3 kademeli
+// ayarlanabilir esigi icin ayri bir I2C ADC modulu (ADS1115, envanterde
+// zaten mevcut) eklendi. Mevcut AHT10 I2C hattina (SDA=GPIO11, SCL=GPIO12)
+// bindirilir - farkli adres (0x48) oldugu icin AHT10 (0x38) ile cakismaz,
+// yeni GPIO harcanmaz. Sadece ana aku icin kullaniliyor (MQ6/GP2Y10
+// bilerek native ESP32 ADC'de birakildi - GP2Y10'un 320us'lik hizli darbe
+// olcumu ADS1115'in cevrim suresine gore cok riskli olurdu).
+#define ADS1115_I2C_ADDR 0x48
+#define ADS1115_KANAL 0             // AIN0 (single-ended, GND'ye gore) - ana aku bolucu cikisi buraya bagli
+// Ana hat 24V nominal (2x12V seri jel aku), sarj sirasinda ~30V'a kadar
+// cikabilir. Bolucu orani ADS1115'in +-4.096V (PGA) araligina sigacak
+// sekilde secildi: R1(ust)=100kOhm, R2(alt)=15kOhm -> oran=(100+15)/15=7.667,
+// 30V girişte ADS1115 ucunda ~3.91V. SAHADA GERCEK DIRENC DEGERLERIYLE
+// VE MULTIMETREYLE DOGRULA/kalibre et (YEDEK_AKU_KALIBRASYON_KAZANC deseni gibi).
+#define ANA_GUC_BOLUCU_ORAN 7.667f
+#define ANA_GUC_POLL_INTERVAL_MS 5000
+// 3 kademeli varsayilan esikler (NVS'de kalici, web'den ayarlanabilir -
+// konteynerGazEsikVolt ile ayni desen). Sadece BILDIRIM icin kullanilir,
+// hicbir role/yuk OTOMATIK kesilmez/acilmaz (kullanici karari: "ihtiyac
+// duyarsam acarim", acil lamba manuel butonla veya panik/alarm modunda
+// otomatik yanar - bkz main.cpp acilLambaGuncelle()).
+#define ANA_GUC_ESIK1_V 23.5f       // Kademe 1 "Dusuk" - bilgi amacli
+#define ANA_GUC_ESIK2_V 22.0f       // Kademe 2 "Kritik" - daha guclu uyari
+#define ANA_GUC_ESIK3_V 21.0f       // Kademe 3 "Acil" - en kritik uyari
 
 // ===== Konteyner Ek Sensorler (AHT10 + MQ6 + Duman Dedektoru) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
@@ -242,7 +261,7 @@
 //                  GPIO40, GPIO41 (yukarida - MPPT RS232/PI30, MAX3232 - eski
 //                    MAX485'in yerinde, 2026-08-14'te sokulup buraya tasindi)
 //                  GPIO2 (yukarida - Yedek Aku ADC voltaj bolucu girisi, ADC1 kanali)
-//                  GPIO21 (yukarida - Yedek Aku sarj rolesi/MOSFET cikisi)
+//                  GPIO21 (yukarida - Acil Durum Lambasi MOSFET cikisi, eski sarj rolesi pini)
 //                  GPIO11, GPIO12 (yukarida - AHT10 I2C SDA/SCL)
 //                  GPIO10 (yukarida - MQ6 analog giris, ADC1 kanali)
 //                  GPIO6 (yukarida - GP2Y10 duman/toz sensoru analog cikisi, ADC1 kanali -
@@ -254,7 +273,10 @@
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
 //   SERBEST (gelecekteki eklentiler icin): GPIO33, GPIO34, GPIO36, GPIO42
 //                  (GPIO40/41 artik MPPT/MAX3232'de kullaniliyor, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da)
-//   GPIO13: Sari RCA'ya ayrildi (bkz SARI_RCA_PIN asagida) - henuz kullanilmiyor
+//   GPIO13: Fiziksel Acil Durum butonu (bkz ACIL_BUTON_PIN asagida) - eskiden
+//     "Sari RCA'ya ayrildi" olarak ayrilmisti ama sari RCA artik bir GPIO
+//     sinyali degil, dogrudan 12V guc hatti tasiyor (bkz ACIL_LAMBA_PIN/
+//     GPIO21 MOSFET) - bu yuzden GPIO13 fiziksel butona verildi (2026-08-24)
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 17       // GPIO17 - Konteynerdaki PIR hareket sensorunun OUT ucu (2026-08-20: eski GPIO6'dan tasindi, GP2Y10 sensorune ADC1 kanali acmak icin - kullanici sahada kabloyu fiziksel olarak tasidi)
@@ -277,7 +299,7 @@
 // kullanilacagi VE input/output yonu belirlenince burada pinMode ile
 // birlikte tanimlanacak. GPIO13 strapping pin degil, JTAG (MTCK) disinda
 // serbest - hem input hem output icin sorunsuz kullanilabilir.
-#define SARI_RCA_PIN 13   // GPIO13 - Sari RCA (henuz kullanilmiyor)
+#define ACIL_BUTON_PIN 13 // GPIO13 - Fiziksel Acil Durum butonu (INPUT_PULLUP, butona basinca GND'ye kisa devre) - Acil Durum Lambasini (ACIL_LAMBA_PIN) manuel ac/kapa toggle eder
 
 // NOT: ESP8266 status satiri (alarm mod/mute/pending alanlari eklendikten
 // sonra) ~270 karaktere ulasti. 9600 baud'da bu ~280ms surer - eski
