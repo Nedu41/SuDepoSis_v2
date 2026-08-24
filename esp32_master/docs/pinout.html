@@ -263,7 +263,9 @@ GPIO15 ← NC/COM kontağı (INPUT_PULLUP, LOW=hareket yok, HIGH=hareket/kablo k
 <tr><td>7</td><td>AHT10 SCL</td><td>GPIO42</td></tr>
 <tr><td>8</td><td>Boş / yedek</td><td>GPIO13</td></tr>
 <tr><td>9</td><td>GND</td><td>—</td></tr>
-<tr><td>10, 11, 12</td><td>Boş</td><td>—</td></tr>
+<tr><td>10</td><td>GP2Y10 LED sürücü</td><td>GPIO18</td></tr>
+<tr><td>11</td><td>GP2Y10 Vo (analog)</td><td>GPIO6</td></tr>
+<tr><td>12</td><td>Boş</td><td>—</td></tr>
 <tr><td>13</td><td>GND</td><td>—</td></tr>
 <tr><td>14</td><td>GND</td><td>—</td></tr>
 <tr><td>15</td><td>GND</td><td>—</td></tr>
@@ -273,9 +275,11 @@ GPIO15 ← NC/COM kontağı (INPUT_PULLUP, LOW=hareket yok, HIGH=hareket/kablo k
 <tr><td>20</td><td>Boş</td><td>—</td></tr>
 <tr><td>21</td><td>Shield/GND</td><td>—</td></tr>
 </table>
-<p><strong>Not:</strong> MQ6/AHT10 beslemeleri (3.3V/5V) SCART'tan DEĞİL, iç terminal bloktan veriliyor — SCART'ın
-spring-contact pinleri güç hattı için terminal bloğu kadar sağlam değil, sadece data/sinyal hatları (AOUT, SDA,
-SCL, GND) SCART'tan geçiyor.</p>
+<p><strong>Not:</strong> MQ6/AHT10/GP2Y10 beslemeleri (3.3V/5V) SCART'tan DEĞİL, iç terminal bloktan veriliyor — SCART'ın
+spring-contact pinleri güç hattı için terminal bloğu kadar sağlam değil, sadece data/sinyal hatları SCART'tan geçiyor.
+GP2Y10'un Sharp datasheet'inde önerdiği 150Ω direnç + 220µF kondansatör SENSÖRE YAKIN lehimlenmeli (ESP32 tarafında
+değil) — bunlar ~320us'lik LED darbesinin akımını yerel olarak karşılıyor, kart tarafına konursa 5-6m kablonun
+gerilim düşümü işlevlerini geçersiz kılar.</p>
 
 <h3>ESP32-S3 Pertinax Kartı Üzerindeki 13 Pinli İç Konnektör</h3>
 <table>
