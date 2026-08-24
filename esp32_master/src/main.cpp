@@ -1882,7 +1882,7 @@ void acilLambaGuncelle(bool konteynerAcilDurumParam) {
   digitalWrite(ACIL_LAMBA_PIN, acilLambaAktif ? HIGH : LOW);
 }
 
-// Fiziksel Acil Durum butonu (GPIO13, INPUT_PULLUP, aktif-LOW) - basisinda
+// Fiziksel Acil Durum butonu (GPIO14, INPUT_PULLUP, aktif-LOW) - basisinda
 // acilLambaManuel'i toggle eder (web butonuyla aynI bayrak). Basit kenar
 // debonce - PIR2/Kapi reed ile ayni tarzda ama tek-atis (edge) davranisi
 // icin ek "onceki durum" degiskeni tutar.
@@ -2850,8 +2850,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>TX (UART2)</td><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ucu bu pine</td></tr>
         <tr><td>ADC1</td><td>2</td><td>Yedek Akü (gerilim bölücü)</td><td>3x12V paralel yedek akü bankasının voltajını izler — salt-okunur, hiçbir röleyi tetiklemez</td></tr>
         <tr><td>-</td><td>21</td><td>Yedek Akü Şarj Rölesi</td><td>Ana 24V hattan yedek bankaya şarj yolu — sadece gündüz/güneş varken (MPPT <code>pv_power</code>) HIGH</td></tr>
-        <tr><td>I2C SDA</td><td>11</td><td>AHT10 (Sıcaklık/Nem)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
-        <tr><td>I2C SCL</td><td>12</td><td>AHT10 (Sıcaklık/Nem)</td><td>-</td></tr>
+        <tr><td>I2C SDA</td><td>36</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
+        <tr><td>I2C SCL</td><td>42</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>-</td></tr>
         <tr><td>ADC1</td><td>10</td><td>MQ6 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
         <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>MQ6'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10 dk'da bir 60sn açılıp kapanır - modülün sinyal ucu bu pine</td></tr>
         <tr><td>-</td><td>18</td><td>GP2Y10 (duman/toz sensörü) LED sürücü kontrol</td><td>MOSFET modülü üzerinden, ~320us darbe — Ayarlar → Konteyner Alarm Ayarları, Duman Alarm Eşiği</td></tr>
@@ -5327,6 +5327,7 @@ void setup() {
   pinMode(ACIL_BUTON_PIN, INPUT_PULLUP);
   anaGucEsikYukle();
   Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C - ADS1115 de ayni hatta (farkli adres)
+  Wire.setClock(50000); // AHT10 7m CAT5 uzerinden - kapasitans/yukselme suresi icin 100kHz yerine 50kHz
 
   // SPIFFS - kayit yedekleme icin (bkz esp8266KayitYedekle/GeriYukle)
   if (!SPIFFS.begin(true)) {
@@ -5439,7 +5440,7 @@ void loop() {
   // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
   yedekAkuPoll();
   anaGucPoll(); // Ana guc (ADS1115/I2C, 3 kademeli bildirim)
-  acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO13)
+  acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO14)
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
   mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
   gp2y10Poll();  // GP2Y10 duman/toz sensoru (analog, alarma bagli - bkz konteynerDumanVar)

@@ -178,7 +178,7 @@
 // ADC1 (GPIO1-10) tamamen dolu (GPIO2/6/10 - bkz Konteyner Ek Sensorler),
 // ADC2 WiFi aktifken guvenilmez - bu yuzden ana akunun 3 kademeli
 // ayarlanabilir esigi icin ayri bir I2C ADC modulu (ADS1115, envanterde
-// zaten mevcut) eklendi. Mevcut AHT10 I2C hattina (SDA=GPIO11, SCL=GPIO12)
+// zaten mevcut) eklendi. Mevcut AHT10 I2C hattina (SDA=GPIO36, SCL=GPIO42)
 // bindirilir - farkli adres (0x48) oldugu icin AHT10 (0x38) ile cakismaz,
 // yeni GPIO harcanmaz. Sadece ana aku icin kullaniliyor (MQ6/GP2Y10
 // bilerek native ESP32 ADC'de birakildi - GP2Y10'un 320us'lik hizli darbe
@@ -186,11 +186,11 @@
 #define ADS1115_I2C_ADDR 0x48
 #define ADS1115_KANAL 0             // AIN0 (single-ended, GND'ye gore) - ana aku bolucu cikisi buraya bagli
 // Ana hat 24V nominal (2x12V seri jel aku), sarj sirasinda ~30V'a kadar
-// cikabilir. Bolucu orani ADS1115'in +-4.096V (PGA) araligina sigacak
-// sekilde secildi: R1(ust)=100kOhm, R2(alt)=15kOhm -> oran=(100+15)/15=7.667,
-// 30V girişte ADS1115 ucunda ~3.91V. SAHADA GERCEK DIRENC DEGERLERIYLE
-// VE MULTIMETREYLE DOGRULA/kalibre et (YEDEK_AKU_KALIBRASYON_KAZANC deseni gibi).
-#define ANA_GUC_BOLUCU_ORAN 7.667f
+// cikabilir. Bolucu: R1(ust)=100kOhm, R2(alt)=10kOhm -> oran=(100+10)/10=11,
+// 30V girişte ADS1115 ucunda ~2.73V (3.3V beslemeye gore guvenli marj).
+// SAHADA GERCEK DIRENC DEGERLERIYLE VE MULTIMETREYLE DOGRULA/kalibre et
+// (YEDEK_AKU_KALIBRASYON_KAZANC deseni gibi).
+#define ANA_GUC_BOLUCU_ORAN 11.0f
 #define ANA_GUC_POLL_INTERVAL_MS 5000
 // 3 kademeli varsayilan esikler (NVS'de kalici, web'den ayarlanabilir -
 // konteynerGazEsikVolt ile ayni desen). Sadece BILDIRIM icin kullanilir,
@@ -208,8 +208,8 @@
 // sicaklik/nem hesapla. Konteyner'e OZEL yeni alanlar (sensorData.temperature
 // ESP8266'dan gelen, hep 0.0 gonderilen bir yer tutucu - KARISTIRILMAZ,
 // dokunulmaz).
-#define AHT10_SDA_PIN 11
-#define AHT10_SCL_PIN 12
+#define AHT10_SDA_PIN 36    // GPIO36 - kartin sag tarafi
+#define AHT10_SCL_PIN 42    // GPIO42 - kartin sag tarafi
 #define AHT10_I2C_ADDR 0x38
 #define AHT10_POLL_INTERVAL_MS 5000
 
@@ -262,21 +262,27 @@
 //                    MAX485'in yerinde, 2026-08-14'te sokulup buraya tasindi)
 //                  GPIO2 (yukarida - Yedek Aku ADC voltaj bolucu girisi, ADC1 kanali)
 //                  GPIO21 (yukarida - Acil Durum Lambasi MOSFET cikisi, eski sarj rolesi pini)
-//                  GPIO11, GPIO12 (yukarida - AHT10 I2C SDA/SCL)
+//                  GPIO36, GPIO42 (yukarida - AHT10/ADS1115 I2C SDA/SCL)
 //                  GPIO10 (yukarida - MQ6 analog giris, ADC1 kanali)
 //                  GPIO6 (yukarida - GP2Y10 duman/toz sensoru analog cikisi, ADC1 kanali -
 //                    2026-08-20'de PIR2'den boşaltıldı, bkz GP2Y10_ADC_PIN yorumu)
 //                  GPIO17 (asagida - PIR2, GPIO6'dan buraya TASINDI)
 //                  GPIO18 (yukarida - GP2Y10 LED surucu kontrolu)
+//                  GPIO15 (asagida - Swan Quad PET PIR NC/COM kontagi)
+//                  GPIO14 (asagida - Fiziksel Acil Durum butonu)
+//                  GPIO12 (asagida - Sari RCA, amaci henuz belirlenmedi ama pin ayrildi)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO33, GPIO34, GPIO36, GPIO42
-//                  (GPIO40/41 artik MPPT/MAX3232'de kullaniliyor, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da)
-//   GPIO13: Fiziksel Acil Durum butonu (bkz ACIL_BUTON_PIN asagida) - eskiden
-//     "Sari RCA'ya ayrildi" olarak ayrilmisti ama sari RCA artik bir GPIO
-//     sinyali degil, dogrudan 12V guc hatti tasiyor (bkz ACIL_LAMBA_PIN/
-//     GPIO21 MOSFET) - bu yuzden GPIO13 fiziksel butona verildi (2026-08-24)
+//   DOKUNMA: GPIO13 (13'lu konnektor pin9 / SCART pin8, amaci belirsiz)
+//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO33, GPIO34
+//                  (GPIO40/41 artik MPPT/MAX3232'de, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da,
+//                  GPIO42/36 artik AHT10/ADS1115 I2C'de, GPIO14 artik Acil Buton'da, GPIO12 Sari RCA'da kullaniliyor)
+//   Ekran (ileride): I2C ekran (SSD1306/SH1106 OLED gibi) icin YENI PIN
+//     GEREKMEZ - mevcut AHT10/ADS1115 I2C hattina (GPIO42=SDA, GPIO36=SCL)
+//     farkli adresle bindirilebilir. SPI ekran (CS/DC/RST/SCK/MOSI - 5 sinyal)
+//     icin yukaridaki 3 serbest pin (11,33,34) yetersiz - GPIO13'un gercek
+//     durumu doğrulanip kullanilabilirse 4. pin olarak eklenebilir.
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 17       // GPIO17 - Konteynerdaki PIR hareket sensorunun OUT ucu (2026-08-20: eski GPIO6'dan tasindi, GP2Y10 sensorune ADC1 kanali acmak icin - kullanici sahada kabloyu fiziksel olarak tasidi)
@@ -295,11 +301,11 @@
 // ters cevirmeniz yeterli (reed switch'teki gibi tek satirlik duzeltme).
 #define KONTEYNER_SIREN_PIN 8   // GPIO8 - Alarm sireni rolesi (Sesli/Onayli+Sesli-onay'da aktif)
 #define KONTEYNER_LAMBA_PIN 9   // GPIO9 - Uyari lambasi/flasoru rolesi (siren ile birlikte VEYA Onayli+"Sessiz(Lamba)" onayinda tek basina aktif)
-// Sari RCA (arka panel, 13'lu soket pin 9) - henuz bos/yedek, ne icin
-// kullanilacagi VE input/output yonu belirlenince burada pinMode ile
-// birlikte tanimlanacak. GPIO13 strapping pin degil, JTAG (MTCK) disinda
-// serbest - hem input hem output icin sorunsuz kullanilabilir.
-#define ACIL_BUTON_PIN 13 // GPIO13 - Fiziksel Acil Durum butonu (INPUT_PULLUP, butona basinca GND'ye kisa devre) - Acil Durum Lambasini (ACIL_LAMBA_PIN) manuel ac/kapa toggle eder
+#define ACIL_BUTON_PIN 14 // GPIO14 - Fiziksel Acil Durum butonu (INPUT_PULLUP, butona basinca GND'ye kisa devre) - Acil Durum Lambasini (ACIL_LAMBA_PIN) manuel ac/kapa toggle eder
+
+// Sari RCA (arka panel, 13'lu ic konnektor pin 4) - amaci henuz belirlenmedi,
+// pinMode input/output yonu belirlenince eklenecek.
+#define SARI_RCA_PIN 12   // GPIO12 - amaci henuz belirlenmedi
 
 // NOT: ESP8266 status satiri (alarm mod/mute/pending alanlari eklendikten
 // sonra) ~270 karaktere ulasti. 9600 baud'da bu ~280ms surer - eski
