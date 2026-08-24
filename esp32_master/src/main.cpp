@@ -702,6 +702,8 @@ void acilisSesiCal() {
 // bildirir), Onayli'da banner'dan "Sesli" ile onaylanana kadar sessiz kalir.
 // Ayrica her yeni PIR hareket "bolumu" basladiginda (konteynerOnBipCiksin),
 // gercek bir alarm calmiyorsa 1sn'lik kisa bir "on uyari" darbesi verir.
+void acilLambaGuncelle(bool konteynerAcilDurumParam); // asagida tanimli (Acil Durum Lambasi)
+
 void alarmLedGuncelle() {
   static bool ledDurum = false;
   static unsigned long sonDegisimMs = 0;
@@ -721,6 +723,7 @@ void alarmLedGuncelle() {
   // guc dongusune kadar (10dk'ya kadar) gec yansimasi yerine BURADA aninda
   // etkili olmasi saglanir.
   bool konteynerAcilDurum = alarmStatus.panic_mode || (konteynerGazEtkin && konteynerGazVar);
+  acilLambaGuncelle(konteynerAcilDurum);
   bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerDumanEtkin && konteynerDumanVar)));
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
   // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
@@ -1234,6 +1237,10 @@ void telegramAlarmKontrolEt() {
   }
 }
 
+// anaGucPoll() (asagida tanimli, ADS1115 ana guc izleme) tarafindan set edilir.
+bool anaGucBildirimBekliyor = false;
+String anaGucBildirimMetni = "";
+
 // bateryaKritik gecisinde (acilis/kapanis) bir kez bildirim gonderir - ayni
 // bekle/retry deseni telegramAlarmKontrolEt ile ayni, ayri degiskenlerle.
 void telegramBateryaKontrolEt() {
@@ -1254,6 +1261,30 @@ void telegramBateryaKontrolEt() {
     bekliyor = true; ilkDenemeMs = millis();
   }
   oncekiKritik = bateryaKritik;
+
+  if (bekliyor) {
+    if (telegramMesajGonder(metin)) {
+      bekliyor = false;
+    } else if (millis() - ilkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
+      bekliyor = false;
+    }
+  }
+}
+
+// Ana guc kademe gecisinde (anaGucPoll) bir kez bildirim gonderir - ayni
+// bekle/retry deseni telegramBateryaKontrolEt ile ayni.
+void telegramAnaGucKontrolEt() {
+  static bool bekliyor = false;
+  static String metin;
+  static unsigned long ilkDenemeMs = 0;
+
+  if (!telegramBildirimAktif) { anaGucBildirimBekliyor = false; bekliyor = false; return; }
+
+  if (anaGucBildirimBekliyor) {
+    anaGucBildirimBekliyor = false;
+    metin = anaGucBildirimMetni;
+    bekliyor = true; ilkDenemeMs = millis();
+  }
 
   if (bekliyor) {
     if (telegramMesajGonder(metin)) {
@@ -1699,23 +1730,18 @@ void mppt_init() {
 }
 
 // ============================================================
-// YEDEK AKU (ADC voltaj izleme + gunduz-only sarj kontrolu) - 3x 12V 20Ah
-// kullanilmis scooter akusu, PARALEL baglanip tek bir 12V ~60Ah yedek
-// banka olusturur, SADECE dusuk guclu alarm elektroniginin 5V hattina
-// TEK YONLU diyot-OR ile yedek olur (bkz config.h "Yedek Aku" bloğu).
-// Deşarj (yedek besleme) tamamen PASIF donanimsal failover - kod hicbir
-// role/yuk kesme kararini bu degere BAGLAMAZ (MPPT'nin bateryaKritik
-// mantigi ana bataryayi zaten koruyor). Sarj ise AKTIF/sistem kontrollu:
-// mpptData.pv_power'a bakip gunduz/gunes varsa role/MOSFET'i acar, yoksa
-// (gece veya MPPT verisi bayat/okunamiyorsa - FAIL-SAFE) kapali tutar ki
-// ana batarya geceleri bu yuzden ekstra tuketilmesin. RS232 gibi bloke
-// olabilecek bir I/O olmadigindan (duz analogRead()/digitalWrite()) ayri
-// bir task/mutex'e gerek yok - dogrudan loop() icinde cagrilir.
+// YEDEK AKU (ADC voltaj izleme) - 3x 12V 20Ah kullanilmis scooter akusu,
+// PARALEL baglanip tek bir 12V ~60Ah yedek banka olusturur, SADECE dusuk
+// guclu alarm elektroniginin 5V hattina TEK YONLU diyot-OR ile yedek olur
+// (bkz config.h "Yedek Aku" bloğu). Deşarj (yedek besleme) tamamen PASIF
+// donanimsal failover - kod hicbir role/yuk kesme kararini bu degere
+// BAGLAMAZ. SARJ ARTIK Schulzz PWM solar sarj kontrolcusu tarafindan
+// donanimsal yapiliyor (2026-08-24) - eski GPIO21 sarj rolesi mantigi
+// TAMAMEN KALDIRILDI, bu fonksiyon artik SADECE izleme/gosterge amacli.
 // ============================================================
 struct YedekAkuData {
   float voltaj = 0.0;
   bool read_ok = false;
-  bool sarj_aktif = false;
   unsigned long last_update_ms = 0;
 };
 YedekAkuData yedekAkuData;
@@ -1726,15 +1752,6 @@ const char* yedekAkuDurumMetni() {
   if (yedekAkuData.voltaj <= YEDEK_AKU_ZAYIF_V) return "zayif";
   return "devrede";
 }
-
-void yedekAku_init() {
-  pinMode(YEDEK_AKU_SARJ_PIN, OUTPUT);
-  digitalWrite(YEDEK_AKU_SARJ_PIN, LOW); // guvenli varsayilan: sarj KAPALI, MPPT verisi henuz gelmedi
-}
-
-// Histerezis durumu: aku YEDEK_AKU_SARJ_KESME_V'ye ulasinca true olur,
-// YEDEK_AKU_SARJ_GERI_V'ye DUSENE kadar true kalir (bkz yedekAkuPoll()).
-static bool yedekAkuSarjDoluKilit = false;
 
 void yedekAkuPoll() {
   static unsigned long lastPoll = 0;
@@ -1748,30 +1765,136 @@ void yedekAkuPoll() {
   yedekAkuData.read_ok = true;
   yedekAkuData.last_update_ms = millis();
 
-  // Gunduz/gunes var mi -> mpptData.pv_power (RS232/PI30 uzerinden zaten
-  // okunuyor). MPPT verisi bayat/okunamiyorsa FAIL-SAFE: sarj KAPALI.
-  bool gunesVar;
-  {
-    MpptKilit kilit;
-    bool mpptTaze = (millis() - mpptData.last_update_ms) < MPPT_STALE_MS;
-    gunesVar = mpptTaze && mpptData.read_ok && (mpptData.pv_power >= YEDEK_AKU_SARJ_PV_ESIK_W);
-  }
-
-  // Aku doluysa (XL4015 kendi kesmesse diye ek guvenlik) role zorla LOW.
-  // Histerezis: KESME_V'ye ulasinca kilitlenir, GERI_V'ye dusene kadar acilmaz.
-  if (!yedekAkuSarjDoluKilit && yedekAkuData.voltaj >= YEDEK_AKU_SARJ_KESME_V) {
-    yedekAkuSarjDoluKilit = true;
-  } else if (yedekAkuSarjDoluKilit && yedekAkuData.voltaj <= YEDEK_AKU_SARJ_GERI_V) {
-    yedekAkuSarjDoluKilit = false;
-  }
-  bool sarjAc = gunesVar && !yedekAkuSarjDoluKilit;
-
-  yedekAkuData.sarj_aktif = sarjAc;
-  digitalWrite(YEDEK_AKU_SARJ_PIN, sarjAc ? HIGH : LOW);
-
   DEBUG_PRINT("[YedekAku] V="); DEBUG_PRINT(String(yedekAkuData.voltaj, 2));
-  DEBUG_PRINT(" durum="); DEBUG_PRINT(yedekAkuDurumMetni());
-  DEBUG_PRINT(" sarj="); DEBUG_PRINTLN(gunesVar ? "1" : "0");
+  DEBUG_PRINT(" durum="); DEBUG_PRINTLN(yedekAkuDurumMetni());
+}
+
+// ============================================================
+// ANA GUC IZLEME (ADS1115, I2C harici ADC) - 24V ana hattin 3 kademeli
+// (Dusuk/Kritik/Acil) SADECE BILDIRIM amacli izlenmesi. Hicbir role/yuk
+// otomatik kesilmez/acilmaz - kullanici karari: "ihtiyac duyarsam acarim"
+// (bkz acilLambaManuel). Manuel I2C protokolu (kutuphanesiz, proje deseni -
+// ahtOku() ile ayni tarzda): config register'a 2 byte yazip tek-atis
+// (single-shot) donusum baslatilir, kisa bekleme sonrasi conversion
+// register'dan 2 byte okunur.
+// ============================================================
+struct AnaGucData {
+  float voltaj = 0.0f;
+  bool read_ok = false;
+  int kademe = 0; // 0=normal, 1=dusuk, 2=kritik, 3=acil
+  unsigned long last_update_ms = 0;
+};
+AnaGucData anaGucData;
+
+float anaGucEsik1Volt = ANA_GUC_ESIK1_V;
+float anaGucEsik2Volt = ANA_GUC_ESIK2_V;
+float anaGucEsik3Volt = ANA_GUC_ESIK3_V;
+
+void anaGucEsikYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  anaGucEsik1Volt = ayarPrefs.getFloat("ag_esik1", ANA_GUC_ESIK1_V);
+  anaGucEsik2Volt = ayarPrefs.getFloat("ag_esik2", ANA_GUC_ESIK2_V);
+  anaGucEsik3Volt = ayarPrefs.getFloat("ag_esik3", ANA_GUC_ESIK3_V);
+  ayarPrefs.end();
+}
+
+void anaGucEsikKaydet(float e1, float e2, float e3) {
+  anaGucEsik1Volt = e1; anaGucEsik2Volt = e2; anaGucEsik3Volt = e3;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putFloat("ag_esik1", e1);
+  ayarPrefs.putFloat("ag_esik2", e2);
+  ayarPrefs.putFloat("ag_esik3", e3);
+  ayarPrefs.end();
+}
+
+// Tek-atis donusum baslat (AIN0 vs GND, PGA +-4.096V, 128SPS) ve ham 16-bit
+// sonucu dondur. Basarisizsa false doner (I2C ACK alinamadi).
+bool ads1115TekOlcum(int16_t &sonucOut) {
+  Wire.beginTransmission(ADS1115_I2C_ADDR);
+  Wire.write(0x01); // config register
+  // MSB: OS=1(baslat) MUX=100(AIN0-GND) PGA=001(+-4.096V) MODE=1(tek-atis)
+  Wire.write(0b11000011);
+  // LSB: DR=100(128SPS) COMP_MODE=0 COMP_POL=0 COMP_LAT=0 COMP_QUE=11(devre disi)
+  Wire.write(0b10000011);
+  if (Wire.endTransmission() != 0) return false;
+
+  delay(9); // 128SPS ~7.8ms/ornek + guvenlik payi
+
+  Wire.beginTransmission(ADS1115_I2C_ADDR);
+  Wire.write(0x00); // conversion register
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom((uint8_t)ADS1115_I2C_ADDR, (uint8_t)2) != 2) return false;
+  uint8_t msb = Wire.read();
+  uint8_t lsb = Wire.read();
+  sonucOut = (int16_t)((msb << 8) | lsb);
+  return true;
+}
+
+void anaGucPoll() {
+  static unsigned long lastPoll = 0;
+  if (millis() - lastPoll < ANA_GUC_POLL_INTERVAL_MS) return;
+  lastPoll = millis();
+
+  int16_t raw;
+  if (!ads1115TekOlcum(raw)) {
+    anaGucData.read_ok = false;
+    return;
+  }
+  float adsVolt = raw * (4.096f / 32768.0f); // PGA +-4.096V, 16-bit isaretli
+  anaGucData.voltaj = adsVolt * ANA_GUC_BOLUCU_ORAN;
+  anaGucData.read_ok = true;
+  anaGucData.last_update_ms = millis();
+
+  int yeniKademe;
+  if (anaGucData.voltaj <= anaGucEsik3Volt) yeniKademe = 3;
+  else if (anaGucData.voltaj <= anaGucEsik2Volt) yeniKademe = 2;
+  else if (anaGucData.voltaj <= anaGucEsik1Volt) yeniKademe = 1;
+  else yeniKademe = 0;
+
+  if (yeniKademe != anaGucData.kademe) {
+    anaGucData.kademe = yeniKademe;
+    if (yeniKademe > 0) {
+      const char* kademeAdi = (yeniKademe == 3) ? "ACIL" : (yeniKademe == 2) ? "KRITIK" : "DUSUK";
+      anaGucBildirimMetni = "⚡ Konteyner: Ana guc " + String(kademeAdi) + " seviyede (" + String(anaGucData.voltaj, 1) + "V) - acil durum lambasini gerekirse manuel acabilirsiniz";
+      anaGucBildirimBekliyor = true;
+    }
+  }
+
+  DEBUG_PRINT("[AnaGuc] V="); DEBUG_PRINT(String(anaGucData.voltaj, 2));
+  DEBUG_PRINT(" kademe="); DEBUG_PRINTLN(anaGucData.kademe);
+}
+
+// ============================================================
+// ACIL DURUM LAMBASI (GPIO21/ACIL_LAMBA_PIN, eski sarj rolesi MOSFET'i) -
+// manuel web butonu VEYA panik/Konteyner-alarm durumunda DOGRUDAN/otomatik
+// yanar (onay beklemeden - konteynerAcilDurum ile ayni oncelik). Ana guc
+// dusuklugu SADECE bildirim gonderir, bu lambayi OTOMATIK tetiklemez -
+// kullanici karari boyle ("ihtiyac duyarsam acarim").
+// ============================================================
+bool acilLambaManuel = false;
+bool acilLambaAktif = false;
+
+// konteynerAcilDurum (panik VEYA MQ6 gaz alarmi) alarmLedGuncelle() icinde
+// hesaplaniyor (yerel degisken) - bu yuzden parametre olarak alinir, o
+// fonksiyonun sonunda cagirilir.
+void acilLambaGuncelle(bool konteynerAcilDurumParam) {
+  acilLambaAktif = acilLambaManuel || alarmStatus.panic_mode || konteynerAcilDurumParam;
+  digitalWrite(ACIL_LAMBA_PIN, acilLambaAktif ? HIGH : LOW);
+}
+
+// Fiziksel Acil Durum butonu (GPIO13, INPUT_PULLUP, aktif-LOW) - basisinda
+// acilLambaManuel'i toggle eder (web butonuyla aynI bayrak). Basit kenar
+// debonce - PIR2/Kapi reed ile ayni tarzda ama tek-atis (edge) davranisi
+// icin ek "onceki durum" degiskeni tutar.
+void acilButonPoll() {
+  static bool oncekiBasili = false;
+  static unsigned long sonDegisimMs = 0;
+  bool basili = (digitalRead(ACIL_BUTON_PIN) == LOW);
+  if (basili != oncekiBasili && millis() - sonDegisimMs > 50) { // 50ms debounce
+    sonDegisimMs = millis();
+    oncekiBasili = basili;
+    if (basili) acilLambaManuel = !acilLambaManuel; // sadece basma anida (basma->birakma degil) toggle
+  }
 }
 
 // ============================================================
@@ -2322,6 +2445,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
       <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
+      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
     </div>
 
     <div class="card">
@@ -2358,6 +2482,13 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
       <div id="lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <div id="konteyner-lamba-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="card" style="border:2px solid var(--danger)">
+      <h3>🚨 Acil Durum Lambası</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">Ana güç düşük seviyeye inince (aşağıdaki eşikler) sadece bildirim gelir, lamba OTOMATİK açılmaz - gerek görürsen buradan manuel aç. Panik veya Konteyner alarmında ise otomatik/anında yanar.</p>
+      <button class="btn" style="font-size:16px;padding:14px 20px;width:100%" id="acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Durum Lambası (Kapalı)</button>
+      <div id="acil-lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="card">
@@ -2577,6 +2708,17 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <div><label class="sz-label">Geri Yükleme Voltajı (V)</label><input class="input" type="number" step="0.1" min="0" id="batarya-geri" onchange="bateryaEsikKaydet()"></div>
       </div>
       <div id="batarya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </details>
+
+    <details class="card" open>
+      <summary>⚡ Ana Güç (24V) İzleme Eşikleri</summary>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Ana hat voltajı ADS1115 (I2C) ile izlenir. Eşiklerin altına inince SADECE bildirim (Telegram) gönderilir - hiçbir röle/lamba otomatik açılmaz. Acil Durum Lambasını Kontrol sekmesinden manuel açabilirsiniz.</p>
+      <div class="sz-grid">
+        <div><label class="sz-label">Düşük (V)</label><input class="input" type="number" step="0.1" min="0" id="ana-guc-esik1" onchange="anaGucEsikKaydet()"></div>
+        <div><label class="sz-label">Kritik (V)</label><input class="input" type="number" step="0.1" min="0" id="ana-guc-esik2" onchange="anaGucEsikKaydet()"></div>
+        <div><label class="sz-label">Acil (V)</label><input class="input" type="number" step="0.1" min="0" id="ana-guc-esik3" onchange="anaGucEsikKaydet()"></div>
+      </div>
+      <div id="ana-guc-esik-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
     <details class="card" open>
@@ -3123,9 +3265,26 @@ function renderUI(d){
   const yakDurum=$('#yedek-aku-durum');
   if(yakDurum){
     const etiket = {dolu:'✅ Dolu/boşta (devrede değil)', devrede:'🔋 Devrede', zayif:'⚠️ Zayıf - şarj/değişim gerekir', bilinmiyor:'-'};
-    const sarjMetin = yakOk ? (yak.sarj_aktif ? ' | ☀️ Şarj oluyor' : ' | 🌙 Şarj kapalı') : '';
-    yakDurum.textContent = (yakOk ? (etiket[yak.durum]||yak.durum||'-') : 'Bağlantı yok') + sarjMetin;
+    yakDurum.textContent = yakOk ? (etiket[yak.durum]||yak.durum||'-') : 'Bağlantı yok';
     yakDurum.style.color = (yakOk && yak.durum==='zayif') ? 'var(--danger)' : '';
+  }
+  // Ana Guc (ADS1115) - 3 kademeli bildirim + Acil Durum Lambasi
+  const ag = d.ana_guc || {};
+  const agOk = ag.ok !== false;
+  const agKpi=$('#kpi-ana-guc'); if(agKpi) agKpi.textContent = agOk ? (ag.volt||0).toFixed(1)+' V' : '--';
+  const agDurum=$('#ana-guc-durum');
+  if(agDurum){
+    const kademeEtiket = {0:'✅ Normal', 1:'⚠️ Düşük', 2:'🔶 Kritik', 3:'🔴 Acil'};
+    agDurum.textContent = agOk ? (kademeEtiket[ag.kademe]||'-') : 'Bağlantı yok';
+    agDurum.style.color = (agOk && ag.kademe>=2) ? 'var(--danger)' : '';
+  }
+  const ae1=$('#ana-guc-esik1'); if(ae1&&!ae1.matches(':focus')&&!yakinKorumali('ana-guc-esik1')&&ag.esik1!=null) ae1.value=ag.esik1;
+  const ae2=$('#ana-guc-esik2'); if(ae2&&!ae2.matches(':focus')&&!yakinKorumali('ana-guc-esik2')&&ag.esik2!=null) ae2.value=ag.esik2;
+  const ae3=$('#ana-guc-esik3'); if(ae3&&!ae3.matches(':focus')&&!yakinKorumali('ana-guc-esik3')&&ag.esik3!=null) ae3.value=ag.esik3;
+  const alBtn=$('#acil-lamba-btn');
+  if(alBtn){
+    alBtn.textContent = ag.acil_lamba ? '🔴 ACİL LAMBA AÇIK (Kapat)' : '⚪ Acil Durum Lambası (Kapalı)';
+    alBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
   }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
   const bgv=$('#batarya-geri'); if(bgv&&!bgv.matches(':focus')&&!yakinKorumali('batarya-geri')&&bat.geri_volt!=null) bgv.value=bat.geri_volt;
@@ -3224,6 +3383,17 @@ function toggleLamba(){
 function toggleKonteynerLamba(){
   const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#konteyner-lamba-btn', '/api/konteyner/lamba?durum='+(acik?0:1), '#konteyner-lamba-sonuc');
+}
+function toggleAcilLamba(){
+  const acik = $('#acil-lamba-btn').textContent.includes('AÇIK');
+  sendCommand('#acil-lamba-btn', '/api/acil-lamba?durum='+(acik?0:1), '#acil-lamba-sonuc');
+}
+function anaGucEsikKaydet(){
+  yakinDuzenlendi('ana-guc-esik1'); yakinDuzenlendi('ana-guc-esik2'); yakinDuzenlendi('ana-guc-esik3');
+  const e1=$('#ana-guc-esik1').value, e2=$('#ana-guc-esik2').value, e3=$('#ana-guc-esik3').value;
+  api('/api/ana-guc-esik?esik1='+encodeURIComponent(e1)+'&esik2='+encodeURIComponent(e2)+'&esik3='+encodeURIComponent(e3)).then(()=>{
+    $('#ana-guc-esik-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#ana-guc-esik-sonuc').textContent='Hata oluştu'; });
 }
 function toggleMoisture(){
   const acik = $('#moisture-settings-toggle-btn').textContent.trim() === 'Kapat';
@@ -3719,8 +3889,16 @@ String durumJson() {
 
   doc["yedek_aku"]["volt"] = yedekAkuData.voltaj;
   doc["yedek_aku"]["durum"] = yedekAkuDurumMetni();
-  doc["yedek_aku"]["sarj_aktif"] = yedekAkuData.sarj_aktif;
   doc["yedek_aku"]["guncel"] = ((millis() - yedekAkuData.last_update_ms) < (YEDEK_AKU_POLL_INTERVAL_MS * 3)) && yedekAkuData.read_ok;
+
+  doc["ana_guc"]["volt"] = anaGucData.voltaj;
+  doc["ana_guc"]["kademe"] = anaGucData.kademe;
+  doc["ana_guc"]["ok"] = anaGucData.read_ok;
+  doc["ana_guc"]["esik1"] = anaGucEsik1Volt;
+  doc["ana_guc"]["esik2"] = anaGucEsik2Volt;
+  doc["ana_guc"]["esik3"] = anaGucEsik3Volt;
+  doc["ana_guc"]["acil_lamba"] = acilLambaAktif;
+  doc["ana_guc"]["acil_lamba_manuel"] = acilLambaManuel;
 
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
@@ -4206,6 +4384,30 @@ void handleAPI_KonteynerLamba() {
   // onay bayragini da temizleyip gercek bir zorla-kapatma davranisi.
   if (!konteynerLambaManuel) konteynerLambaOnayVerildi = false;
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(konteynerLambaManuel ? "Lamba Acik" : "Lamba Kapali") + "\"}");
+}
+
+// Acil Durum Lambasi - web/fiziksel buton manuel ac/kapa. Panik/Konteyner
+// alarminda zaten otomatik yanar (bkz acilLambaGuncelle), bu sadece manuel
+// bayragi degistirir - gercek pin durumu her zaman acilLambaGuncelle()'da hesaplanir.
+void handleAPI_AcilLamba() {
+  if (!server.hasArg("durum")) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
+    return;
+  }
+  acilLambaManuel = (server.arg("durum").toInt() == 1);
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(acilLambaManuel ? "Acil Lamba Acik" : "Acil Lamba Kapali") + "\"}");
+}
+
+void handleAPI_AnaGucEsik() {
+  float e1 = anaGucEsik1Volt, e2 = anaGucEsik2Volt, e3 = anaGucEsik3Volt;
+  if (server.hasArg("esik1")) e1 = server.arg("esik1").toFloat();
+  if (server.hasArg("esik2")) e2 = server.arg("esik2").toFloat();
+  if (server.hasArg("esik3")) e3 = server.arg("esik3").toFloat();
+  // Kademeler mantikli sirada kalsin: esik1 > esik2 > esik3
+  if (e2 >= e1) e2 = e1 - 0.1f;
+  if (e3 >= e2) e3 = e2 - 0.1f;
+  anaGucEsikKaydet(e1, e2, e3);
+  server.send(200, "application/json", "{\"basarili\":true,\"esik1\":" + String(e1, 1) + ",\"esik2\":" + String(e2, 1) + ",\"esik3\":" + String(e3, 1) + "}");
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
@@ -4950,6 +5152,8 @@ void setupWebServer() {
   server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
   server.on("/api/konteyner/lamba", handleAPI_KonteynerLamba);
+  server.on("/api/acil-lamba", handleAPI_AcilLamba);
+  server.on("/api/ana-guc-esik", handleAPI_AnaGucEsik);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
   server.on("/api/moisture/threshold", handleAPI_MoistureThreshold);
@@ -5118,8 +5322,11 @@ void setup() {
   // RS485 Initialize
   rs485_init();
   mppt_init();
-  yedekAku_init();
-  Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C
+  pinMode(ACIL_LAMBA_PIN, OUTPUT);
+  digitalWrite(ACIL_LAMBA_PIN, LOW); // guvenli varsayilan: acil lamba kapali
+  pinMode(ACIL_BUTON_PIN, INPUT_PULLUP);
+  anaGucEsikYukle();
+  Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C - ADS1115 de ayni hatta (farkli adres)
 
   // SPIFFS - kayit yedekleme icin (bkz esp8266KayitYedekle/GeriYukle)
   if (!SPIFFS.begin(true)) {
@@ -5231,6 +5438,8 @@ void loop() {
 
   // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
   yedekAkuPoll();
+  anaGucPoll(); // Ana guc (ADS1115/I2C, 3 kademeli bildirim)
+  acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO13)
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
   mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
   gp2y10Poll();  // GP2Y10 duman/toz sensoru (analog, alarma bagli - bkz konteynerDumanVar)
@@ -5248,6 +5457,7 @@ void loop() {
   telegramAlarmKontrolEt();
   telegramBateryaKontrolEt();
   telegramKonteynerOtoSusturKontrolEt();
+  telegramAnaGucKontrolEt();
 
   // BLE - bagli telefona periyodik anlik veri
 #if ENABLE_BLE
