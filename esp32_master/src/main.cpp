@@ -1989,12 +1989,15 @@ void mq6Poll() {
   if (now - lastPoll < MQ6_POLL_INTERVAL_MS) return;
   lastPoll = now;
 
-  // FIX (2026-08-25): setup()'ta bir kere pinMode(...,INPUT_PULLDOWN) yetmedi -
-  // boşta hâlâ MAX (4095) okunuyordu, muhtemelen analogRead()'in pini her
-  // seferinde analog moda alirken dijital pull-down ayarini sifirlamasi
-  // yuzunden. Her okumadan HEMEN ONCE tekrar uygulaniyor.
-  pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
+  // FIX 2 (2026-08-25): ESP32'nin bilinen davranisi - analogRead() pini ADC
+  // moduna alirken dijital pull-down devresini KOPARIR, yani pinMode'u
+  // okumadan ONCE cagirmak (ilk deneme) hicbir sey degistirmiyordu, cunku
+  // hemen ardindan gelen analogRead() onu zaten sifirliyordu. Dogrusu:
+  // pinMode'u okumadan SONRA tekrar uygulamak - iki okuma arasindaki (500ms)
+  // boluk boyunca pin gercekten dusuk tutuluyor (bkz ESP32 forum: "Internal
+  // Pull-ups don't work on GPIO25/32" tartismasi, ayni kok neden).
   mq6Data.raw = analogRead(MQ6_ADC_PIN);
+  pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
   mq6Data.volt = (mq6Data.raw / 4095.0f) * 3.3f;
   mq6Data.last_update_ms = now;
   konteynerGazVar = konteynerGazEtkin && (mq6Data.volt >= konteynerGazEsikVolt);
@@ -2028,13 +2031,15 @@ void gp2y10Poll() {
   // (GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US) bekleyip LED'i kapat.
   // Toplam ~320us - loop()'u bloklamasi HC-SR04 tetik darbesiyle ayni
   // mertebede, ihmal edilebilir.
-  // FIX (2026-08-25): setup()'ta bir kere pinMode(...,INPUT_PULLDOWN) yetmedi -
-  // bkz mq6Poll() ayni yorumu. Zamanlamayi bozmamak icin LED tetiklenmeden
-  // ONCE (280us'lik hassas pencerenin disinda) tekrar uygulaniyor.
-  pinMode(GP2Y10_ADC_PIN, INPUT_PULLDOWN);
   digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? LOW : HIGH); // yak
   delayMicroseconds(GP2Y10_SAMPLE_DELAY_US);
   gp2y10Data.raw = analogRead(GP2Y10_ADC_PIN);
+  // FIX 2 (2026-08-25): ESP32'de analogRead() pini ADC moduna alirken dijital
+  // pull-down devresini KOPARIR - pinMode'u okumadan ONCE cagirmak (ilk
+  // deneme) hicbir sey degistirmiyordu. Dogrusu: okumadan HEMEN SONRA tekrar
+  // uygulamak - boylece iki okuma arasindaki (2sn) bolukte pin gercekten
+  // dusuk tutulur (bkz mq6Poll() ayni yorum, ESP32 forum kaynagi).
+  pinMode(GP2Y10_ADC_PIN, INPUT_PULLDOWN);
   gp2y10Data.volt = (gp2y10Data.raw / 4095.0f) * 3.3f;
   delayMicroseconds(GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US);
   digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? HIGH : LOW); // sondur
