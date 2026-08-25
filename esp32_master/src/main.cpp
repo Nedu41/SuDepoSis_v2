@@ -484,39 +484,6 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
   ayarPrefs.end();
 }
 
-// Konteyner siren kademeli zamanlama ayari (NVS'de kalici, web'den
-// ayarlanabilir). Kullanici talebi ("yanlis tetiklerden etkilenmemek icin"):
-// lamba tetik aninda (t=0) hemen yanar (bu ayarlardan BAGIMSIZ, degismedi).
-// Siren ise: t=0..gecikmeSn sessiz, gecikmeSn..+chirpMs kisa "chirp",
-// chirp sonrasi beklemeSn sessiz, bekleme sonrasi aktifSn SUREKLI calar -
-// tetik surdukce bekleme/aktif dongusu (varsayilan 10+5=15sn) TEKRARLANIR.
-// Panik bu mantigi tamamen ATLAR (bkz alarmLedGuncelle, ayri dal).
-uint16_t konteynerSirenGecikmeSaniye = 5;   // ilk chirp'e kadar bekleme (tetik baslangicindan itibaren)
-uint16_t konteynerSirenChirpMs = 300;       // chirp suresi (ms)
-uint16_t konteynerSirenBeklemeSaniye = 10;  // chirp/aktif-periyot sonrasi sessizlik
-uint16_t konteynerSirenAktifSaniye = 5;     // dongudeki tam-aktif kalma suresi
-
-void konteynerSirenAyarYukle() {
-  ayarPrefs.begin("ayarlar", true);
-  konteynerSirenGecikmeSaniye = ayarPrefs.getUShort("k_sir_gec", 5);
-  konteynerSirenChirpMs = ayarPrefs.getUShort("k_sir_chp", 300);
-  konteynerSirenBeklemeSaniye = ayarPrefs.getUShort("k_sir_bek", 10);
-  konteynerSirenAktifSaniye = ayarPrefs.getUShort("k_sir_akt", 5);
-  ayarPrefs.end();
-}
-void konteynerSirenAyarKaydet(uint16_t gecikmeSn, uint16_t chirpMs, uint16_t beklemeSn, uint16_t aktifSn) {
-  konteynerSirenGecikmeSaniye = gecikmeSn;
-  konteynerSirenChirpMs = chirpMs;
-  konteynerSirenBeklemeSaniye = beklemeSn;
-  konteynerSirenAktifSaniye = aktifSn;
-  ayarPrefs.begin("ayarlar", false);
-  ayarPrefs.putUShort("k_sir_gec", gecikmeSn);
-  ayarPrefs.putUShort("k_sir_chp", chirpMs);
-  ayarPrefs.putUShort("k_sir_bek", beklemeSn);
-  ayarPrefs.putUShort("k_sir_akt", aktifSn);
-  ayarPrefs.end();
-}
-
 // Her Konteyner sensoru (PIR2, kapi reed, Swan PIR) ayri ayri aktif/pasif
 // yapilabilir - konteynerAlarmEtkin (zon geneli) bunun ustunde, o kapaliysa
 // hepsi zaten devre disi. Kullanici talebi: Swan PIR henuz donanima
@@ -1879,14 +1846,23 @@ bool panikTetikle(bool& panicActive, String& reply); // asagida tanimli (RS485 u
 // toggle ediyordu, kullanici talebiyle degistirildi (bkz config.h ACIL_BUTON_PIN
 // yorumu). Basit kenar debounce - PIR2/Kapi reed ile ayni tarzda ama tek-atis
 // (edge) davranisi icin ek "onceki durum" degiskeni tutar.
+// GUVENLIK: panikTetikle() RS485 uzerinden ACK bekler (1000ms x 3 deneme =
+// en kotu ihtimalle ~3sn BLOKE eder). Kablo henuz disariya (SCART) tam
+// cikarilmadigindan pin gevsek/gurultulu olabilir - salt 50ms kenar debounce'u
+// boyle bir gurultuyu tam filtrelemeyebilir, art arda tetiklenirse loop() (ve
+// web sunucusu) sn'lerce donuk kalir. Bu yuzden AYRICA bagimsiz bir soguma
+// suresi (KONTEYNER_ACIL_BUTON_COOLDOWN_MS) var - kenar debounce'dan gecse
+// bile gercek panikTetikle() cagrisi bu sure dolmadan tekrar calismaz.
 void acilButonPoll() {
   static bool oncekiBasili = false;
   static unsigned long sonDegisimMs = 0;
+  static unsigned long sonTetikMs = 0;
   bool basili = (digitalRead(ACIL_BUTON_PIN) == LOW);
   if (basili != oncekiBasili && millis() - sonDegisimMs > 50) { // 50ms debounce
     sonDegisimMs = millis();
     oncekiBasili = basili;
-    if (basili) {
+    if (basili && millis() - sonTetikMs > KONTEYNER_ACIL_BUTON_COOLDOWN_MS) {
+      sonTetikMs = millis();
       bool panicActive = false;
       String reply;
       panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
@@ -2666,8 +2642,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
     <details class="card zone-konteyner" open>
       <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505) artık genel <b>Alarm Modu</b>'na (Sesli/Sessiz/Onaylı) uyar, Telegram ve büyük uyarı banner'ına da yansır - Sudepo Zonu ile aynı ortak sistemi kullanır.</p>
-      <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı hareketin büyüklüğüne bakmaksızın sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı). Bu yüzden "hassasiyet" iki kademeli süre mantığıyla ayarlanır: <b>1)</b> her yeni harekette hemen 1sn'lik kısa bir bip/LED darbesi verilir (henüz alarm değil, sadece "sensör gördü" işareti); <b>2)</b> hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır ve Alarm Modu'na göre tepki verir. Kısa/ufak/tek seferlik kıpırdamalar böylece sadece bir bip ile geçer, Telegram/siren tetiklemez.</p>
+
+      <p class="sz-label">Canlı Durum</p>
       <div class="row" style="gap:16px">
         <div>HC505 PIR: <b id="kz-pir">-</b></div>
         <div>Swan PIR: <b id="kz-swan">-</b></div>
@@ -2678,42 +2654,44 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <div>Siren: <b id="kz-siren">-</b></div>
         <div>Lamba: <b id="kz-lamba">-</b></div>
       </div>
-      <div class="row" style="gap:16px;margin-top:10px">
+
+      <p class="sz-label" style="margin-top:12px">Sensör Aktif/Pasif</p>
+      <div class="row" style="gap:16px">
         <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> PIR2 Aktif</label>
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
         <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
         <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ6) Alarmı Aktif</label>
       </div>
-      <div class="row" style="gap:16px;margin-top:6px">
-        <label><input type="checkbox" id="kz_mq6Test" onchange="konteynerMq6TestKaydet()"> MQ6 Test Modu (ısıtıcıyı sürekli açık tutar)</label>
-      </div>
-      <p style="font-size:11px;color:var(--warn);margin-top:2px">Test Modu AÇIKKEN MQ6 değeri her zaman canlıdır (10dk/60sn döngüsü atlanır) - gaz/çakmak testi için kullanın, test bitince KAPATIN (sürekli ısıtıcı pil tüketir). Reset sonrası otomatik kapanır.</p>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "HC505 PIR/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
-      <div class="row" style="gap:16px;margin-top:10px">
-        <div>Sıcaklık: <b id="kz-sicaklik">-</b></div>
-        <div>Nem: <b id="kz-nem">-</b></div>
-        <div style="font-size:12px;color:var(--muted)">MQ6: <b id="kz-mq6">-</b></div>
-        <div style="font-size:12px;color:var(--muted)">GP2Y10 (duman/toz): <b id="kz-gp2y10">-</b></div>
-      </div>
-      <div class="sz-grid" style="margin-top:10px">
-        <div><label class="sz-label">Gaz Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_gazEsik" onchange="konteynerGazAyarKaydet()"></div>
-        <div><label class="sz-label">Duman Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_dumanEsik" onchange="konteynerDumanAyarKaydet()"></div>
-      </div>
-      <p style="font-size:11px;color:var(--warn);margin-top:4px"><b>Not:</b> MQ6'ün ve GP2Y10'un kalibrasyon potu olmadığından bu eşikler tahmini varsayılan - sahada gerçek bir gaz/duman kaynağıyla (örn. çakmak gazı / güvenli mesafeden mum-tütsü dumanı, kısa süreli) test edip gerekirse yükseltin/düşürün. Gaz ve duman alarmı panik gibi davranır: mod/susturma/kademeli siren deseninden bağımsız anında tam güçle çalar (gecikme istenmez).</p>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - her 10 dk'da bir 60sn açılıp değer okunur, sonra kapanır. Bu yüzden gösterilen değer en fazla 10 dk eski olabilir. GP2Y10'un ısıtıcısı yok, her 2 saniyede bir kısa bir LED darbesiyle tazelenir.</p>
-      <div class="sz-grid" style="margin-top:10px">
-        <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
-        <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği. Değer girip alandan çıkınca otomatik kaydedilir.</p>
-      <div class="sz-grid" style="margin-top:10px">
-        <div><label class="sz-label">Siren İlk Gecikme (sn)</label><input class="input" type="number" min="0" max="120" id="kz_sirGecikme" onchange="konteynerSirenAyarKaydet()"></div>
-        <div><label class="sz-label">Chirp Süresi (ms)</label><input class="input" type="number" min="50" max="5000" id="kz_sirChirp" onchange="konteynerSirenAyarKaydet()"></div>
-        <div><label class="sz-label">Siren Bekleme (sn)</label><input class="input" type="number" min="1" max="120" id="kz_sirBekleme" onchange="konteynerSirenAyarKaydet()"></div>
-        <div><label class="sz-label">Siren Aktif Süre (sn)</label><input class="input" type="number" min="1" max="120" id="kz_sirAktif" onchange="konteynerSirenAyarKaydet()"></div>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">Lamba tetikte hemen yanar. Siren, İlk Gecikme sonra kısa bir Chirp verir, sonra Bekleme Süresi sessiz kalır; tetik hâlâ sürüyorsa Aktif Süre boyunca tam çalar - bu Bekleme+Aktif döngüsü tetik bitene kadar tekrarlar. Panik/gaz alarmı bu mantığı atlar (anında sürekli). Amaç: kısa/yanlış tetiklerin tam siren çalmadan sona ermesi.</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ yukarıdaki "Canlı Durum"da ham değeri görünür ama alarma/banner'a hiç katkı yapmaz.</p>
+
+      <details class="subdet" style="margin-top:12px">
+        <summary>Gaz (MQ6) &amp; Duman (GP2Y10)</summary>
+        <div class="row" style="gap:16px;margin-top:6px">
+          <div style="font-size:12px;color:var(--muted)">MQ6: <b id="kz-mq6">-</b></div>
+          <div style="font-size:12px;color:var(--muted)">GP2Y10 (duman/toz): <b id="kz-gp2y10">-</b></div>
+        </div>
+        <label style="display:block;margin-top:8px"><input type="checkbox" id="kz_mq6Test" onchange="konteynerMq6TestKaydet()"> MQ6 Test Modu (ısıtıcıyı sürekli açık tutar)</label>
+        <p style="font-size:11px;color:var(--warn);margin-top:2px">Test Modu AÇIKKEN MQ6 değeri her zaman canlıdır (10dk/60sn döngüsü atlanır) - gaz/çakmak testi için kullanın, test bitince KAPATIN (sürekli ısıtıcı pil tüketir). Reset sonrası otomatik kapanır.</p>
+        <div class="sz-grid" style="margin-top:8px">
+          <div><label class="sz-label">Gaz Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_gazEsik" onchange="konteynerGazAyarKaydet()"></div>
+          <div><label class="sz-label">Duman Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_dumanEsik" onchange="konteynerDumanAyarKaydet()"></div>
+        </div>
+        <p style="font-size:11px;color:var(--warn);margin-top:4px">Kalibrasyon potu olmadığından bu eşikler tahmini varsayılan - sahada gerçek bir gaz/duman kaynağıyla test edip gerekirse ayarlayın. Gaz ve duman alarmı panik gibi davranır: mod/susturma/tetik animasyonundan bağımsız anında tam güçle çalar (gecikme istenmez).</p>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - Test Modu kapalıyken her 10 dk'da bir 60sn açılıp değer okunur, gösterilen değer en fazla 10 dk eski olabilir. GP2Y10'un ısıtıcısı yok, her zaman canlı (2sn'de bir tazelenir).</p>
+      </details>
+
+      <details class="subdet" style="margin-top:8px">
+        <summary>PIR2 (HC-SR505) Hassasiyet</summary>
+        <p style="font-size:12px;color:var(--muted);margin-top:6px">HC-SR505'in potansiyometresi yok, tetiklenince çıkışı sabit ~6-12sn HIGH'ta kalır. "Hassasiyet" bu yüzden iki kademeli süre mantığıyla ayarlanır: her yeni harekette hemen 1sn'lik bir bip/LED darbesi verilir (henüz alarm değil); hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır.</p>
+        <div class="sz-grid" style="margin-top:6px">
+          <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
+          <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirOnay" onchange="konteynerPirKaydet()"></div>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği.</p>
+      </details>
+
+      <p style="font-size:11px;color:var(--muted);margin-top:10px">Tetik animasyonu (lamba pırpırı + atışlı siren) ve genel Alarm Modu (Sesli/Sessiz/Onaylı) ayarları için bkz üstteki Sudepo/Genel Alarm kartı - Konteyner Zonu aynı ortak sistemi kullanır.</p>
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
@@ -3182,10 +3160,6 @@ function renderUI(d){
   const kzdes=$('#kz_dumanEsik'); if(kzdes && !kzdes.matches(':focus') && !yakinKorumali('kz_dumanEsik') && kz.duman_esik!=null) kzdes.value=kz.duman_esik;
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
-  const kzsg=$('#kz_sirGecikme'); if(kzsg && !kzsg.matches(':focus') && !yakinKorumali('kz_sirGecikme') && kz.siren_gecikme!=null) kzsg.value=kz.siren_gecikme;
-  const kzsc=$('#kz_sirChirp'); if(kzsc && !kzsc.matches(':focus') && !yakinKorumali('kz_sirChirp') && kz.siren_chirp!=null) kzsc.value=kz.siren_chirp;
-  const kzsb=$('#kz_sirBekleme'); if(kzsb && !kzsb.matches(':focus') && !yakinKorumali('kz_sirBekleme') && kz.siren_bekleme!=null) kzsb.value=kz.siren_bekleme;
-  const kzsa=$('#kz_sirAktif'); if(kzsa && !kzsa.matches(':focus') && !yakinKorumali('kz_sirAktif') && kz.siren_aktif!=null) kzsa.value=kz.siren_aktif;
   // Nano IO - dashboard (K1/K2/R/LAMBA hepsi ESP8266'nin tek RS485 mesajinda
   // geliyor - esp8266Baglı degilse hepsi ayni sekilde bayat kalir, level/
   // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
@@ -3545,14 +3519,6 @@ function konteynerPirKaydet(){
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
 
-function konteynerSirenAyarKaydet(){
-  yakinDuzenlendi('kz_sirGecikme'); yakinDuzenlendi('kz_sirChirp'); yakinDuzenlendi('kz_sirBekleme'); yakinDuzenlendi('kz_sirAktif');
-  const gecikme=$('#kz_sirGecikme').value, chirp=$('#kz_sirChirp').value, bekleme=$('#kz_sirBekleme').value, aktif=$('#kz_sirAktif').value;
-  api('/api/konteyner/siren_ayar?gecikme='+encodeURIComponent(gecikme)+'&chirp='+encodeURIComponent(chirp)+'&bekleme='+encodeURIComponent(bekleme)+'&aktif='+encodeURIComponent(aktif)).then(()=>{
-    $('#kz-sonuc').textContent='Kaydedildi ✓';
-  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
-}
-
 function konteynerSensorAktifKaydet(){
   const pir = $('#kz_pirEtkin').checked?1:0;
   const kapi = $('#kz_kapiEtkin').checked?1:0;
@@ -3850,10 +3816,6 @@ String durumJson() {
   doc["konteyner"]["susturuldu"] = konteynerSusturuldu;
   doc["konteyner"]["pir_tutma"] = konteynerPirTutmaSaniye;
   doc["konteyner"]["pir_onay"] = konteynerPirOnaySaniye;
-  doc["konteyner"]["siren_gecikme"] = konteynerSirenGecikmeSaniye;
-  doc["konteyner"]["siren_chirp"] = konteynerSirenChirpMs;
-  doc["konteyner"]["siren_bekleme"] = konteynerSirenBeklemeSaniye;
-  doc["konteyner"]["siren_aktif"] = konteynerSirenAktifSaniye;
   doc["konteyner"]["pending"] = konteynerOnayBekleniyor;
   doc["konteyner"]["siren"] = konteynerSirenAktif;
   doc["konteyner"]["lamba"] = konteynerLambaAktif;
@@ -4275,34 +4237,6 @@ void handleAPI_KonteynerPirAyar() {
   }
   konteynerPirAyarKaydet(tutma, onay);
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
-}
-
-void handleAPI_KonteynerSirenAyar() {
-  uint16_t gecikme = konteynerSirenGecikmeSaniye;
-  uint16_t chirp = konteynerSirenChirpMs;
-  uint16_t bekleme = konteynerSirenBeklemeSaniye;
-  uint16_t aktif = konteynerSirenAktifSaniye;
-  if (server.hasArg("gecikme")) {
-    gecikme = (uint16_t)server.arg("gecikme").toInt();
-    if (gecikme > 120) gecikme = 120;
-  }
-  if (server.hasArg("chirp")) {
-    chirp = (uint16_t)server.arg("chirp").toInt();
-    if (chirp < 50) chirp = 50;
-    if (chirp > 5000) chirp = 5000;
-  }
-  if (server.hasArg("bekleme")) {
-    bekleme = (uint16_t)server.arg("bekleme").toInt();
-    if (bekleme < 1) bekleme = 1;
-    if (bekleme > 120) bekleme = 120;
-  }
-  if (server.hasArg("aktif")) {
-    aktif = (uint16_t)server.arg("aktif").toInt();
-    if (aktif < 1) aktif = 1;
-    if (aktif > 120) aktif = 120;
-  }
-  konteynerSirenAyarKaydet(gecikme, chirp, bekleme, aktif);
-  server.send(200, "application/json", "{\"basarili\":true,\"gecikme\":" + String(konteynerSirenGecikmeSaniye) + ",\"chirp\":" + String(konteynerSirenChirpMs) + ",\"bekleme\":" + String(konteynerSirenBeklemeSaniye) + ",\"aktif\":" + String(konteynerSirenAktifSaniye) + "}");
 }
 
 // Her Konteyner sensorunun kendi aktif/pasif anahtari - verilmeyen parametre
@@ -5178,7 +5112,6 @@ void setupWebServer() {
   server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
-  server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyar);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
@@ -5374,7 +5307,6 @@ void setup() {
   irEslesmeYukle();
   telegramAyarYukle();
   konteynerPirAyarYukle();
-  konteynerSirenAyarYukle();
   konteynerAlarmAyarYukle();
   konteynerSensorAktifYukle();
   konteynerGazAyarYukle();

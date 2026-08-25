@@ -312,6 +312,7 @@
 // Lambasi'nin manuel ac/kapa ozelligi KALDIRILMADI, sadece artik SADECE web
 // arayuzunden erisilebilir (bkz main.cpp acilLambaManuel).
 #define ACIL_BUTON_PIN 14
+#define KONTEYNER_ACIL_BUTON_COOLDOWN_MS 2000 // gercek panikTetikle() cagrilari arasi min sure - gevsek/gurultulu pin RS485'i art arda bloke etmesin
 // PLANLANAN (2026-08-25): Buton disariya SCART Pin 17 (Yesil) uzerinden cikarilacak,
 // GND donusu Pin 21 (Shield/GND) - GPIO14 degismiyor, sadece kablo yolu SCART'a tasiniyor.
 // bkz docs/pinout.html SCART tablosu.
