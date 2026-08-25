@@ -624,18 +624,16 @@ void konteynerDonanimiInit() {
   digitalWrite(KONTEYNER_LAMBA_PIN, LOW);
   pinMode(MQ6_POWER_PIN, OUTPUT);
   digitalWrite(MQ6_POWER_PIN, LOW); // ilk dongu mq6Poll()'da baslar, o ana kadar kapali
-  // MQ6/GP2Y10 analog (Vo) girisleri bagli degilken havadan gurultu toplayip
-  // oynayan degerler veriyordu (2026-08-25, kullanici bulgusu) - dahili zayif
+  // MQ6 analog (Vo) girisi bagli degilken havadan gurultu toplayip oynayan
+  // degerler veriyordu (2026-08-25, kullanici bulgusu) - dahili zayif
   // pull-down (~45kOhm) ile bosta pin GND'ye sabitlenip gurultu kesiliyor.
-  // DIKKAT: PIR2_PIN'de (asagida) AYNI fikir denenip GERI ALINMISTI çünkü o
-  // sensorun ciktisi zayif surusluydu, pull-down gerilim bolucu gibi calisip
-  // gercek sinyali de bastirdi. MQ6/GP2Y10 ise op-amp/comparator TABANLI,
-  // dusuk-empedansli analog cikis veriyor (tipik yuzler-birkac bin Ohm) -
-  // 45kOhm'luk zayif pull-down'u kolayca ezer, gercek sinyali etkilememesi
-  // beklenir. Sahada gercek gaz/duman testiyle DOGRULANMALI - eger hassasiyeti
-  // dusururse (MQ6'daki gibi) buraya PIR2 icin yazilan not gibi geri alinmali.
+  // Sahada gercek gaz testiyle DOGRULANDI: MQ6 op-amp/comparator tabanli
+  // guclu cikisi pull-down'u sorunsuz eziyor, gercek gaz verilince deger hala
+  // yukseliyor. GP2Y10'da AYNI sey denendi ama GERI ALINDI (bkz gp2y10Poll())
+  // - o sensorun gercek duman sinyali cok kucuk olabilir, DIKKAT: PIR2_PIN'de
+  // (asagida) de ayni fikir denenip geri alinmisti, zayif surusluler icin bu
+  // pull-down riskli bir desen.
   pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
-  pinMode(GP2Y10_ADC_PIN, INPUT_PULLDOWN);
   // INPUT_PULLDOWN denendi (float pin teorisiyle) ama kablo saglam oldugu
   // halde gercek hareketi de algilamaz hale getirdi (muhtemelen sensorun
   // zayif suruculu ciktisiyla dahili pull-down'in gerilim bolucu gibi
@@ -2034,12 +2032,14 @@ void gp2y10Poll() {
   digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? LOW : HIGH); // yak
   delayMicroseconds(GP2Y10_SAMPLE_DELAY_US);
   gp2y10Data.raw = analogRead(GP2Y10_ADC_PIN);
-  // FIX 2 (2026-08-25): ESP32'de analogRead() pini ADC moduna alirken dijital
-  // pull-down devresini KOPARIR - pinMode'u okumadan ONCE cagirmak (ilk
-  // deneme) hicbir sey degistirmiyordu. Dogrusu: okumadan HEMEN SONRA tekrar
-  // uygulamak - boylece iki okuma arasindaki (2sn) bolukte pin gercekten
-  // dusuk tutulur (bkz mq6Poll() ayni yorum, ESP32 forum kaynagi).
-  pinMode(GP2Y10_ADC_PIN, INPUT_PULLDOWN);
+  // PULL-DOWN GERI ALINDI (2026-08-25): MQ6'da (guclu op-amp/comparator
+  // ciktili) sorunsuz calisti ama GP2Y10'da gercek duman sinyali cok kucuk
+  // (mV mertebesinde, Voc+dV) olabilir - zayif da olsa (~45kOhm) pull-down
+  // bunu PIR2'deki gibi (bkz konteynerDonanimiInit() yorumu) gerilim bolucu
+  // gibi bastirmis olabilir: pins-asagi montaj+gercek dumanla bile 0.1V bile
+  // oynama gorulmuyordu, oysa boztaki gurultu onceden (kablo kopukken) hafif
+  // oynayabiliyordu. GP2Y10_ADC_PIN artik duz INPUT (pull yok) - MQ6_ADC_PIN
+  // pull-down'u KALDI (orada calistigi dogrulandi).
   gp2y10Data.volt = (gp2y10Data.raw / 4095.0f) * 3.3f;
   delayMicroseconds(GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US);
   digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? HIGH : LOW); // sondur
