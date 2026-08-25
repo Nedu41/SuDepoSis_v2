@@ -224,7 +224,7 @@
 #define MQ6_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ6 VCC hattini anahtarlar
 #define MQ6_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
 #define MQ6_CYCLE_MS (10UL * 60UL * 1000UL)    // dongu periyodu - bu surenin MQ6_POWER_ON_MS'i acik, kalani kapali
-#define MQ6_POLL_INTERVAL_MS 5000
+#define MQ6_POLL_INTERVAL_MS 500 // 2026-08-25: 5000'den dusuruldu - kullanici modulun kendi LED'i aninda yanarken alarmin 3-5sn gec gelmesinden sikayetci oldu, kok neden bu araligin uzunlugu idi
 
 // EFS-903R (kuru kontak röleli duman dedektörü) sahada test edilip
 // çalıştırılamadı (muhtemelen arızalı) - yerine Sharp GP2Y1014AU0F/GP2Y1010AU0F
