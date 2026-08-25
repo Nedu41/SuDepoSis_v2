@@ -709,20 +709,16 @@ void alarmLedGuncelle() {
   static unsigned long sonDegisimMs = 0;
   static bool onBipAktif = false;
   static unsigned long onBipBaslangicMs = 0;
-  static uint8_t sirenFaz = 0;          // 0=ilk gecikme,1=chirp,2=bekleme,3=aktif
-  static unsigned long sirenFazBaslangicMs = 0;
 
   // Panik (elle acilan) VE gaz alarmi (MQ6 esigi asildi) - ikisi de enabled/
-  // mod'dan BAGIMSIZ, kademeli siren deseni ATLANIR, aninda surekli calar.
-  // Gaz icin bu kasitli tercih (kullanici talebi): parlayici/patlayici gaz
-  // birikiminde "dogrulama gecikmesi" (chirp/onay) guvenlik acisindan riskli,
-  // aninda uyarmak gerekir. FIX: konteynerGazEtkin burada da (mq6Poll()'daki
-  // gibi) kontrol edilir - MQ6 guc dongusunde CoGU zaman kapali oldugundan
-  // (10dk'da 60sn acik) konteynerGazVar sadece o kisa pencerede yeniden
-  // hesaplaniyor; kullanici sensoru pasif yaparsa bu degisikligin sonraki
-  // guc dongusune kadar (10dk'ya kadar) gec yansimasi yerine BURADA aninda
-  // etkili olmasi saglanir.
-  bool konteynerAcilDurum = alarmStatus.panic_mode || (konteynerGazEtkin && konteynerGazVar);
+  // mod'dan BAGIMSIZ, aninda hedeflenir (MOD gecidi atlanir). FIX:
+  // konteynerGazEtkin burada da (mq6Poll()'daki gibi) kontrol edilir - MQ6 guc
+  // dongusunde CoGU zaman kapali oldugundan (10dk'da 60sn acik) konteynerGazVar
+  // sadece o kisa pencerede yeniden hesaplaniyor; kullanici sensoru pasif
+  // yaparsa bu degisikligin sonraki guc dongusune kadar (10dk'ya kadar) gec
+  // yansimasi yerine BURADA aninda etkili olmasi saglanir.
+  bool konteynerGazAlarmVar = konteynerGazEtkin && konteynerGazVar;
+  bool konteynerAcilDurum = alarmStatus.panic_mode || konteynerGazAlarmVar;
   acilLambaGuncelle(konteynerAcilDurum);
   bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerDumanEtkin && konteynerDumanVar)));
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
@@ -736,53 +732,33 @@ void alarmLedGuncelle() {
     else if (alarmStatus.mode == 3) konteynerCikisIstenir = konteynerOnayVerildi; // Onayli - onaydan sonra
     // mode==2 (Sessiz) ve panik/gaz degilse: false kalir, Telegram/banner yine de calisir
   }
-  // Siren icin kademeli zamanlama deseni (kullanici talebi, "yanlis
-  // tetiklerden etkilenmemek icin"): panik/gaz disinda tetik baslangicindan
-  // konteynerSirenGecikmeSaniye sonra kisa konteynerSirenChirpMs'lik bir
-  // "chirp" calar, sonra konteynerSirenBeklemeSaniye sessiz kalir - tetik
-  // hala suruyorsa konteynerSirenAktifSaniye boyunca SUREKLI calar; bu
-  // bekleme/aktif dongusu tetik bitene kadar TEKRARLANIR. Panik/gaz bu
-  // deseni atlar, aninda surekli.
+  // Tetik animasyonu (2026-08-25, kullanici talebi, bkz config.h yorumu):
+  // GAZ HARIC (patlayici gaz icin gecikme guvenlik riski - aninda/surekli
+  // kalir, DEGISMEDI) her tetiklenmede (panik dahil - fiziksel Acil Durum
+  // Butonu artik gercek panigi tetikliyor) siren ilk
+  // KONTEYNER_TETIK_SIREN_GECIKME_MS sessiz kalir, sonra
+  // KONTEYNER_TETIK_SIREN_ATIS_MS acik / KONTEYNER_TETIK_SIREN_ARALIK_MS
+  // kapali seklinde tetik surdukce TEKRARLAYAN kisa atislar halinde calar
+  // (eski kademeli gecikme/chirp/bekleme/aktif deseninin YERINI ALDI).
+  bool konteynerAnimasyonluTetik = konteynerCikisIstenir && !konteynerGazAlarmVar;
   bool konteynerSirenRawHedef;
-  if (konteynerAcilDurum) {
-    konteynerSirenRawHedef = konteynerCikisIstenir;
-    konteynerSirenEpisodeMs = 0; // sonraki normal (panik/gaz-disi) tetiklenme sifirdan baslasin
-    sirenFaz = 0; sirenFazBaslangicMs = 0;
-  } else if (konteynerCikisIstenir) {
-    if (konteynerSirenEpisodeMs == 0) {
-      konteynerSirenEpisodeMs = millis();
-      sirenFaz = 0;
-      sirenFazBaslangicMs = konteynerSirenEpisodeMs;
-    }
-    unsigned long simdiMs = millis();
-    unsigned long gecikmeMs = (unsigned long)konteynerSirenGecikmeSaniye * 1000UL;
-    unsigned long chirpMs = (unsigned long)konteynerSirenChirpMs;
-    unsigned long beklemeMs = (unsigned long)konteynerSirenBeklemeSaniye * 1000UL;
-    unsigned long aktifMs = (unsigned long)konteynerSirenAktifSaniye * 1000UL;
-    switch (sirenFaz) {
-      case 0: // ilk gecikme - sessiz
-        konteynerSirenRawHedef = false;
-        if (simdiMs - sirenFazBaslangicMs >= gecikmeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
-        break;
-      case 1: // chirp - kisa aktif
-        konteynerSirenRawHedef = true;
-        if (simdiMs - sirenFazBaslangicMs >= chirpMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
-        break;
-      case 2: // bekleme (chirp sonrasi VEYA aktif-periyot sonrasi) - sessiz
-        konteynerSirenRawHedef = false;
-        if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 3; sirenFazBaslangicMs = simdiMs; }
-        break;
-      default: // 3: tam aktif
-        konteynerSirenRawHedef = true;
-        if (simdiMs - sirenFazBaslangicMs >= aktifMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
-        break;
+  if (konteynerGazAlarmVar) {
+    konteynerSirenRawHedef = konteynerCikisIstenir; // aninda, surekli - degismedi
+    konteynerSirenEpisodeMs = 0;
+  } else if (konteynerAnimasyonluTetik) {
+    if (konteynerSirenEpisodeMs == 0) konteynerSirenEpisodeMs = millis();
+    unsigned long gecenMs = millis() - konteynerSirenEpisodeMs;
+    if (gecenMs < KONTEYNER_TETIK_SIREN_GECIKME_MS) {
+      konteynerSirenRawHedef = false;
+    } else {
+      unsigned long donguMs = (gecenMs - KONTEYNER_TETIK_SIREN_GECIKME_MS) % (KONTEYNER_TETIK_SIREN_ATIS_MS + KONTEYNER_TETIK_SIREN_ARALIK_MS);
+      konteynerSirenRawHedef = donguMs < KONTEYNER_TETIK_SIREN_ATIS_MS;
     }
   } else {
     konteynerSirenEpisodeMs = 0;
-    sirenFaz = 0; sirenFazBaslangicMs = 0;
     konteynerSirenRawHedef = false;
   }
-  // Siren: hedef durum (kademeli zamanlama uygulanmis) VE (panik VEYA susturulmamis).
+  // Siren: hedef durum (yukaridaki tetik animasyonu uygulanmis) VE (panik VEYA susturulmamis).
   // FIX (kullanici bulgusu): gaz alarmi da konteynerAcilDurum'a dahil oldugu
   // icin susturmayi ATLIYORDU - "Sustur" basildiginda siren susmuyordu.
   // Panik (elle acilan, kullanicinin kendi ac/kapa anahtari) susturmadan
@@ -849,8 +825,21 @@ void alarmLedGuncelle() {
   // toparlaninca bir sonraki dongude otomatik geri acilir - ayri bir "geri
   // ac" mantigi gerekmez, konteynerLambaManuel'e de dokunulmaz.
   konteynerLambaAktif = (konteynerAlarmLambaHam || konteynerLambaManuel) && !bateryaKritik;
+
+  // Lamba pirpir animasyonu (tetik animasyonunun gorsel kismi): SADECE
+  // animasyonlu grupta (gaz haric) ve episode'un ilk KONTEYNER_TETIK_LAMBA_FLASH_TOPLAM_MS'inde,
+  // konteynerLambaAktif'in PIN CIKISI gecici olarak hizli yanip-sonmeye
+  // override edilir - alttaki konteynerLambaAktif/min-max sure durumu
+  // DEGISMEZ, sadece bu pencerede digitalWrite farkli yazilir.
+  bool konteynerLambaPinAc = konteynerLambaAktif;
+  if (konteynerAnimasyonluTetik && konteynerSirenEpisodeMs != 0) {
+    unsigned long gecenMs = millis() - konteynerSirenEpisodeMs;
+    if (gecenMs < KONTEYNER_TETIK_LAMBA_FLASH_TOPLAM_MS) {
+      konteynerLambaPinAc = ((gecenMs / (KONTEYNER_TETIK_LAMBA_FLASH_PERIYOT_MS / 2)) % 2) == 0;
+    }
+  }
   digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
-  digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaAktif ? HIGH : LOW);
+  digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaPinAc ? HIGH : LOW);
 
   bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending || konteynerBuzzerVar;
 
@@ -1882,10 +1871,14 @@ void acilLambaGuncelle(bool konteynerAcilDurumParam) {
   digitalWrite(ACIL_LAMBA_PIN, acilLambaAktif ? HIGH : LOW);
 }
 
-// Fiziksel Acil Durum butonu (GPIO14, INPUT_PULLUP, aktif-LOW) - basisinda
-// acilLambaManuel'i toggle eder (web butonuyla aynI bayrak). Basit kenar
-// debonce - PIR2/Kapi reed ile ayni tarzda ama tek-atis (edge) davranisi
-// icin ek "onceki durum" degiskeni tutar.
+bool panikTetikle(bool& panicActive, String& reply); // asagida tanimli (RS485 uzerinden ESP8266 ile senkron panik)
+
+// Fiziksel Acil Durum Butonu (GPIO14, INPUT_PULLUP, aktif-LOW) - basisinda
+// GERCEK panigi tetikler (panikTetikle - web/IR Panik butonuyla AYNI RS485
+// komutu, ayni ac/kapa toggle semantigi). 2026-08-25'e kadar acilLambaManuel'i
+// toggle ediyordu, kullanici talebiyle degistirildi (bkz config.h ACIL_BUTON_PIN
+// yorumu). Basit kenar debounce - PIR2/Kapi reed ile ayni tarzda ama tek-atis
+// (edge) davranisi icin ek "onceki durum" degiskeni tutar.
 void acilButonPoll() {
   static bool oncekiBasili = false;
   static unsigned long sonDegisimMs = 0;
@@ -1893,7 +1886,11 @@ void acilButonPoll() {
   if (basili != oncekiBasili && millis() - sonDegisimMs > 50) { // 50ms debounce
     sonDegisimMs = millis();
     oncekiBasili = basili;
-    if (basili) acilLambaManuel = !acilLambaManuel; // sadece basma anida (basma->birakma degil) toggle
+    if (basili) {
+      bool panicActive = false;
+      String reply;
+      panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
+    }
   }
 }
 
@@ -1970,13 +1967,21 @@ struct Mq6Data {
 };
 Mq6Data mq6Data;
 
+// Test Modu (2026-08-25, kullanici talebi): acilince MQ6'nin 10dk/60sn guc
+// dongusu ATLANIR, isitici SUREKLI acik kalir - sahada gaz/cakmak testi
+// yaparken "canli mi eski mi" belirsizligini ortadan kaldirir. Kalici
+// DEGIL (NVS'e yazilmaz, reset sonrasi false'a doner) - testten sonra
+// kapatilmasi UNUTULURSA bile pil tuketimi reset ile kendiliginden biter.
+bool konteynerMq6TestModu = false;
+
 // Guc dongusu: her MQ6_CYCLE_MS'de bir MQ6_POWER_PIN uzerinden MQ6'e
 // MQ6_POWER_ON_MS kadar guc verilir (isinma+olcum penceresi), o pencere
 // icinde MQ6_POLL_INTERVAL_MS'de bir analogRead alinir, pencere bitince guc
 // kesilir. Kapali kaldigi surece mq6Data/konteynerGazVar SON OLCULEN degeri
 // korur (diger Konteyner sensorlerindeki "son bilinen deger" deseniyle
 // tutarli) - gunduz/gece ayrimi yok, kullanici talebi geceye ozel degil,
-// her zaman ayni 10dk/60sn dongusu.
+// her zaman ayni 10dk/60sn dongusu. konteynerMq6TestModu acikken bu dongu
+// atlanir, isitici surekli acik kalir.
 void mq6Poll() {
   unsigned long now = millis();
   static unsigned long cycleStart = 0;
@@ -1985,7 +1990,7 @@ void mq6Poll() {
     cycleStart = now;
     gecenDongu = 0;
   }
-  bool acikOlmali = gecenDongu < MQ6_POWER_ON_MS;
+  bool acikOlmali = konteynerMq6TestModu || (gecenDongu < MQ6_POWER_ON_MS);
   if (acikOlmali != mq6Data.powered) {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
@@ -2664,7 +2669,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki 2. PIR (HC-SR505) artık genel <b>Alarm Modu</b>'na (Sesli/Sessiz/Onaylı) uyar, Telegram ve büyük uyarı banner'ına da yansır - Sudepo Zonu ile aynı ortak sistemi kullanır.</p>
       <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> HC-SR505'in potansiyometresi yok, tetiklenince çıkışı hareketin büyüklüğüne bakmaksızın sabit ~6-12sn HIGH'ta kalır (Sudepo'daki ayarlanabilir HC-SR501'den farklı). Bu yüzden "hassasiyet" iki kademeli süre mantığıyla ayarlanır: <b>1)</b> her yeni harekette hemen 1sn'lik kısa bir bip/LED darbesi verilir (henüz alarm değil, sadece "sensör gördü" işareti); <b>2)</b> hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır ve Alarm Modu'na göre tepki verir. Kısa/ufak/tek seferlik kıpırdamalar böylece sadece bir bip ile geçer, Telegram/siren tetiklemez.</p>
       <div class="row" style="gap:16px">
-        <div>Hareket: <b id="kz-pir">-</b></div>
+        <div>HC505 PIR: <b id="kz-pir">-</b></div>
         <div>Swan PIR: <b id="kz-swan">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
         <div>Duman: <b id="kz-duman">-</b></div>
@@ -2680,7 +2685,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
         <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ6) Alarmı Aktif</label>
       </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "Hareket/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
+      <div class="row" style="gap:16px;margin-top:6px">
+        <label><input type="checkbox" id="kz_mq6Test" onchange="konteynerMq6TestKaydet()"> MQ6 Test Modu (ısıtıcıyı sürekli açık tutar)</label>
+      </div>
+      <p style="font-size:11px;color:var(--warn);margin-top:2px">Test Modu AÇIKKEN MQ6 değeri her zaman canlıdır (10dk/60sn döngüsü atlanır) - gaz/çakmak testi için kullanın, test bitince KAPATIN (sürekli ısıtıcı pil tüketir). Reset sonrası otomatik kapanır.</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ "HC505 PIR/Kapı/Swan PIR" alanında ham durumu görünür ama alarma/banner'a hiç katkı yapmaz.</p>
       <div class="row" style="gap:16px;margin-top:10px">
         <div>Sıcaklık: <b id="kz-sicaklik">-</b></div>
         <div>Nem: <b id="kz-nem">-</b></div>
@@ -3158,7 +3167,8 @@ function renderUI(d){
   const kzgv=$('#kz-gaz'); if(kzgv){ kzgv.textContent = kz.gaz?'VAR':'Yok'; kzgv.style.color = kz.gaz?'var(--danger)':''; }
   const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
-  const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+')' : '--';
+  const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
+  const kzmqt=$('#kz_mq6Test'); if(kzmqt && document.activeElement!==kzmqt) kzmqt.checked = !!kz.mq6_test_modu;
   const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
   const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
   const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
@@ -3554,6 +3564,13 @@ function konteynerSensorAktifKaydet(){
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
 
+function konteynerMq6TestKaydet(){
+  const durum = $('#kz_mq6Test').checked?1:0;
+  api('/api/konteyner/mq6_test?durum='+durum).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
 function konteynerGazAyarKaydet(){
   yakinDuzenlendi('kz_gazEsik');
   const esik=$('#kz_gazEsik').value;
@@ -3825,6 +3842,8 @@ String durumJson() {
   doc["konteyner"]["aht_ok"] = ahtData.read_ok;
   doc["konteyner"]["mq6_raw"] = mq6Data.raw;
   doc["konteyner"]["mq6_volt"] = mq6Data.volt;
+  doc["konteyner"]["mq6_powered"] = mq6Data.powered; // false ise deger eski (guc dongusunun kapali fazinda), bkz mq6Poll()
+  doc["konteyner"]["mq6_test_modu"] = konteynerMq6TestModu;
   doc["konteyner"]["gp2y10_raw"] = gp2y10Data.raw;
   doc["konteyner"]["gp2y10_volt"] = gp2y10Data.volt;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
@@ -4299,6 +4318,11 @@ void handleAPI_KonteynerSensorAktif() {
   server.send(200, "application/json", "{\"basarili\":true,\"pir\":" + String(pir ? "true" : "false") +
               ",\"kapi\":" + String(kapi ? "true" : "false") + ",\"swan\":" + String(swan ? "true" : "false") +
               ",\"duman\":" + String(duman ? "true" : "false") + ",\"gaz\":" + String(gaz ? "true" : "false") + "}");
+}
+
+void handleAPI_KonteynerMq6Test() {
+  if (server.hasArg("durum")) konteynerMq6TestModu = server.arg("durum").toInt() != 0;
+  server.send(200, "application/json", "{\"basarili\":true,\"test_modu\":" + String(konteynerMq6TestModu ? "true" : "false") + "}");
 }
 
 void handleAPI_KonteynerGazAyar() {
@@ -5156,6 +5180,7 @@ void setupWebServer() {
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
   server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyar);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
+  server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
   server.on("/api/konteyner/duman_ayar", handleAPI_KonteynerDumanAyar);
   server.on("/api/batarya/ayar", handleAPI_BateryaAyar);

@@ -268,21 +268,22 @@
 //                    2026-08-20'de PIR2'den boşaltıldı, bkz GP2Y10_ADC_PIN yorumu)
 //                  GPIO17 (asagida - PIR2, GPIO6'dan buraya TASINDI)
 //                  GPIO18 (yukarida - GP2Y10 LED surucu kontrolu)
-//                  GPIO15 (asagida - Swan Quad PET PIR NC/COM kontagi)
-//                  GPIO14 (asagida - Fiziksel Acil Durum butonu)
+//                  GPIO13 (asagida - Swan Quad PET PIR NC/COM kontagi, 2026-08-25'te
+//                    GPIO15'ten buraya TASINDI - SCART pin8/13'lu konnektor pin9 uzerinden
+//                    disari cikacak, artik "amaci belirsiz" degil)
+//                  GPIO14 (asagida - Fiziksel Acil Durum butonu / gercek panik tetigi)
 //                  GPIO12 (asagida - Sari RCA, amaci henuz belirlenmedi ama pin ayrildi)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   DOKUNMA: GPIO13 (13'lu konnektor pin9 / SCART pin8, amaci belirsiz)
-//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO33, GPIO34
+//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO15, GPIO33, GPIO34
 //                  (GPIO40/41 artik MPPT/MAX3232'de, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da,
-//                  GPIO42/36 artik AHT10/ADS1115 I2C'de, GPIO14 artik Acil Buton'da, GPIO12 Sari RCA'da kullaniliyor)
+//                  GPIO42/36 artik AHT10/ADS1115 I2C'de, GPIO14 Acil Buton'da, GPIO12 Sari
+//                  RCA'da, GPIO13 artik Swan PIR'da kullaniliyor - GPIO15 bosaldi)
 //   Ekran (ileride): I2C ekran (SSD1306/SH1106 OLED gibi) icin YENI PIN
 //     GEREKMEZ - mevcut AHT10/ADS1115 I2C hattina (GPIO42=SDA, GPIO36=SCL)
 //     farkli adresle bindirilebilir. SPI ekran (CS/DC/RST/SCK/MOSI - 5 sinyal)
-//     icin yukaridaki 3 serbest pin (11,33,34) yetersiz - GPIO13'un gercek
-//     durumu doğrulanip kullanilabilirse 4. pin olarak eklenebilir.
+//     icin yukaridaki 4 serbest pin (11,15,33,34) yeterli.
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 17       // GPIO17 - Konteynerdaki PIR hareket sensorunun OUT ucu (2026-08-20: eski GPIO6'dan tasindi, GP2Y10 sensorune ADC1 kanali acmak icin - kullanici sahada kabloyu fiziksel olarak tasidi)
@@ -292,8 +293,10 @@
 // yok) pin GND'ye baglanip LOW okunur, kontak acilinca (hareket VEYA kablo
 // kesilirse/guc giderse - NC'nin fail-safe avantaji) pin pull-up ile HIGH'e
 // cikar. 12V besleme SIREN/LAMBA ile AYNI harici hattan verilir, ESP32'nin
-// 3.3V/5V ciktilarindan DEGIL.
-#define SWAN_PIR_PIN 15   // GPIO15 - Swan Quad PET PIR NC/COM kontagi
+// 3.3V/5V ciktilarindan DEGIL. 2026-08-25: heniz fiziksel cikisi verilmemisti,
+// GPIO15'ten GPIO13'e tasindi - SCART Pin 8 (Turuncu/Beyaz, 13'lu ic
+// konnektorun pin9'u) uzerinden disari cikarilacak, bkz docs/pinout.html.
+#define SWAN_PIR_PIN 13   // GPIO13 - Swan Quad PET PIR NC/COM kontagi
 // Siren/Lamba: ALARM_LED_PIN'den AYRI, gercek role modulu uzerinden calisan
 // donanim (Sudepo Zonu'ndaki Nano "Alarm Rolesi"/"Depo Ici Lamba Rolesi" ile
 // ayni role). Varsayilan HIGH=aktif - role modulunuz aktif-LOW ise (kablolama
@@ -301,7 +304,30 @@
 // ters cevirmeniz yeterli (reed switch'teki gibi tek satirlik duzeltme).
 #define KONTEYNER_SIREN_PIN 8   // GPIO8 - Alarm sireni rolesi (Sesli/Onayli+Sesli-onay'da aktif)
 #define KONTEYNER_LAMBA_PIN 9   // GPIO9 - Uyari lambasi/flasoru rolesi (siren ile birlikte VEYA Onayli+"Sessiz(Lamba)" onayinda tek basina aktif)
-#define ACIL_BUTON_PIN 14 // GPIO14 - Fiziksel Acil Durum butonu (INPUT_PULLUP, butona basinca GND'ye kisa devre) - Acil Durum Lambasini (ACIL_LAMBA_PIN) manuel ac/kapa toggle eder
+// GPIO14 - Fiziksel Acil Durum Butonu (INPUT_PULLUP, butona basinca GND'ye
+// kisa devre). 2026-08-25'e KADAR acilLambaManuel'i toggle ediyordu; kullanici
+// bunun mantiksiz oldugunu belirtti ("emergency buton dediğim panik butonun
+// fiziksel olanı") - artik basisinda GERCEK panigi (alarmStatus.panic_mode,
+// web/IR Panik butonuyla AYNI panikTetikle() cagrisi) tetikler. Acil Durum
+// Lambasi'nin manuel ac/kapa ozelligi KALDIRILMADI, sadece artik SADECE web
+// arayuzunden erisilebilir (bkz main.cpp acilLambaManuel).
+#define ACIL_BUTON_PIN 14
+// PLANLANAN (2026-08-25): Buton disariya SCART Pin 17 (Yesil) uzerinden cikarilacak,
+// GND donusu Pin 21 (Shield/GND) - GPIO14 degismiyor, sadece kablo yolu SCART'a tasiniyor.
+// bkz docs/pinout.html SCART tablosu.
+
+// Tetik animasyonu (2026-08-25, kullanici talebi): GAZ HARIC (patlayici gaz
+// icin gecikme guvenlik riski, eskisi gibi aninda/surekli kalir) her alarm
+// tetiklenmesinde (panik dahil, kapi/PIR/Swan PIR/duman) lamba ilk birkac
+// saniye pirpir eder, siren ise bir sure sessiz kaldiktan sonra kisa
+// atislarla calmaya baslar - tetik surdukce bu atis paterni TEKRARLAR (eski
+// kademeli gecikme/chirp/bekleme/aktif deseninin YERINI ALDI, bkz main.cpp
+// alarmLedGuncelle).
+#define KONTEYNER_TETIK_LAMBA_FLASH_TOPLAM_MS 3000   // lamba ilk bu kadar sure pirpir eder
+#define KONTEYNER_TETIK_LAMBA_FLASH_PERIYOT_MS 1000  // her pirpir cevrimi (yanik+sonuk) - 3000/1000=3 kez
+#define KONTEYNER_TETIK_SIREN_GECIKME_MS 10000       // siren ilk bu kadar sessiz kalir
+#define KONTEYNER_TETIK_SIREN_ATIS_MS 300            // her atisin acik kalma suresi
+#define KONTEYNER_TETIK_SIREN_ARALIK_MS 3000         // atislar arasi sessizlik
 
 // Sari RCA (arka panel, 13'lu ic konnektor pin 4) - amaci henuz belirlenmedi,
 // pinMode input/output yonu belirlenince eklenecek.
