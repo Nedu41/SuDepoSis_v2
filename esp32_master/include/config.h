@@ -252,7 +252,14 @@
 // çalışır (biz "ölç" dediğimiz anda aslında LED'i SÖNDÜRÜYOR olabiliriz).
 // Bu anahtarı 1 yapıp reflash edip smoke testi tekrarlayın - eğer LED gerçekten
 // tersse artık raw'da anlamlı bir sıçrama görülmeli. İşe yaramazsa 0'a geri al.
-#define GP2Y10_LED_AKTIF_LOW 0        // 0 = mevcut (HIGH=yak), 1 = ters (LOW=yak) - TEST icin degistirin
+// 2026-08-25 ARASTIRMA: Sharp'in resmi pin fonksiyonuna gore LED kontrol
+// pini (sensorun kendi pin3'u) HIGH=LED KAPALI, LOW=LED ACIK (bizim ilk
+// varsayimimizin TERSI). Ilk polarite testi (asagidaki bayrak =1 yapilip
+// denenmisti) GPIO6 kablosu HALA KOPUKKEN yapilmisti - o yuzden gecersizdi.
+// Kablo lehimlendikten SONRA bu TEKRAR test ediliyor. Kaynak:
+// microcontrollerslab.com GP2Y1014AU0F pinout: "Pin 3: HIGH=IR LED off,
+// LOW=IR LED on".
+#define GP2Y10_LED_AKTIF_LOW 1        // 0 = mevcut (HIGH=yak), 1 = ters (LOW=yak) - TEST icin degistirin
 
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
