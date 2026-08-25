@@ -1084,7 +1084,7 @@ String alarmTetikleyenMetni(uint8_t mask, bool panik, bool konteynerPir = false,
   }
   if (konteynerPir) {
     if (s.length() > 0) s += ", ";
-    s += "Konteyner: PIR (Hareket)";
+    s += "Konteyner: HC505-1 PIR";
   }
   if (konteynerKapi) {
     if (s.length() > 0) s += ", ";
@@ -2566,7 +2566,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="weather-haftalik" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>Telegram Bildirimleri</summary>
       <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb. - Kalburum/Konteyner PIR'ı dahil) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
       <div class="row">
@@ -2640,12 +2640,12 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
     </details>
 
-    <details class="card zone-konteyner" open>
+    <details class="card zone-konteyner">
       <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
 
       <p class="sz-label">Canlı Durum</p>
       <div class="row" style="gap:16px">
-        <div>HC505 PIR: <b id="kz-pir">-</b></div>
+        <div>HC505-1 PIR: <b id="kz-pir">-</b></div>
         <div>Swan PIR: <b id="kz-swan">-</b></div>
         <div>Kapı: <b id="kz-kapi">-</b></div>
         <div>Duman: <b id="kz-duman">-</b></div>
@@ -2657,7 +2657,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
       <p class="sz-label" style="margin-top:12px">Sensör Aktif/Pasif</p>
       <div class="row" style="gap:16px">
-        <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> PIR2 Aktif</label>
+        <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> HC505-1 PIR Aktif</label>
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
         <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
@@ -2682,7 +2682,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </details>
 
       <details class="subdet" style="margin-top:8px">
-        <summary>PIR2 (HC-SR505) Hassasiyet</summary>
+        <summary>HC505-1 PIR Hassasiyet</summary>
         <p style="font-size:12px;color:var(--muted);margin-top:6px">HC-SR505'in potansiyometresi yok, tetiklenince çıkışı sabit ~6-12sn HIGH'ta kalır. "Hassasiyet" bu yüzden iki kademeli süre mantığıyla ayarlanır: her yeni harekette hemen 1sn'lik bir bip/LED darbesi verilir (henüz alarm değil); hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır.</p>
         <div class="sz-grid" style="margin-top:6px">
           <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="1" max="120" id="kz_pirTutma" onchange="konteynerPirKaydet()"></div>
@@ -2695,7 +2695,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>🔋 Batarya (MPPT) Koruma Ayarları</summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Akü voltajı, MPPT şarj kontrolcüsünden ayrı bir RS232/PI30 hattı üzerinden okunur. Koruma AÇIK olduğunda, voltaj "Kesme" eşiğinin altına inince sulama rölesi ve Konteyner lambası otomatik kapatılır (siren/alarm etkilenmez); voltaj "Geri Yükleme" eşiğine çıkınca otomatik serbest kalır.</p>
       <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> Register/ölçek değerleri sahada doğrulanana kadar koruma varsayılan olarak KAPALI kalır - önce Genel sekmesindeki "Akü" kartından gelen voltajı bir multimetreyle karşılaştırıp doğrulayın, sonra korumayı açın.</p>
@@ -2709,7 +2709,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="batarya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>⚡ Ana Güç (24V) İzleme Eşikleri</summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Ana hat voltajı ADS1115 (I2C) ile izlenir. Eşiklerin altına inince SADECE bildirim (Telegram) gönderilir - hiçbir röle/lamba otomatik açılmaz. Acil Durum Lambasını Kontrol sekmesinden manuel açabilirsiniz.</p>
       <div class="sz-grid">
@@ -2720,7 +2720,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="ana-guc-esik-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>WiFi</summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
@@ -2738,7 +2738,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="wifi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>Nem Ayarları</summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)">
         Nem: <b id="settings-moisture-val">-</b> | Çıkış: <b id="settings-moisture-out">-</b> | Mod: <b id="settings-moisture-mod">-</b>
@@ -2756,7 +2756,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="moisture-settings-msg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>Sistem</summary>
       <div class="row">
         <button class="btn btn-danger" onclick="restartSistem()">Yeniden Başlat</button>
@@ -2765,7 +2765,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   </div>
 
   <div id="kumanda" class="section">
-    <details class="card zone-konteyner" open>
+    <details class="card zone-konteyner">
       <summary>📡 Konteyner Zonu - IR Kumanda</summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Konteynerdaki IR alıcıya kumanda tuşu tanımla - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa bas, sonra hangi komutu çalıştıracağını seç. Birden fazla kumanda eklenebilir.</p>
       <div id="ir-liste" style="font-size:13px">Yükleniyor...</div>
@@ -2895,19 +2895,19 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL</p>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>WiFi & Sistem</summary>
       <div id="bilgi-sistem" style="font-size:13px">Yükleniyor...</div>
       <div id="build-info" style="font-size:12px;color:var(--muted);margin-top:8px">Yükleniyor...</div>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>Güncelleme Aralıkları</summary>
       <div id="guncelleme-bilgi" style="font-size:13px">Yükleniyor...</div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 5sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
     </details>
 
-    <details class="card" open>
+    <details class="card">
       <summary>Kullanım Kılavuzu</summary>
       <div style="font-size:13px;line-height:1.6">
         <p><b>Alarm Modları</b> (Kontrol → Alarm): 1-Sesli (tetiklenince siren hemen çalışır), 2-Sessiz (siren çalışmaz, sadece bu sayfada/ESP8266'da bildirim), 3-Onaylı (tetiklenince onay bekler, "Tetiklenmeyi Onayla" ile sesli moda geçer). Bu mod artık hem Sudepo Zonu hem Kalburum/Konteyner için ORTAK - Konteyner PIR'ı eskale olup gerçek alarma dönüştüğünde de aynı moda göre davranır (bkz Ayarlar → Konteyner Alarm Ayarları).</p>
@@ -2966,7 +2966,7 @@ function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwa
   if(panicAktif) return 'Panik (elle açıldı)';
   const l=[];
   for(let i=0;i<6;i++) if(mask&(1<<i)) l.push(tetikleyiciAdlari[i]);
-  if(konteynerPir) l.push('Konteyner: PIR (Hareket)');
+  if(konteynerPir) l.push('Konteyner: HC505-1 PIR');
   if(konteynerKapi) l.push('Konteyner: Kapı');
   if(konteynerSwan) l.push('Konteyner: Swan PIR');
   if(konteynerDuman) l.push('Konteyner: Duman');
