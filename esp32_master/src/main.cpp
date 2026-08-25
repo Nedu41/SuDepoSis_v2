@@ -1989,6 +1989,11 @@ void mq6Poll() {
   if (now - lastPoll < MQ6_POLL_INTERVAL_MS) return;
   lastPoll = now;
 
+  // FIX (2026-08-25): setup()'ta bir kere pinMode(...,INPUT_PULLDOWN) yetmedi -
+  // boşta hâlâ MAX (4095) okunuyordu, muhtemelen analogRead()'in pini her
+  // seferinde analog moda alirken dijital pull-down ayarini sifirlamasi
+  // yuzunden. Her okumadan HEMEN ONCE tekrar uygulaniyor.
+  pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
   mq6Data.raw = analogRead(MQ6_ADC_PIN);
   mq6Data.volt = (mq6Data.raw / 4095.0f) * 3.3f;
   mq6Data.last_update_ms = now;
@@ -2023,6 +2028,10 @@ void gp2y10Poll() {
   // (GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US) bekleyip LED'i kapat.
   // Toplam ~320us - loop()'u bloklamasi HC-SR04 tetik darbesiyle ayni
   // mertebede, ihmal edilebilir.
+  // FIX (2026-08-25): setup()'ta bir kere pinMode(...,INPUT_PULLDOWN) yetmedi -
+  // bkz mq6Poll() ayni yorumu. Zamanlamayi bozmamak icin LED tetiklenmeden
+  // ONCE (280us'lik hassas pencerenin disinda) tekrar uygulaniyor.
+  pinMode(GP2Y10_ADC_PIN, INPUT_PULLDOWN);
   digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? LOW : HIGH); // yak
   delayMicroseconds(GP2Y10_SAMPLE_DELAY_US);
   gp2y10Data.raw = analogRead(GP2Y10_ADC_PIN);
