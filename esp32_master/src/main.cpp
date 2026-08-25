@@ -2576,7 +2576,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <div id="telegram-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card zone-sudepo" open>
+    <details class="card zone-sudepo">
       <summary>🚰 Su Deposu Zonu - Ayarlar</summary>
       <p style="font-size:12px;color:var(--muted)">Karar/yürütme hâlâ ESP8266+Nano'da yapılır (RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için köprü. Sudepo.local aynı ayarları gösterir.</p>
       <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
@@ -2640,7 +2640,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       </div>
     </details>
 
-    <details class="card zone-konteyner">
+    <details class="card zone-konteyner" open>
       <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
 
       <p class="sz-label">Canlı Durum</p>
