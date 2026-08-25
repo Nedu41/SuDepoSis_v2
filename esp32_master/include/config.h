@@ -252,7 +252,7 @@
 // çalışır (biz "ölç" dediğimiz anda aslında LED'i SÖNDÜRÜYOR olabiliriz).
 // Bu anahtarı 1 yapıp reflash edip smoke testi tekrarlayın - eğer LED gerçekten
 // tersse artık raw'da anlamlı bir sıçrama görülmeli. İşe yaramazsa 0'a geri al.
-#define GP2Y10_LED_AKTIF_LOW 1        // 0 = mevcut (HIGH=yak), 1 = ters (LOW=yak) - TEST icin degistirin
+#define GP2Y10_LED_AKTIF_LOW 0        // 0 = mevcut (HIGH=yak), 1 = ters (LOW=yak) - TEST icin degistirin
 
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
