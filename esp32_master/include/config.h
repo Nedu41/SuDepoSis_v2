@@ -246,6 +246,14 @@
 #define GP2Y10_SAMPLE_DELAY_US 280   // LED açıldıktan sonra ADC örneklemesi için bekleme (sinyal bu noktada stabil)
 #define GP2Y10_POLL_INTERVAL_MS 2000 // İki ölçüm arası bekleme - ısıtıcı olmadığından MQ6 gibi güç döngüsüne gerek yok
 
+// TEST (2026-08-25, GEÇİCİ): Boşta Vo ~0.02V'ye yapışık kalıyor, kullanıcı
+// LED'in hiç yanmadığından şüpheleniyor - GP2Y10_LED_PIN'i doğrudan LED değil
+// bir MOSFET modülü sürüyor, o modül "aktif-LOW" tipteyse mantığımız TERS
+// çalışır (biz "ölç" dediğimiz anda aslında LED'i SÖNDÜRÜYOR olabiliriz).
+// Bu anahtarı 1 yapıp reflash edip smoke testi tekrarlayın - eğer LED gerçekten
+// tersse artık raw'da anlamlı bir sıçrama görülmeli. İşe yaramazsa 0'a geri al.
+#define GP2Y10_LED_AKTIF_LOW 1        // 0 = mevcut (HIGH=yak), 1 = ters (LOW=yak) - TEST icin degistirin
+
 // ===== Batarya Kapasitesi (kalan kullanim suresi tahmini icin) =====
 // 2x12V 100Ah jel aku SERI baglanip 24V, 100Ah'lik tek bir hat olusturuyor
 // (README - "2x12V 100A jel aku"). DOGRULA - farkliysa sadece burasi degisir.

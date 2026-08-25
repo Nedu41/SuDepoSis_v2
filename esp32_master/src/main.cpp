@@ -638,7 +638,7 @@ void konteynerDonanimiInit() {
   // yonune gore ters gerekebilir (bkz SWAN_PIR_PIN yorumu, config.h).
   pinMode(SWAN_PIR_PIN, INPUT_PULLUP);
   pinMode(GP2Y10_LED_PIN, OUTPUT);
-  digitalWrite(GP2Y10_LED_PIN, LOW); // ilk dongu gp2y10Poll()'da baslar, o ana kadar kapali
+  digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? HIGH : LOW); // ilk dongu gp2y10Poll()'da baslar, o ana kadar kapali (LED sonuk)
   irAliciBaslat(); // bkz asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumu
   DEBUG_PRINTLN("[KONTEYNER] IR/LED/PIR2/Reed/SwanPIR/GP2Y10 hazir");
 }
@@ -2011,12 +2011,12 @@ void gp2y10Poll() {
   // (GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US) bekleyip LED'i kapat.
   // Toplam ~320us - loop()'u bloklamasi HC-SR04 tetik darbesiyle ayni
   // mertebede, ihmal edilebilir.
-  digitalWrite(GP2Y10_LED_PIN, HIGH);
+  digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? LOW : HIGH); // yak
   delayMicroseconds(GP2Y10_SAMPLE_DELAY_US);
   gp2y10Data.raw = analogRead(GP2Y10_ADC_PIN);
   gp2y10Data.volt = (gp2y10Data.raw / 4095.0f) * 3.3f;
   delayMicroseconds(GP2Y10_LED_PULSE_US - GP2Y10_SAMPLE_DELAY_US);
-  digitalWrite(GP2Y10_LED_PIN, LOW);
+  digitalWrite(GP2Y10_LED_PIN, GP2Y10_LED_AKTIF_LOW ? HIGH : LOW); // sondur
 
   gp2y10Data.last_update_ms = now;
 
