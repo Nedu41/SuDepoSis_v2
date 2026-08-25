@@ -237,21 +237,19 @@
 // boşalan GPIO6 GP2Y10'un analog çıkışına (Vo) verildi.
 //
 // Darbe zamanlaması Sharp datasheet'ine göre: LED'i GP2Y10_LED_PIN üzerinden
-// (MOSFET modülüyle) HIGH yap, GP2Y10_SAMPLE_DELAY_US bekle, ADC oku, toplam
-// GP2Y10_LED_PULSE_US dolunca LED'i LOW yap. Bu tek ölçüm ~320us sürer, loop()'u
-// bloklaması ihmal edilebilir (HC-SR04 tetik darbesiyle aynı mantık).
-#define GP2Y10_LED_PIN 18            // GPIO18 - LED sürücü MOSFET modülünün sinyal ucu
+// HIGH/LOW yap (bkz GP2Y10_LED_AKTIF_LOW), GP2Y10_SAMPLE_DELAY_US bekle, ADC
+// oku, toplam GP2Y10_LED_PULSE_US dolunca LED'i söndür. Bu tek ölçüm ~320us
+// sürer, loop()'u bloklaması ihmal edilebilir (HC-SR04 tetik darbesiyle ayni
+// mantik).
+// 2026-08-25 NET (kullanici dogruladi): MOSFET HIC BAGLANMAMISTI - GPIO18
+// dogrudan sensorun Pin3'une (LED kontrol) baglanacak. Sharp'a gore bu pin
+// sadece 20mA cektiginden harici transistor/MOSFET GEREKMEZ.
+#define GP2Y10_LED_PIN 18            // GPIO18 - dogrudan GP2Y10 Pin3'e (LED kontrol), MOSFET YOK
 #define GP2Y10_ADC_PIN 6             // GPIO6 - ADC1 kanal 5 (PIR2'den boşaltıldı), sensörün Vo çıkışı
 #define GP2Y10_LED_PULSE_US 320      // LED'in toplam açık kalma süresi (datasheet: 320us ±20us)
 #define GP2Y10_SAMPLE_DELAY_US 280   // LED açıldıktan sonra ADC örneklemesi için bekleme (sinyal bu noktada stabil)
 #define GP2Y10_POLL_INTERVAL_MS 2000 // İki ölçüm arası bekleme - ısıtıcı olmadığından MQ6 gibi güç döngüsüne gerek yok
 
-// TEST (2026-08-25, GEÇİCİ): Boşta Vo ~0.02V'ye yapışık kalıyor, kullanıcı
-// LED'in hiç yanmadığından şüpheleniyor - GP2Y10_LED_PIN'i doğrudan LED değil
-// bir MOSFET modülü sürüyor, o modül "aktif-LOW" tipteyse mantığımız TERS
-// çalışır (biz "ölç" dediğimiz anda aslında LED'i SÖNDÜRÜYOR olabiliriz).
-// Bu anahtarı 1 yapıp reflash edip smoke testi tekrarlayın - eğer LED gerçekten
-// tersse artık raw'da anlamlı bir sıçrama görülmeli. İşe yaramazsa 0'a geri al.
 // 2026-08-25 ARASTIRMA: Sharp'in resmi pin fonksiyonuna gore LED kontrol
 // pini (sensorun kendi pin3'u) HIGH=LED KAPALI, LOW=LED ACIK (bizim ilk
 // varsayimimizin TERSI). Ilk polarite testi (asagidaki bayrak =1 yapilip

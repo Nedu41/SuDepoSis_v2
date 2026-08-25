@@ -74,7 +74,7 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>AHT10 (sıcaklık/nem)</td><td>3.3V</td><td>ESP32 3V3</td><td>I2C hattı 3.3V, 2.2kΩ pull-up eklendi</td></tr>
 <tr><td>ADS1115 (ana güç ADC)</td><td>3.3V</td><td>ESP32 3V3</td><td>Bilinçli tercih — 5V verilirse 3.3V I2C hattına pull-up riski</td></tr>
 <tr><td>MQ6 (gaz sensörü)</td><td>5V (tipik, ısıtıcı elemanı için)</td><td>Yedek akü → 5V hattı, GPIO16 MOSFET ile anahtarlanır</td><td>DOĞRULA — modülün üzerindeki etikete bak</td></tr>
-<tr><td>GP2Y10 (duman/toz sensörü)</td><td>5V (Sharp datasheet)</td><td>Yedek akü → 5V hattı, LED darbesi GPIO18 MOSFET ile anahtarlanır</td><td>—</td></tr>
+<tr><td>GP2Y10 (duman/toz sensörü)</td><td>5V (Sharp datasheet)</td><td>Yedek akü → 5V hattı, LED kontrol pini (Pin3) GPIO18'e doğrudan bağlı (MOSFET yok, sadece 20mA çeker)</td><td>—</td></tr>
 <tr><td>Yedek Akü ADC gerilim bölücü</td><td>Ölçtüğü hat: ~12V (akü bankası)</td><td>—</td><td>Bölücü çıkışı ESP32 GPIO2/ADC1'e 3.3V altında kalacak şekilde ölçeklenir</td></tr>
 <tr><td>Ana 24V hat (solar/MPPT akü bankası)</td><td>24V (2x12V seri)</td><td>Güneş paneli + MPPT</td><td>Artık güvenlik cihazlarını BESLEMİYOR — sadece sulama pompası ve MPPT/şarj devresi bu hatta</td></tr>
 <tr><td>Yedek akü bankası</td><td>~12V (3x12V paralel, ~60Ah)</td><td>Şarj: PWM solar şarj kontrolcü (Schulzz)</td><td>2026-08-25'ten itibaren TÜM güvenlik cihazlarının ana kaynağı</td></tr>
@@ -107,7 +107,7 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>10</td><td>MQ6 (gaz sensörü)</td><td>Analog giriş → ADC1</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler — güç dongusu için bkz GPIO16. 2026-08-20: MQ3'ten MQ6'ya geçildi (tüp gaz/LPG için daha uygun sensör), pin/mantık aynı kaldı</td></tr>
 <tr><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>Dijital çıkış (OUTPUT)</td><td>MQ6'nın ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10dk'da bir 60sn açılıp kapanır — modülün sinyal ucu bu pine, MQ6 VCC'si modül üzerinden anahtarlanır. İlk kurulumda 24-48 saat kesintisiz ısıtılıp stabilize edilmeli.</td></tr>
 <tr><td>6</td><td>GP2Y10 (duman/toz sensörü, Sharp GP2Y1014AU0F/GP2Y1010AU0F)</td><td>Analog giriş (Vo) → ADC1</td><td>2026-08-20: EFS-903R (kuru kontak röleli dedektör, sahada arızalı çıktı) yerine geçti. Isıtıcı yok, ~320us LED darbesiyle her 2sn'de bir ölçüm alınır (bkz GPIO18). Eşik aşılınca panik gibi anında Konteyner alarmını tetikler.</td></tr>
-<tr><td>18</td><td>GP2Y10 LED Sürücü Kontrolü (MOSFET modül)</td><td>Dijital çıkış (OUTPUT)</td><td>~320us'lik darbe ile LED'i sürer, darbe içinde GPIO6'dan örnekleme alınır (Sharp datasheet uygulama devresi)</td></tr>
+<tr><td>18</td><td>GP2Y10 LED Kontrol (doğrudan Pin3'e, MOSFET YOK)</td><td>Dijital çıkış (OUTPUT)</td><td>2026-08-25: MOSFET hiç bağlanmamıştı, doğrudan sensörün Pin3'üne bağlanacak (Sharp: 20mA, harici transistöre gerek yok). LOW=LED açık, HIGH=LED kapalı (Sharp'ın resmi pin fonksiyonu). ~320us'lik darbe içinde GPIO6'dan örnekleme alınır.</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (9600 baud)</td><td>PC'ye USB üzerinden</td></tr>
 <tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Quad Flash)</td><td>Bu karttaki flash için ayrılmış</td></tr>
@@ -232,7 +232,7 @@ GPIO7  ← Kapı Reed (INPUT_PULLUP)
 GPIO8  → Siren Rölesi IN
 GPIO9  → Lamba Rölesi IN
 GPIO6  ← GP2Y10 (duman/toz sensörü) analog cikis (Vo), ADC1
-GPIO18 → GP2Y10 LED surucu kontrolu (MOSFET modul)
+GPIO18 → GP2Y10 Pin3 (LED kontrol, DOGRUDAN - MOSFET yok, LOW=acik)
 
 ESP32-S3         MAX3232 (MPPT, RS232/PI30) - UART2
 GPIO41 (RX) ← R1OUT (MAX3232 cip pini, silkscreen etiketi degil)
