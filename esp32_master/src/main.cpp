@@ -242,6 +242,13 @@ void weatherKontrolEt() {
   bool yeniBaglandi = wifiVar && !weatherWifiOncekiDurum;
   weatherWifiOncekiDurum = wifiVar;
 
+  // Boot sonrasi ilk WEATHER_BOOT_GRACE_MS icinde HENUZ fetch atma - web
+  // sunucusuna (server.handleClient()) nefes alma payi ver, bkz config.h
+  // WEATHER_BOOT_GRACE_MS yorumu. lastWeatherCheckMs=0 KALIR ki grace suresi
+  // bitince zamanGeldi normal sekilde tetiklensin (fetch atlanmis olmaz,
+  // sadece ertelenir).
+  if (millis() < WEATHER_BOOT_GRACE_MS) return;
+
   unsigned long simdi = millis();
   bool zamanGeldi = (lastWeatherCheckMs == 0) || (simdi - lastWeatherCheckMs >= WEATHER_CHECK_INTERVAL_MS);
   if (!yeniBaglandi && !zamanGeldi) return;
@@ -5309,6 +5316,24 @@ void wifi_connect() {
   DEBUG_PRINTLN(WiFi.softAPIP());
 }
 
+// wifi_connect() SADECE setup()'ta bir kez calisiyordu - STA baglantisi
+// (router kesintisi, sinyal dususu, DHCP lease sorunu vb.) koptuktan sonra
+// loop()'ta HICBIR yeniden baglanma denemesi yoktu, cihaz elle resetlenene
+// kadar web arayuzune (STA IP uzerinden) bir daha asla erisilemiyordu -
+// AP/RS485/lokal islevler etkilenmedigi icin "sistem calisiyor ama sayfa
+// acilmiyor" seklinde kafa karistirici bir belirti veriyordu (2026-08-26,
+// sahada `ping`in "Destination host unreachable" dondurmesiyle dogrulandi).
+// WiFi.reconnect() asenkron/bloke etmeyen bir cagri - periyodik (15sn'de
+// bir, sadece kopukken) tekrar tetiklenir.
+void wifiReconnectPoll() {
+  static unsigned long sonDenemeMs = 0;
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (millis() - sonDenemeMs < 15000) return;
+  sonDenemeMs = millis();
+  DEBUG_PRINTLN("[WiFi] STA bagli degil, yeniden baglanma deneniyor...");
+  WiFi.reconnect();
+}
+
 // Beklenmedik reset (crash/brownout/watchdog) BLE baglantisini telefona hic
 // "disconnect" bildirmeden koparir - "koptu ama zorla baglanmaya calisiyor"
 // sikayetinin bir kaynagi da bu olabilir. Her boot'ta sebep loglanir; eger
@@ -5451,6 +5476,8 @@ void loop() {
     DEBUG_PRINTLN(ESP.getFreeHeap());
   }
 
+  wifiReconnectPoll(); // STA koparsa periyodik (15sn'de bir) yeniden baglanmayi dener
+
   // Web Server handle
   server.handleClient();
   ArduinoOTA.handle();
@@ -5467,7 +5494,7 @@ void loop() {
   // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
   yedekAkuPoll();
   anaGucPoll(); // Ana guc (ADS1115/I2C, 3 kademeli bildirim)
-  acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO14)
+  acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO15)
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
   mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
   gp2y10Poll();  // GP2Y10 duman/toz sensoru (analog, alarma bagli - bkz konteynerDumanVar)

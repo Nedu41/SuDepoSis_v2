@@ -423,6 +423,15 @@
 #define WEATHER_RAIN_THRESHOLD_MM 1.0f          // Yarin bu kadar mm+ beklenirse sulama atlanir
 #define WEATHER_STALE_DAYS 7                     // Bu kadar gunden eski tahmin gormezden gelinir (fail-open)
 #define WEATHER_CHECK_INTERVAL_MS (30UL * 60UL * 1000UL)  // Guncellik/oneri bu araliklarla yeniden hesaplanir
+// 2026-08-26: WiFi baglanir baglanmaz (setup() icinde, loop() baslamadan
+// hemen once) ilk weatherKontrolEt() cagrisi TLS (HTTPS) istegini SENKRON
+// atiyordu - bu, loop()'u (dolayisiyla server.handleClient()'i) reset
+// sonrasi ilk birkac saniye bloke edip "web sayfasi bazen acilmiyor"
+// sikayetiyle zamanlama olarak cakisiyordu (bkz main.cpp weatherKontrolEt()
+// - MQTT_BROKER=127.0.0.1 vakasiyla AYNI bug sinifi, bkz proje hafizasi).
+// Bu sure boyunca ilk fetch inceden geciktirilir, boot'un hemen ardindan
+// gelen sayfa istekleri bu bloke pencereye COK DUSUK ihtimalle denk gelir.
+#define WEATHER_BOOT_GRACE_MS (15UL * 1000UL)
 
 // ===== OTA (GitHub'dan guncelleme) =====
 // Sabit "en son surum" linki: repoya push edilen .bin dosyasina isaret eder,
