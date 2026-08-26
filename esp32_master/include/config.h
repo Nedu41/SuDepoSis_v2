@@ -218,12 +218,21 @@
 // guvenilmez). MQ6'un isitici elemani surekli guclendiginde onemli akim
 // cekiyor (gece batarya tuketimi icin kritik) - bu yuzden GUC DONGUSU
 // uygulanir: MQ6_POWER_PIN'den transistor/MOSFET uzerinden her
-// MQ6_CYCLE_MS'de bir MQ6_POWER_ON_MS kadar guc verilir, olcum alinir,
+// dongu periyodunda MQ6_POWER_ON_MS kadar guc verilir, olcum alinir,
 // sonra tekrar kesilir (bkz main.cpp mq6Poll()).
+// 2026-08-26 (kullanici talebi): dongu periyodu artik SABIT degil, gunduz/gece
+// ve yedek aku doluluguna gore ADAPTIF - gaz alarminin en riskli oldugu
+// gunduz/bol-enerji saatlerinde algilama gecikmesini azaltmak, gece/dusuk
+// akude ise pil tuketimini korumak icin (bkz main.cpp mq6EtkinCycleMs()):
+//   - Ana guc (solar) >= MQ6_GUNDUZ_ANA_GUC_ESIK_V: isitici SUREKLI acik (dongu yok)
+//   - Aksi halde yedek aku voltajina gore 3 kademe (DOLU/ORTA/ZAYIF)
 #define MQ6_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
 #define MQ6_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ6 VCC hattini anahtarlar
 #define MQ6_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
-#define MQ6_CYCLE_MS (10UL * 60UL * 1000UL)    // dongu periyodu - bu surenin MQ6_POWER_ON_MS'i acik, kalani kapali
+#define MQ6_GUNDUZ_ANA_GUC_ESIK_V 26.0f         // Bu ve uzeri ana guc (solar) voltajinda isitici SUREKLI acik kalir
+#define MQ6_CYCLE_MS_DOLU  (3UL * 60UL * 1000UL)   // Yedek aku DOLU (>=YEDEK_AKU_DOLU_V) - 3dk'da bir 60sn
+#define MQ6_CYCLE_MS_ORTA  (6UL * 60UL * 1000UL)   // Yedek aku ORTA (ZAYIF ile DOLU arasi) - 6dk'da bir 60sn
+#define MQ6_CYCLE_MS_ZAYIF (10UL * 60UL * 1000UL)  // Yedek aku ZAYIF (<=YEDEK_AKU_ZAYIF_V) - 10dk'da bir 60sn (eski sabit varsayilan)
 #define MQ6_POLL_INTERVAL_MS 500 // 2026-08-25: 5000'den dusuruldu - kullanici modulun kendi LED'i aninda yanarken alarmin 3-5sn gec gelmesinden sikayetci oldu, kok neden bu araligin uzunlugu idi
 
 // EFS-903R (kuru kontak röleli duman dedektörü) sahada test edilip
@@ -267,8 +276,10 @@
 #define BATTERY_CAPACITY_WH (BATTERY_CAPACITY_AH * BATTERY_NOMINAL_VOLTAGE)
 
 // ===== Konteyner Donanimi (IR alici, alarm LED, PIR) =====
-// ESP32-S3-DevKitC-1 (N8, PSRAM yok) pin planlamasi - ileride yeni eklenti
-// eklerken cakisma olmasin diye:
+// ESP32-S3-N16R8 (16MB QUAD flash + 8MB OCTAL PSRAM - 2026-08-26'da modul
+// uzerindeki gercek yaziya bakilarak duzeltildi, ONCEDEN yanlislikla "N8,
+// PSRAM yok" sanilmisti, bkz platformio.ini) pin planlamasi - ileride yeni
+// eklenti eklerken cakisma olmasin diye:
 //   KULLANILAN:    GPIO37, GPIO38, GPIO39 (RS485 - ESP8266'ya)
 //                  GPIO4, GPIO5, GPIO7, GPIO8, GPIO9 (asagida - IR/LED+Buzzer/Reed/Siren/Lamba)
 //                  GPIO40, GPIO41 (yukarida - MPPT RS232/PI30, MAX3232 - eski
@@ -284,19 +295,29 @@
 //                  GPIO13 (asagida - Swan Quad PET PIR NC/COM kontagi, 2026-08-25'te
 //                    GPIO15'ten buraya TASINDI - SCART pin8/13'lu konnektor pin9 uzerinden
 //                    disari cikacak, artik "amaci belirsiz" degil)
-//                  GPIO14 (asagida - Fiziksel Acil Durum butonu / gercek panik tetigi)
+//                  GPIO15 (asagida - Fiziksel Acil Durum butonu / gercek panik tetigi,
+//                    2026-08-26'da GPIO14'ten buraya TASINDI - GPIO14 ESP32-S3'te
+//                    TOUCH14/ADC2 kanali, elle veya kararsiz kabloyla dokunulunca
+//                    kapasitif etkiyle yanlis tetiklenmeye asiri acikti, guvenlik-
+//                    kritik bir buton icin uygunsuzdu - GPIO15 dokunma/ADC ozelligi
+//                    OLMAYAN duz bir GPIO)
 //                  GPIO12 (asagida - Sari RCA, amaci henuz belirlenmedi ama pin ayrildi)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
-//                  GPIO26-32 (bu karttaki Quad Flash icin ayrilmis)
+//                  GPIO26-37 (N16R8'de Quad Flash + Octal PSRAM icin ayrilmis -
+//                    GPIO26-32 flash/PSRAM ortak hat, GPIO33-37 Octal PSRAM'a ozel
+//                    SPIIO4-7/SPIDQS, GPIO33/34 bu kartta header'a HIC CIKMIYOR)
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
-//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO15, GPIO33, GPIO34
-//                  (GPIO40/41 artik MPPT/MAX3232'de, GPIO16/17/18 artik MQ6/PIR2/GP2Y10'da,
-//                  GPIO42/36 artik AHT10/ADS1115 I2C'de, GPIO14 Acil Buton'da, GPIO12 Sari
-//                  RCA'da, GPIO13 artik Swan PIR'da kullaniliyor - GPIO15 bosaldi)
+//                  GPIO1-14 (TOUCH1-14 - dokunma/kapasitif kanallari, guvenlik-kritik
+//                    butonlar icin ONERILMEZ, bkz GPIO15 yorumu yukarida)
+//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO19, GPIO20, GPIO35,
+//                  GPIO43, GPIO44, GPIO47, GPIO48 (GPIO19/20 native USB-JTAG
+//                  icin ayrilabilir, bu kart onu kullanmiyorsa serbest -
+//                  DOGRULA). GPIO14 artik bos ama TOUCH/ADC2 riski nedeniyle
+//                  yeni bir buton/anahtar icin ONERILMEZ.
 //   Ekran (ileride): I2C ekran (SSD1306/SH1106 OLED gibi) icin YENI PIN
 //     GEREKMEZ - mevcut AHT10/ADS1115 I2C hattina (GPIO42=SDA, GPIO36=SCL)
 //     farkli adresle bindirilebilir. SPI ekran (CS/DC/RST/SCK/MOSI - 5 sinyal)
-//     icin yukaridaki 4 serbest pin (11,15,33,34) yeterli.
+//     icin yukaridaki serbest pinler yeterli.
 #define IR_RECV_PIN 4     // GPIO4 - IR alici modulunun OUT/sinyal ucu (VCC/GND dogrudan besleme)
 #define ALARM_LED_PIN 5   // GPIO5 - Kirmizi LED (+ seri direnc) VE buzzer PARALEL bagli, ayni sinyali paylasir (pin tasarrufu - ikisinin akimi GPIO limitinin altinda kalir) - kucuk/yerel sesli-gorsel isaret
 #define PIR2_PIN 17       // GPIO17 - Konteynerdaki PIR hareket sensorunun OUT ucu (2026-08-20: eski GPIO6'dan tasindi, GP2Y10 sensorune ADC1 kanali acmak icin - kullanici sahada kabloyu fiziksel olarak tasidi)
@@ -317,18 +338,17 @@
 // ters cevirmeniz yeterli (reed switch'teki gibi tek satirlik duzeltme).
 #define KONTEYNER_SIREN_PIN 8   // GPIO8 - Alarm sireni rolesi (Sesli/Onayli+Sesli-onay'da aktif)
 #define KONTEYNER_LAMBA_PIN 9   // GPIO9 - Uyari lambasi/flasoru rolesi (siren ile birlikte VEYA Onayli+"Sessiz(Lamba)" onayinda tek basina aktif)
-// GPIO14 - Fiziksel Acil Durum Butonu (INPUT_PULLUP, butona basinca GND'ye
-// kisa devre). 2026-08-25'e KADAR acilLambaManuel'i toggle ediyordu; kullanici
-// bunun mantiksiz oldugunu belirtti ("emergency buton dediğim panik butonun
-// fiziksel olanı") - artik basisinda GERCEK panigi (alarmStatus.panic_mode,
-// web/IR Panik butonuyla AYNI panikTetikle() cagrisi) tetikler. Acil Durum
-// Lambasi'nin manuel ac/kapa ozelligi KALDIRILMADI, sadece artik SADECE web
-// arayuzunden erisilebilir (bkz main.cpp acilLambaManuel).
-#define ACIL_BUTON_PIN 14
+// GPIO15 - Fiziksel Acil Durum Butonu (INPUT_PULLUP, butona basinca GND'ye
+// kisa devre). Basisinda web arayuzundeki Panik butonuyla AYNI panikTetikle()
+// cagrisini yapar (paralel calisir) - toggle semantigi ayni: her basista
+// panik durumu ac/kapa doner. 2026-08-26'da GPIO14'ten buraya TASINDI -
+// GPIO14 ESP32-S3'te TOUCH14/ADC2 kanali, kapasitif etkiyle yanlis
+// tetiklenmeye asiri acikti (bkz config.h "Konteyner Donanimi" pin
+// planlamasi yorumu). GPIO15 dokunma/ADC ozelligi OLMAYAN duz bir GPIO.
+#define ACIL_BUTON_PIN 15
 #define KONTEYNER_ACIL_BUTON_COOLDOWN_MS 2000 // gercek panikTetikle() cagrilari arasi min sure - gevsek/gurultulu pin RS485'i art arda bloke etmesin
-// PLANLANAN (2026-08-25): Buton disariya SCART Pin 17 (Yesil) uzerinden cikarilacak,
-// GND donusu Pin 21 (Shield/GND) - GPIO14 degismiyor, sadece kablo yolu SCART'a tasiniyor.
-// bkz docs/pinout.html SCART tablosu.
+// PLANLANAN: Buton disariya SCART Pin 17 (Yesil) uzerinden cikarilacak,
+// GND donusu Pin 21 (Shield/GND) uzerinden. bkz docs/pinout.html SCART tablosu.
 
 // Tetik animasyonu (2026-08-25, kullanici talebi): GAZ HARIC (patlayici gaz
 // icin gecikme guvenlik riski, eskisi gibi aninda/surekli kalir) her alarm
