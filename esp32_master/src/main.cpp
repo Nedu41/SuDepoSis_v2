@@ -1850,12 +1850,11 @@ void acilLambaGuncelle(bool konteynerAcilDurumParam) {
 
 bool panikTetikle(bool& panicActive, String& reply); // asagida tanimli (RS485 uzerinden ESP8266 ile senkron panik)
 
-// Fiziksel Acil Durum Butonu (GPIO14, INPUT_PULLUP, aktif-LOW) - basisinda
-// GERCEK panigi tetikler (panikTetikle - web/IR Panik butonuyla AYNI RS485
-// komutu, ayni ac/kapa toggle semantigi). 2026-08-25'e kadar acilLambaManuel'i
-// toggle ediyordu, kullanici talebiyle degistirildi (bkz config.h ACIL_BUTON_PIN
-// yorumu). Basit kenar debounce - PIR2/Kapi reed ile ayni tarzda ama tek-atis
-// (edge) davranisi icin ek "onceki durum" degiskeni tutar.
+// Fiziksel Acil Durum Butonu (GPIO15, INPUT_PULLUP, aktif-LOW) - basisinda
+// web arayuzundeki Panik butonuyla AYNI panikTetikle() cagrisini yapar
+// (paralel calisir, ayni RS485 komutu, ayni ac/kapa toggle semantigi).
+// Basit kenar debounce - PIR2/Kapi reed ile ayni tarzda ama tek-atis (edge)
+// davranisi icin ek "onceki durum" degiskeni tutar.
 // GUVENLIK: panikTetikle() RS485 uzerinden ACK bekler (1000ms x 3 deneme =
 // en kotu ihtimalle ~3sn BLOKE eder). Kablo henuz disariya (SCART) tam
 // cikarilmadigindan pin gevsek/gurultulu olabilir - salt 50ms kenar debounce'u
@@ -1871,11 +1870,14 @@ void acilButonPoll() {
   if (basili != oncekiBasili && millis() - sonDegisimMs > 50) { // 50ms debounce
     sonDegisimMs = millis();
     oncekiBasili = basili;
+    Serial.printf("[ACIL_BUTON] kenar algilandi, basili=%d\n", basili);
     if (basili && millis() - sonTetikMs > KONTEYNER_ACIL_BUTON_COOLDOWN_MS) {
       sonTetikMs = millis();
       bool panicActive = false;
       String reply;
-      panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
+      Serial.println("[ACIL_BUTON] panikTetikle() cagriliyor...");
+      bool ok = panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
+      Serial.printf("[ACIL_BUTON] panikTetikle sonucu: rs485_ok=%d panicActive=%d panic_mode=%d\n", ok, panicActive, alarmStatus.panic_mode);
     }
   }
 }
@@ -1960,23 +1962,40 @@ Mq6Data mq6Data;
 // kapatilmasi UNUTULURSA bile pil tuketimi reset ile kendiliginden biter.
 bool konteynerMq6TestModu = false;
 
-// Guc dongusu: her MQ6_CYCLE_MS'de bir MQ6_POWER_PIN uzerinden MQ6'e
-// MQ6_POWER_ON_MS kadar guc verilir (isinma+olcum penceresi), o pencere
-// icinde MQ6_POLL_INTERVAL_MS'de bir analogRead alinir, pencere bitince guc
-// kesilir. Kapali kaldigi surece mq6Data/konteynerGazVar SON OLCULEN degeri
-// korur (diger Konteyner sensorlerindeki "son bilinen deger" deseniyle
-// tutarli) - gunduz/gece ayrimi yok, kullanici talebi geceye ozel degil,
-// her zaman ayni 10dk/60sn dongusu. konteynerMq6TestModu acikken bu dongu
-// atlanir, isitici surekli acik kalir.
+// Guc dongusu: MQ6_POWER_PIN uzerinden MQ6'e MQ6_POWER_ON_MS kadar guc
+// verilir (isinma+olcum penceresi), o pencere icinde MQ6_POLL_INTERVAL_MS'de
+// bir analogRead alinir, pencere bitince guc kesilir. Kapali kaldigi surece
+// mq6Data/konteynerGazVar SON OLCULEN degeri korur (diger Konteyner
+// sensorlerindeki "son bilinen deger" deseniyle tutarli).
+// 2026-08-26 (kullanici talebi): dongu periyodu ADAPTIF - gaz alarmi icin
+// algilama gecikmesi (dongu KAPALI kaldigi sure) gunduz/bol-enerji saatlerinde
+// risklidir, gece/dusuk akude ise pil tasarrufu onceliklidir:
+//   - Ana guc (solar, anaGucData) >= MQ6_GUNDUZ_ANA_GUC_ESIK_V: isitici SUREKLI
+//     acik (dongu YOK, gunduz enerji bol, gecikme sifir)
+//   - Aksi halde yedek aku voltajina (yedekAkuData) gore 3 kademe: DOLU->3dk,
+//     ORTA->6dk, ZAYIF->10dk (eski sabit davranis, aku dusukken en konservatif)
+// konteynerMq6TestModu acikken de isitici surekli acik kalir (oncelikli).
+unsigned long mq6EtkinCycleMs() {
+  if (yedekAkuData.read_ok) {
+    if (yedekAkuData.voltaj >= YEDEK_AKU_DOLU_V) return MQ6_CYCLE_MS_DOLU;
+    if (yedekAkuData.voltaj <= YEDEK_AKU_ZAYIF_V) return MQ6_CYCLE_MS_ZAYIF;
+    return MQ6_CYCLE_MS_ORTA;
+  }
+  return MQ6_CYCLE_MS_ZAYIF; // okuma yoksa en konservatif varsayilan
+}
+
 void mq6Poll() {
   unsigned long now = millis();
+  bool gunduzSurekli = anaGucData.read_ok && (anaGucData.voltaj >= MQ6_GUNDUZ_ANA_GUC_ESIK_V);
+
   static unsigned long cycleStart = 0;
+  unsigned long etkinCycleMs = mq6EtkinCycleMs();
   unsigned long gecenDongu = now - cycleStart;
-  if (gecenDongu >= MQ6_CYCLE_MS) {
+  if (gecenDongu >= etkinCycleMs) {
     cycleStart = now;
     gecenDongu = 0;
   }
-  bool acikOlmali = konteynerMq6TestModu || (gecenDongu < MQ6_POWER_ON_MS);
+  bool acikOlmali = konteynerMq6TestModu || gunduzSurekli || (gecenDongu < MQ6_POWER_ON_MS);
   if (acikOlmali != mq6Data.powered) {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
@@ -2704,7 +2723,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
           <div><label class="sz-label">Duman Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_dumanEsik" onchange="konteynerDumanAyarKaydet()"></div>
         </div>
         <p style="font-size:11px;color:var(--warn);margin-top:4px">Kalibrasyon potu olmadığından bu eşikler tahmini varsayılan - sahada gerçek bir gaz/duman kaynağıyla test edip gerekirse ayarlayın. Gaz ve duman alarmı panik gibi davranır: mod/susturma/tetik animasyonundan bağımsız anında tam güçle çalar (gecikme istenmez).</p>
-        <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı enerji tasarrufu için sürekli açık tutulmuyor - Test Modu kapalıyken her 10 dk'da bir 60sn açılıp değer okunur, gösterilen değer en fazla 10 dk eski olabilir. GP2Y10'un ısıtıcısı yok, her zaman canlı (2sn'de bir tazelenir).</p>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı artık adaptif: gündüz ana güç (solar) ≥26V ise sürekli açık; gece/düşük güçte yedek akü doluluğuna göre 3dk/6dk/10dk'da bir 60sn açılıp kapanıyor (akü zayıfken en konservatif 10dk). Gösterilen değer, döngü kapalıyken en fazla o döngü kadar eski olabilir. GP2Y10'un ısıtıcısı yok, her zaman canlı (2sn'de bir tazelenir).</p>
       </details>
 
       <details class="subdet" style="margin-top:8px">
@@ -2878,7 +2897,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <tr><td>I2C SDA</td><td>36</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
         <tr><td>I2C SCL</td><td>42</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>-</td></tr>
         <tr><td>ADC1</td><td>10</td><td>MQ6 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
-        <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>MQ6'ün ısıtıcısı sürekli açıkken fazla akım çektiğinden (gece batarya tüketimi kritik), her 10 dk'da bir 60sn açılıp kapanır - modülün sinyal ucu bu pine</td></tr>
+        <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>2026-08-26: Adaptif döngü — gündüz ana güç ≥26V'da sürekli açık, gece/düşük güçte yedek akü doluluğuna göre 3dk/6dk/10dk'da bir 60sn açılıp kapanır (bkz main.cpp mq6EtkinCycleMs()) - modülün sinyal ucu bu pine</td></tr>
         <tr><td>-</td><td>18</td><td>GP2Y10 (duman/toz sensörü) LED sürücü kontrol</td><td>MOSFET modülü üzerinden, ~320us darbe — Ayarlar → Konteyner Alarm Ayarları, Duman Alarm Eşiği</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
@@ -4671,21 +4690,34 @@ void handleAPI_SudepoAyarlarKaydet() {
 // donebiliyordu, guvenlik-kritik bir ozellik icin ciddi bir riskti. Artik
 // idempotent - kac kere tekrar gonderilirse gonderilsin sonuc ayni),
 // ESP8266 ACK:PANIC=1 veya ACK:PANIC=0 ile yeni durumu döndürür.
-bool panikTetikle(bool& panicActive, String& reply) {
-  bool hedef = !alarmStatus.panic_mode;
+//
+// panikTetikleHedef(hedef,...): hedefi ACIKCA alir. alarmStatus.panic_mode'u
+// ONCE LOKAL olarak yazar (Konteyner'in kendi sireni/lambasi/acil lambasi
+// - bkz alarmLedGuncelle, acilLambaGuncelle - RS485 sonucundan TAMAMEN
+// BAGIMSIZ aninda tetiklenir), SONRA Sudepo/ESP8266'yi RS485 ile best-effort
+// senkron eder. Eskiden panikTetikle() sadece RS485 ACK basarili olursa
+// panic_mode'u guncelliyordu - bu, Sudepo tarafi kapali/baglantisizken
+// fiziksel Acil Buton'un Konteyner'in KENDI alarmini bile tetiklememesine
+// sebep oluyordu (SAHADA dogrulanan bug, guvenlik-kritik bir buton icin
+// kabul edilemezdi, bkz memory project_acil_buton_rs485_blok_riski).
+bool panikTetikleHedef(bool hedef, bool& panicActive, String& reply) {
+  alarmStatus.panic_mode = hedef; // lokal etki once, RS485'ten bagimsiz
+  panicActive = hedef;
   bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
-
-  // ACK yanıtından panik durumunu çöz: "ACK:PANIC=1" veya "ACK:PANIC=0"
-  panicActive = false;
   if (ok) {
+    // ACK yanıtından Sudepo'nun gercek durumunu cöz: "ACK:PANIC=1/0"
     int eqIdx = reply.indexOf("PANIC=");
     if (eqIdx >= 0) {
       panicActive = (reply.substring(eqIdx + 6).startsWith("1"));
+      alarmStatus.panic_mode = panicActive;
     }
-    alarmStatus.panic_mode = panicActive;
     last_rs485_update_ms = millis();
   }
   return ok;
+}
+
+bool panikTetikle(bool& panicActive, String& reply) {
+  return panikTetikleHedef(!alarmStatus.panic_mode, panicActive, reply);
 }
 
 void handleAPI_Panic() {
