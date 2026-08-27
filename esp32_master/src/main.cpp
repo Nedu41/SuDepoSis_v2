@@ -2718,6 +2718,23 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .kpi small{font-size:12px;color:var(--muted);font-weight:400}
 .bar{background:var(--border);height:18px;border-radius:999px;overflow:hidden;margin-top:8px}
 .bar>div{height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));width:0%;transition:width .4s}
+/* Depo Simulasyon Panosu (kullanici talebi, 2026-08-27): eskiden ayri 3 KPI
+   karti (Doluluk/Seviye/Hacim) + Konteyner sensor LED'leri ayarlar sekmesinde
+   gomulu idi - artik TEK bir tank grafigi, hacim/seviye METNI VE sensor
+   LED'leri suyun ustundeki BOS alanda (sabit ust-panel, su seviyesinden
+   BAGIMSIZ konumlanir - tank neredeyse dolu olsa bile panel okunakli kalir,
+   yari-saydam koyu zemin sayesinde suyun uzerine bindiginde de okunur).*/
+.tank-wrap{display:flex;justify-content:center;margin:4px 0 6px}
+.tank{width:100%;max-width:340px;height:230px;background:var(--card);border-radius:18px 18px 8px 8px;position:relative;overflow:hidden;border:3px solid var(--primary);box-shadow:var(--shadow)}
+.tank-su{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,#42a5f5,#1976d2);transition:height 1s;border-radius:0 0 8px 8px}
+.tank-dalga{position:absolute;bottom:100%;left:-50%;width:200%;height:14px;background:rgba(255,255,255,.3);border-radius:50%;animation:dalga 3s ease-in-out infinite}
+.tank-panel{position:absolute;top:8px;left:8px;right:8px;background:rgba(10,15,20,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);border-radius:12px;padding:8px 12px;color:#fff;z-index:2}
+.tank-pct{font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:24px;font-weight:700;letter-spacing:1px;color:#22ff66;text-shadow:0 0 2px rgba(34,255,102,.9),0 0 8px rgba(34,255,102,.55)}
+.tank-pct.danger{color:#ff3b3b;text-shadow:0 0 2px rgba(255,59,59,.9),0 0 8px rgba(255,59,59,.55)}
+.tank-detay{font-size:12px;opacity:.9;margin-top:2px}
+.tank-sensorler{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.15)}
+.tank-sensorler .ts-item{display:flex;align-items:center;gap:5px;font-size:11px;white-space:nowrap}
+.tank-sensorler .led{margin-right:0}
 .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .btn{padding:10px 12px;border:none;border-radius:8px;cursor:pointer;font-weight:600;flex:1;min-width:120px}
 .btn-primary{background:var(--primary);color:#fff}
@@ -2735,6 +2752,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+@keyframes dalga{0%{transform:translateX(0)}50%{transform:translateX(25%) translateY(-5px)}100%{transform:translateX(0)}}
 /* Etiket:deger listeleri (Sudepo/ESP8266'daki .info p ile AYNI desen, tum
    projelerde tutarli olsun diye buraya da eklendi - kullanici talebi,
    2026-08-27). Etiket sabit genislikte, deger hemen yaninda sabit hizada
@@ -2815,9 +2833,24 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
     </div>
     <div class="grid">
-      <div class="card"><h3>Depo Doluluk</h3><div class="kpi" id="kpi-pct">--</div><div class="bar"><div id="bar-pct"></div></div></div>
-      <div class="card"><h3>Seviye</h3><div class="kpi" id="kpi-cm">--</div></div>
-      <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div></div>
+      <div class="card"><h3>Depo Simülasyonu</h3>
+        <div class="tank-wrap"><div class="tank" id="tank">
+          <div class="tank-su" id="tankSu" style="height:0%"></div>
+          <div class="tank-dalga"></div>
+          <div class="tank-panel">
+            <div class="tank-pct" id="kpi-pct">--</div>
+            <div class="tank-detay"><span id="kpi-cm">- cm</span> · <span id="kpi-litre">- L</span></div>
+            <div class="tank-sensorler">
+              <div class="ts-item"><span class="led" id="tk-pir"></span>PIR</div>
+              <div class="ts-item"><span class="led" id="tk-swan"></span>Swan</div>
+              <div class="ts-item"><span class="led" id="tk-kapi"></span>Kapı</div>
+              <div class="ts-item"><span class="led" id="tk-duman"></span>Duman</div>
+              <div class="ts-item"><span class="led" id="tk-gaz"></span>Gaz</div>
+              <div class="ts-item"><span class="led" id="tk-nano"></span>Nano</div>
+            </div>
+          </div>
+        </div></div>
+      </div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
@@ -3426,12 +3459,12 @@ function renderUI(d){
     $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
     $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
     $('#kpi-litre').textContent=(d.level_liters||0).toFixed(0)+' L';
-    $('#bar-pct').style.width=Math.max(0,Math.min(100,d.level_percent||0))+'%';
+    $('#tankSu').style.height=Math.max(0,Math.min(100,d.level_percent||0))+'%';
   } else {
     $('#kpi-pct').textContent='--';
     $('#kpi-cm').textContent='--';
     $('#kpi-litre').textContent='--';
-    $('#bar-pct').style.width='0%';
+    $('#tankSu').style.height='0%';
   }
   // Dis Sicaklik/Nem - AHT10, Konteyner/ESP32'nin kendi yerel sensoru, ESP8266
   // baglantisindan BAGIMSIZ (eskiden burada ESP8266'nin hep 0.0 gonderdigi
@@ -3592,6 +3625,14 @@ function renderUI(d){
   const kzk=$('#kz-kapi'); if(kzk) kzk.classList.toggle('on', !!kz.kapi_acik);
   const kzav=$('#kz-duman'); if(kzav) kzav.classList.toggle('on', !!kz.duman);
   const kzgv=$('#kz-gaz'); if(kzgv) kzgv.classList.toggle('on', !!kz.gaz);
+  // Depo Simulasyon Panosu icindeki ayni LED'ler (kz-* ile AYNI veriyi
+  // gosterir, sadece dashboard'da tek bakista gorunsun diye ikinci bir kopya)
+  const tkp=$('#tk-pir'); if(tkp) tkp.classList.toggle('on', !!kz.pir);
+  const tksw=$('#tk-swan'); if(tksw) tksw.classList.toggle('on', !!kz.swan_pir);
+  const tkk=$('#tk-kapi'); if(tkk) tkk.classList.toggle('on', !!kz.kapi_acik);
+  const tkav=$('#tk-duman'); if(tkav) tkav.classList.toggle('on', !!kz.duman);
+  const tkgv=$('#tk-gaz'); if(tkgv) tkgv.classList.toggle('on', !!kz.gaz);
+  const tknano=$('#tk-nano'); if(tknano){ tknano.classList.toggle('ok', !!d.nano_online); tknano.classList.toggle('on', !d.nano_online); }
   const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
   const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
