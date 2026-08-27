@@ -2633,6 +2633,12 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+/* Etiket:deger listeleri (Sudepo/ESP8266'daki .info p ile AYNI desen, tum
+   projelerde tutarli olsun diye buraya da eklendi - kullanici talebi,
+   2026-08-27). Etiket sabit genislikte, deger hemen yaninda sabit hizada
+   durur - kenara yaslama DEGIL (once denendi, "cok uzak" diye reddedildi). */
+.kv p{margin:6px 0;font-size:13px;display:flex;align-items:center;gap:6px}
+.kv .info-label{min-width:150px;color:var(--muted);flex-shrink:0}
 #alarm-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:var(--danger-bg-t);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:var(--danger);border:2px solid var(--danger);padding:20px 24px;border-radius:12px;font-weight:700;font-size:17px;text-align:center;animation:pulse 1.2s infinite;box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:90vw;width:420px}
 .table{width:100%;border-collapse:collapse;font-size:13px}
 .table th,.table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
@@ -3160,13 +3166,13 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 
     <details class="card">
       <summary>WiFi & Sistem</summary>
-      <div id="bilgi-sistem" style="font-size:13px">Yükleniyor...</div>
+      <div id="bilgi-sistem" class="kv" style="font-size:13px">Yükleniyor...</div>
       <div id="build-info" style="font-size:12px;color:var(--muted);margin-top:8px">Yükleniyor...</div>
     </details>
 
     <details class="card">
       <summary>Güncelleme Aralıkları</summary>
-      <div id="guncelleme-bilgi" style="font-size:13px">Yükleniyor...</div>
+      <div id="guncelleme-bilgi" class="kv" style="font-size:13px">Yükleniyor...</div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 5sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
     </details>
 
@@ -3608,13 +3614,13 @@ function renderUI(d){
   // Bilgiler sekmesi - sistem bilgileri
   const bi=$('#bilgi-sistem');
   if(bi){
-    bi.innerHTML='<p>ESP32 IP: <b>'+(d.esp32_ip||'-')+'</b> ('+(d.esp32_mode||'-')+')</p><p>AP SSID: <b>'+(d.ap_ssid||'-')+'</b></p><p>mDNS: <b>'+(d.mdns||'-')+'</b></p><p>ESP8266: <b>'+(d.esp8266_online?'OK':'Offline')+'</b> ('+(d.esp8266_last_sec!=null?d.esp8266_last_sec+'sn önce':'-')+')</p><p>Nano: <b>'+(d.nano_online?'OK':'Offline')+'</b></p><p>Depo: <b>'+(d.level_percent||0).toFixed(1)+'%</b> ('+(d.level_liters||0).toFixed(0)+' L)</p><p>Nem: <b>'+(mo.percent||0).toFixed(1)+'%</b></p><p>Kalibrasyon: Bos '+(d.bosMesafe||0)+' cm / Dolu '+(d.doluMesafe||0)+' cm</p><p>Kapasite: <b>'+(d.kapasite||0)+' L</b> | Alarm: %'+(d.alarmYuzde||0)+'</p>';
+    bi.innerHTML='<p><span class=info-label>ESP32 IP</span><b>'+(d.esp32_ip||'-')+'</b> ('+(d.esp32_mode||'-')+')</p><p><span class=info-label>AP SSID</span><b>'+(d.ap_ssid||'-')+'</b></p><p><span class=info-label>mDNS</span><b>'+(d.mdns||'-')+'</b></p><p><span class=info-label>ESP8266</span><b>'+(d.esp8266_online?'OK':'Offline')+'</b> ('+(d.esp8266_last_sec!=null?d.esp8266_last_sec+'sn önce':'-')+')</p><p><span class=info-label>Nano</span><b>'+(d.nano_online?'OK':'Offline')+'</b></p><p><span class=info-label>Depo</span><b>'+(d.level_percent||0).toFixed(1)+'%</b> ('+(d.level_liters||0).toFixed(0)+' L)</p><p><span class=info-label>Nem</span><b>'+(mo.percent||0).toFixed(1)+'%</b></p><p><span class=info-label>Kalibrasyon</span>Boş '+(d.bosMesafe||0)+' cm / Dolu '+(d.doluMesafe||0)+' cm</p><p><span class=info-label>Kapasite</span><b>'+(d.kapasite||0)+' L</b> | Alarm: %'+(d.alarmYuzde||0)+'</p>';
   }
   const bfi=$('#build-info');
   if(bfi) bfi.textContent='Firmware derleme tarihi: '+(d.build_date||'-')+' | Çalışma süresi: '+fmtSure(d.uptime_sec||0);
   const gb=$('#guncelleme-bilgi');
   if(gb){
-    gb.innerHTML='<p>RS485 poll (ESP32↔ESP8266): <b>'+(d.rs485_interval_ms||'-')+' ms</b></p><p>Son ESP8266 verisi: <b>'+(d.esp8266_last_sec!=null?d.esp8266_last_sec+' sn önce':'-')+'</b></p><p>Tarayıcı bağlantısı: <b>'+(_es?'SSE (anlık)':'Polling (5sn)')+'</b></p>';
+    gb.innerHTML='<p><span class=info-label>RS485 poll</span><b>'+(d.rs485_interval_ms||'-')+' ms</b></p><p><span class=info-label>Son ESP8266 verisi</span><b>'+(d.esp8266_last_sec!=null?d.esp8266_last_sec+' sn önce':'-')+'</b></p><p><span class=info-label>Tarayıcı bağlantısı</span><b>'+(_es?'SSE (anlık)':'Polling (5sn)')+'</b></p>';
   }
   const agap=$('#ag-ap-bilgi'); if(agap) agap.textContent=d.ap_ssid||'-';
 }

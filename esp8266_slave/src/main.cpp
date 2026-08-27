@@ -269,6 +269,8 @@ unsigned long pirSonAktifMs = 0; // PIR ham en son ne zaman aktif goruldu (ileti
 bool roleFizikselDurum = false;
 bool rolePolariteHigh = true;  // Nano GET_STATUS'tan gelir - dropdown gercek durumu yansitsin diye
 bool nanoBaglantiVar = false;
+bool melodiIstegiBekliyor = false; // bkz nanoMelodiPoll - ESP8266 ilk Nano baglantisinda acilis melodisi
+bool acilisMelodisiGonderildi = false;
 bool lambaAcik = false;
 bool moistureOutputActive = false;
 int moistureRaw = 0;
@@ -293,7 +295,6 @@ String mdnsHostname() {
 void tuketimYukle();
 void olcumYap();
 void kayitlariSiniraGetir(int maxKayit);
-void nanoBuzzerChirp();
 
 // ============ ZAMAN YARDIMCILARI ============
 String simdikiZamanStr() {
@@ -416,6 +417,7 @@ bool geceModuMu() {
 
 // ============ NANO HABERLESME ============
 void nanoBuzzerKontrolPoll(); // asagida tanimli - nanoPoll() bundan once kullaniyor
+void nanoMelodiPoll(); // asagida tanimli - nanoPoll() bundan once kullaniyor
 // Bekleyen komut kuyruğu - GET_STATUS ile çakışmayı önler
 struct NanoPendingCmd {
   String komut;         // "LAMBA_ON", "LAMBA_OFF", vb.
@@ -445,7 +447,9 @@ String nanoYanitOku(unsigned long timeoutMs) {
 // Status yanıtını ayrıştır
 void nanoStatusAyristir(const String& yanit) {
   if (yanit.length() == 0) return;
+  bool ilkBaglanti = !nanoBaglantiVar;
   nanoBaglantiVar = true;
+  if (ilkBaglanti) melodiIstegiBekliyor = true; // bkz nanoMelodiPoll
       kapi1Acik          = (yanit.indexOf("D0=1") >= 0);
       kapi2Acik          = (yanit.indexOf("D1=1") >= 0);
       // PIR artik ayri bir PIN_READ komutuyla degil, GET_STATUS yanitinin
@@ -468,11 +472,11 @@ void nanoStatusAyristir(const String& yanit) {
           if (!pirAcik) {
             pirDarbeGecmisi[pirDarbeGecmisiIndex] = simdiPir; // yeni darbe basliyor
             pirDarbeGecmisiIndex = (pirDarbeGecmisiIndex + 1) % PIR_DARBE_GECMISI_BOYUTU;
-            // Yeni PIR "bolumu" - Konteyner/ESP32'deki AYNI "on uyari" bip'i
-            // (bkz NANO_BUZZER_PIN yorumu). Gercek alarm/siren zaten
-            // calmiyorsa kisa bir bip verilir - calıyorsa gereksiz, siren
-            // zaten duyulur oldugundan atlanir.
-            if (!roleFizikselDurum) nanoBuzzerChirp();
+            // NOT: buradaki eski kosulsuz nanoBuzzerChirp() cagrisi KALDIRILDI
+            // (2026-08-27) - PIR bip kurali artik asagidaki ana buzzer
+            // blogunda (loop icinde, "alarm aktif" sartiyla + boot-aninda-
+            // zaten-acik-PIR'i yanlislikla "yeni darbe" sanma korumasiyla)
+            // yonetiliyor - bkz pirOncekiDurum.
           }
           pirSonAktifMs = simdiPir;
           pirAcik = true;
@@ -541,8 +545,13 @@ void nanoPoll() {
     return; // Pending komut varken GET_STATUS gönderme
   }
 
-  // Buzzer hedefi (alarm rolesini izler) degistiyse GET_STATUS'tan ONCE
-  // gonder - alarm sesi periyodik pollun arkasinda gecikmesin.
+  // Acilis melodisi (ESP8266 ilk basarili Nano baglantisinda BIR KEZ) -
+  // buzzer bip'lerinden ONCELIKLI, GET_STATUS'tan da once gonderilir.
+  nanoMelodiPoll();
+  if (pendingCmd.komut.length() > 0) return;
+
+  // Buzzer kurallari (bkz loop() icindeki "BUZZER KURALLARI" blogu) bir bip
+  // istedi mi - GET_STATUS'tan ONCE gonderilir ki alarm sesi gecikmesin.
   nanoBuzzerKontrolPoll();
   if (pendingCmd.komut.length() > 0) return;
 
@@ -603,24 +612,29 @@ bool nanoMoistureKontrol(bool ac) {
 // kendi zamanlayicisiyla otomatik durur, burada ayrica "kapat" komutu gerekmez.
 #define BUZZER_CHIRP_FREKANS_HZ 2500
 #define BUZZER_CHIRP_SURE_MS 1000
-// FIX (kullanici talebi, 2026-08-27): Buzzer ONCE alarm ROLESiNE (roleFizikselDurum,
-// siren FSM'inin kademeli gecikme/chirp/bekleme/aktif zamanlamasi) baglanmisti -
-// ama rolenin cikisi mod/cikis secimine gore SIRENSIZ da olabiliyor (orn. Sessiz
-// modda sirenSeciliHam=false, role hic tetiklenmez) ve kullanici bunun yerine
-// web arayuzundeki KIRMIZI BANNER'in (alarmGenelKutu) gorunurlugunu istedi -
-// app.js'deki tarayici-tarafi bipSesi()'ni tetikleyen AYNI kosul (alarmSimdiVar):
-// alarmTetikleyenMask || alarmOnayBekliyor || panicAktif. Banner YENI gorunur
-// oldugunda (onceki dongude yoktu) TEK bir kisa bip (nanoBuzzerChirp ile ayni
-// TONE_PLAY, kendi kendine durur) kuyruga alinir - surekli/kademeli ton YOK.
+// Buzzer artik alarm ROLESiNE degil (roleFizikselDurum, mod/cikis secimine
+// gore SIRENSIZ de olabiliyordu), asagidaki "BUZZER KURALLARI" blogundaki
+// (loop icinde) PIR/kapi/tank/banner kosullarina bagli - orada ihtiyac
+// oldukca buzzerChirpBekliyor=true yapilir. Gercek gonderim burada, tek-slot
+// seri protokolune uygun (pendingCmd bosken) yapilir.
 bool buzzerChirpBekliyor = false;
 bool bannerAlarmOncekiDurum = false;
 
-// FIX: eskiden burada dogrudan pendingCmd/nanoMesgul yaziliyordu - eger tam o
-// anda baska bir komut (orn. RELAY_ON, GET_STATUS) beklemedeyse onu sessizce
-// EZIYORDU. Artik sadece bir "istek" bayragi koyuyor, gercek gonderim
-// nanoBuzzerKontrolPoll()'da (nanoPoll icinde, pendingCmd bosken) yapiliyor.
-void nanoBuzzerChirp() {
-  buzzerChirpBekliyor = true;
+// Nano (ayri MCU, ayri reset hatti) ESP8266 restart/OTA sonrasi FIZIKSEL
+// olarak resetlenmiyor - acilis melodisi (acilisSesiCal, Nano setup()'ta)
+// o durumda hic duyulmuyordu. Bunun yerine ESP8266 ilk basarili GET_STATUS'ta
+// (nanoStatusAyristir icinde melodiIstegiBekliyor=true yapilir) Nano'ya
+// MELODY_PLAY komutu gonderip AYNI melodiyi tekrar caldirir (2026-08-27,
+// kullanici talebi - "restart'ta melodi olsun, uzun bip degil"). Bayraklar
+// yukarida (nanoBaglantiVar yaninda) tanimli - nanoStatusAyristir bunlardan
+// once kullaniyor.
+void nanoMelodiPoll() {
+  if (pendingCmd.komut.length() > 0 || nanoMesgul) return;
+  if (!melodiIstegiBekliyor || acilisMelodisiGonderildi) return;
+  melodiIstegiBekliyor = false;
+  acilisMelodisiGonderildi = true;
+  pendingCmd = {"MELODY_PLAY", "ACK:MELODY_PLAY", 0, 0};
+  nanoMesgul = true;
 }
 
 void nanoBuzzerKontrolPoll() {
@@ -2307,12 +2321,56 @@ void loop() {
       }
     }
   }
-  // Buzzer - bkz nanoBuzzerKontrolPoll yorumu: banner (alarmGenelKutu) YENI
-  // gorunur oldugunda tek bir bip. app.js'deki alarmSimdiVar ile AYNI kosul.
+  // ============ BUZZER KURALLARI (kullanici talebi, 2026-08-27) ============
+  // 1) Alarm sistemi ACIKKEN (ayar.alarmRoleAktif) PIR her YENI "bolum"
+  //    basinda (pirAcik false->true) TEK kisa bip.
+  // 2) Alarm sistemi ACIKKEN, kapi(lar) acikken VEYA depo %99+ iken SUREKLI
+  //    kesik-kesik bip - kosul suruyorsa KAPI_TANK_BIP_ARALIK_MS'de bir tekrarlanir.
+  // 3) Banner (alarmGenelKutu, app.js'deki alarmSimdiVar ile AYNI kosul)
+  //    YENI gorunur oldugunda 10sn boyunca kesik-kesik bip, sonra durur
+  //    (banner hala aktif olsa da - tek "patlama", surekli calmaz).
+  // Ucu de "ilk okuma" (boot aninda zaten-true olan bir kosulu yanlislikla
+  // "yeni gecis" sanip spontan bip vermek) korumali - static Once/Onceki
+  // degiskenler ilk dongude sadece SEED edilir, chirp tetiklenmez.
   {
+    static bool ilkBuzzerDegerlendirmesi = true;
+    static bool pirOncekiDurum = false;
+    static unsigned long kapiTankSonBipMs = 0;
+    static unsigned long bannerBipBaslangicMs = 0; // 0 = patlama aktif degil
+    static unsigned long bannerBipSonMs = 0;
+    const unsigned long KAPI_TANK_BIP_ARALIK_MS = 1500UL;
+    const unsigned long BANNER_BIP_ARALIK_MS = 1000UL;
+    const unsigned long BANNER_BIP_SURE_MS = 10000UL;
+    unsigned long simdiBuzzerMs = millis();
+    bool alarmSistemiAcik = ayar.alarmRoleAktif;
+
+    if (!ilkBuzzerDegerlendirmesi && alarmSistemiAcik && pirAcik && !pirOncekiDurum) {
+      buzzerChirpBekliyor = true;
+    }
+    pirOncekiDurum = pirAcik;
+
+    bool kapiTankVar = alarmSistemiAcik && (kapi1Acik || kapi2Acik || sonYuzde >= 99.0);
+    if (kapiTankVar && (simdiBuzzerMs - kapiTankSonBipMs >= KAPI_TANK_BIP_ARALIK_MS)) {
+      buzzerChirpBekliyor = true;
+      kapiTankSonBipMs = simdiBuzzerMs;
+    }
+
     bool bannerAlarmVar = (alarmTetikleyenMask != 0) || alarmOnayBekliyor || panicRoleAktif;
-    if (bannerAlarmVar && !bannerAlarmOncekiDurum) buzzerChirpBekliyor = true;
+    if (!ilkBuzzerDegerlendirmesi && bannerAlarmVar && !bannerAlarmOncekiDurum) {
+      bannerBipBaslangicMs = simdiBuzzerMs;
+      bannerBipSonMs = 0;
+    }
     bannerAlarmOncekiDurum = bannerAlarmVar;
+    if (bannerBipBaslangicMs != 0) {
+      if (simdiBuzzerMs - bannerBipBaslangicMs >= BANNER_BIP_SURE_MS) {
+        bannerBipBaslangicMs = 0; // 10sn doldu, patlama bitti
+      } else if (simdiBuzzerMs - bannerBipSonMs >= BANNER_BIP_ARALIK_MS) {
+        buzzerChirpBekliyor = true;
+        bannerBipSonMs = simdiBuzzerMs;
+      }
+    }
+
+    ilkBuzzerDegerlendirmesi = false;
   }
   alarmLoguKontrolEt();
   // ALARM LAMBA FLASI - role fiziksel olarak tetikliyken (panik dahil) lamba
