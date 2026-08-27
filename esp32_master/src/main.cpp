@@ -2824,16 +2824,6 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
     </div>
     <div class="grid">
-      <div class="card"><h3>Depo Doluluk</h3>
-        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-          <div class="kpi" id="kpi-pct">--</div>
-          <div style="font-size:13px;color:var(--muted);line-height:1.7">
-            <div>Seviye: <b id="kpi-cm" style="color:var(--text)">--</b></div>
-            <div>Hacim: <b id="kpi-litre" style="color:var(--text)">--</b></div>
-          </div>
-        </div>
-        <div class="bar"><div id="bar-pct"></div></div>
-      </div>
       <div class="card" style="grid-column:span 2"><h3>Konteyner Sensörleri</h3>
         <div class="row" style="gap:16px;margin-top:0;align-items:center;flex-wrap:wrap">
           <div><span class="led led-big" id="db-pir"></span> PIR</div>
@@ -2849,11 +2839,21 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <div>Duman (GP2Y10): <b id="db-gp2y10">-</b></div>
         </div>
       </div>
+      <div class="card"><h3>Depo Doluluk</h3>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div class="kpi" id="kpi-pct">--</div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.7">
+            <div>Seviye: <b id="kpi-cm" style="color:var(--text)">--</b></div>
+            <div>Hacim: <b id="kpi-litre" style="color:var(--text)">--</b></div>
+          </div>
+        </div>
+        <div class="bar"><div id="bar-pct"></div></div>
+      </div>
+      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
       <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
-      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
     </div>
   </div>
 
