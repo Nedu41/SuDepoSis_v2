@@ -2826,6 +2826,17 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div class="bar"><div id="bar-pct"></div></div>
       </div>
+      <div class="card"><h3>Konteyner Sensörleri</h3>
+        <div class="row" style="gap:12px;margin-top:0;align-items:center">
+          <div><span class="led" id="db-pir"></span> PIR</div>
+          <div><span class="led" id="db-swan"></span> Swan PIR</div>
+          <div><span class="led" id="db-kapi"></span> Kapı</div>
+          <div><span class="led" id="db-duman"></span> Duman</div>
+          <div><span class="led" id="db-gaz"></span> Gaz</div>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">Gaz (MQ6): <b id="db-mq6">-</b></div>
+        <div style="font-size:12px;color:var(--muted)">Duman (GP2Y10): <b id="db-gp2y10">-</b></div>
+      </div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
@@ -3605,6 +3616,15 @@ function renderUI(d){
   const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
   const kzmqt=$('#kz_mq6Test'); if(kzmqt && document.activeElement!==kzmqt) kzmqt.checked = !!kz.mq6_test_modu;
   const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
+  // Genel/Dashboard sayfasindaki ayni LED'lerin+degerlerin kopyasi (kullanici
+  // talebi, 2026-08-27) - Ayarlar sekmesine gitmeden tek bakista gorunsun.
+  const dbp=$('#db-pir'); if(dbp) dbp.classList.toggle('on', !!kz.pir);
+  const dbsw=$('#db-swan'); if(dbsw) dbsw.classList.toggle('on', !!kz.swan_pir);
+  const dbk=$('#db-kapi'); if(dbk) dbk.classList.toggle('on', !!kz.kapi_acik);
+  const dbav=$('#db-duman'); if(dbav) dbav.classList.toggle('on', !!kz.duman);
+  const dbgv=$('#db-gaz'); if(dbgv) dbgv.classList.toggle('on', !!kz.gaz);
+  const dbmq=$('#db-mq6'); if(dbmq) dbmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI]') : '--';
+  const dbgp=$('#db-gp2y10'); if(dbgp) dbgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
   const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_alarm)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.classList.toggle('on', !!kzAktif && !kz.pending); kza.classList.toggle('pending', !!kz.pending); const kzat=$('#kz-alarm-txt'); if(kzat) kzat.textContent = kz.pending?'ONAY BEKLİYOR':''; }
   const kzs=$('#kz-siren'); if(kzs) kzs.classList.toggle('on', !!kz.siren);
   const kzl=$('#kz-lamba'); if(kzl) kzl.classList.toggle('on', !!kz.lamba);
