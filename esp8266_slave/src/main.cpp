@@ -603,34 +603,32 @@ bool nanoMoistureKontrol(bool ac) {
 // kendi zamanlayicisiyla otomatik durur, burada ayrica "kapat" komutu gerekmez.
 #define BUZZER_CHIRP_FREKANS_HZ 2500
 #define BUZZER_CHIRP_SURE_MS 1000
-void nanoBuzzerChirp() {
-  pendingCmd = {"TONE_PLAY:" + String(NANO_BUZZER_PIN) + "," + String(BUZZER_CHIRP_FREKANS_HZ) + "," + String(BUZZER_CHIRP_SURE_MS), "ACK:TONE_PLAY", 0, 0};
-  nanoMesgul = true;
-}
+// FIX (kullanici talebi, 2026-08-27): Buzzer ONCE alarm ROLESiNE (roleFizikselDurum,
+// siren FSM'inin kademeli gecikme/chirp/bekleme/aktif zamanlamasi) baglanmisti -
+// ama rolenin cikisi mod/cikis secimine gore SIRENSIZ da olabiliyor (orn. Sessiz
+// modda sirenSeciliHam=false, role hic tetiklenmez) ve kullanici bunun yerine
+// web arayuzundeki KIRMIZI BANNER'in (alarmGenelKutu) gorunurlugunu istedi -
+// app.js'deki tarayici-tarafi bipSesi()'ni tetikleyen AYNI kosul (alarmSimdiVar):
+// alarmTetikleyenMask || alarmOnayBekliyor || panicAktif. Banner YENI gorunur
+// oldugunda (onceki dongude yoktu) TEK bir kisa bip (nanoBuzzerChirp ile ayni
+// TONE_PLAY, kendi kendine durur) kuyruga alinir - surekli/kademeli ton YOK.
+bool buzzerChirpBekliyor = false;
+bool bannerAlarmOncekiDurum = false;
 
-// Sudepo zonunda henuz ayri/harici bir siren cihazi YOK (2026-08-27) - alarm
-// rolesi (D4, nanoRoleKontrol) su an hicbir sey calistirmiyor, tek sesli
-// kaynak Nano'nun D12 pasif buzzer'i. Bu yuzden roleFizikselDurum'un HER
-// degisimi (nanoRoleKontrol icinde) bu hedefi de guncelliyor, nanoPoll()
-// pendingCmd bosken (GET_STATUS/diger komutlarla CAKISMADAN, tek-slot seri
-// protokolune uygun) TONE_PLAY/TONE_STOP gonderiyor. Boylece siren FSM'inin
-// (sirenFaz: gecikme/chirp/bekleme/aktif) zaten hesapladigi ac/kapa
-// zamanlamasi dogrudan buzzer'da duyulur - harici siren eklendiginde bu
-// bagimlilik kaldirilmaz, ikisi ayni anda calismaya devam eder.
-#define BUZZER_ALARM_MAX_MS 130000UL // guvenlik ust siniri (en uzun sirenAktifSaniye=120s'i asar) - TONE_STOP normalde cok daha once gelir
-bool buzzerHedefAktif = false;
-bool buzzerSonGonderilenAktif = false;
+// FIX: eskiden burada dogrudan pendingCmd/nanoMesgul yaziliyordu - eger tam o
+// anda baska bir komut (orn. RELAY_ON, GET_STATUS) beklemedeyse onu sessizce
+// EZIYORDU. Artik sadece bir "istek" bayragi koyuyor, gercek gonderim
+// nanoBuzzerKontrolPoll()'da (nanoPoll icinde, pendingCmd bosken) yapiliyor.
+void nanoBuzzerChirp() {
+  buzzerChirpBekliyor = true;
+}
 
 void nanoBuzzerKontrolPoll() {
   if (pendingCmd.komut.length() > 0 || nanoMesgul) return; // tek-slot protokol - mevcut komutu ezme
-  if (buzzerHedefAktif == buzzerSonGonderilenAktif) return;
-  if (buzzerHedefAktif) {
-    pendingCmd = {"TONE_PLAY:" + String(NANO_BUZZER_PIN) + "," + String(BUZZER_CHIRP_FREKANS_HZ) + "," + String(BUZZER_ALARM_MAX_MS), "ACK:TONE_PLAY", 0, 0};
-  } else {
-    pendingCmd = {"TONE_STOP:" + String(NANO_BUZZER_PIN), "ACK:TONE_STOP", 0, 0};
-  }
+  if (!buzzerChirpBekliyor) return;
+  buzzerChirpBekliyor = false;
+  pendingCmd = {"TONE_PLAY:" + String(NANO_BUZZER_PIN) + "," + String(BUZZER_CHIRP_FREKANS_HZ) + "," + String(BUZZER_CHIRP_SURE_MS), "ACK:TONE_PLAY", 0, 0};
   nanoMesgul = true;
-  buzzerSonGonderilenAktif = buzzerHedefAktif;
 }
 
 void moistureOku() {
@@ -688,7 +686,6 @@ bool nanoRoleKontrol(bool tetikle) {
   nanoMesgul = true;
 
   roleFizikselDurum = tetikle;
-  buzzerHedefAktif = tetikle; // bkz nanoBuzzerKontrolPoll - harici siren yokken buzzer roleyi izler
   DEBUG_PRINTF("[NANO] Role komutu kuyruga alindi: %s\n", komut.c_str());
   return true;
 }
@@ -1475,8 +1472,15 @@ void handleSSE() {
 
 // ============ API ROTALARI ============
 void handleRestart() {
+  // FIX (kullanici sikayeti, 2026-08-27): 100ms gecikme cok kisaydi -
+  // server.send() yaniti TCP gonderim kuyruguna koyar ama WiFi uzerinden
+  // fiilen iletilip tarayiciya ULASMASI icin zaman gerekir; ESP.restart()
+  // bunu beklemeden baglantiyi sert kesince tarayicidaki fetch() ne
+  // basariya ne hataya duser, sonsuza kadar "Yeniden baslatiliyor..."
+  // yazili kalir (ayni sorun performOTA()'da da vardi, orada da duzeltildi).
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Yeniden baslatiliyor\"}");
-  delay(100);
+  server.client().flush();
+  delay(500);
   ESP.restart();
 }
 void handleMeasure() { olcumYap(); ssePush(); server.send(200, "application/json", durumJson()); }
@@ -1777,7 +1781,12 @@ void performOTA(const String& url) {
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.sendHeader("Pragma", "no-cache");
   server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
-  if (basarili) { delay(200); ESP.restart(); }
+  // FIX (kullanici sikayeti, 2026-08-27, bkz handleRestart yorumu): 200ms
+  // gecikme de yetersiz kalabiliyordu - yanit tarayiciya tam ulasmadan
+  // ESP.restart() baglantiyi kesiyor, buton sonsuza kadar "Guncelleniyor..."
+  // yazili kaliyordu (basarili=false/hata durumunda BU SORUN YOK - orada
+  // restart hic cagrilmiyor, yaniti okuyup gosteren normal fetch akisi calisiyor).
+  if (basarili) { server.client().flush(); delay(500); ESP.restart(); }
 }
 
 void handleOTAUpdate() {
@@ -1796,7 +1805,8 @@ void handleOTAGithub() {
 void handleFileUploadUpdate() {
   server.sendHeader("Connection", "close");
   server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
-  delay(100);
+  server.client().flush();
+  delay(500); // bkz handleRestart yorumu - yanit tarayiciya ulasmadan restart etmeme
   ESP.restart();
 }
 
@@ -2296,6 +2306,13 @@ void loop() {
         lambaSurekliBaslangicMs = 0;
       }
     }
+  }
+  // Buzzer - bkz nanoBuzzerKontrolPoll yorumu: banner (alarmGenelKutu) YENI
+  // gorunur oldugunda tek bir bip. app.js'deki alarmSimdiVar ile AYNI kosul.
+  {
+    bool bannerAlarmVar = (alarmTetikleyenMask != 0) || alarmOnayBekliyor || panicRoleAktif;
+    if (bannerAlarmVar && !bannerAlarmOncekiDurum) buzzerChirpBekliyor = true;
+    bannerAlarmOncekiDurum = bannerAlarmVar;
   }
   alarmLoguKontrolEt();
   // ALARM LAMBA FLASI - role fiziksel olarak tetikliyken (panik dahil) lamba
