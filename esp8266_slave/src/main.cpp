@@ -301,6 +301,77 @@ String simdikiYilAy() {
   return String(buf);
 }
 
+// ===== Gunluk Alarm Logu (2026-08-27 kullanici talebi, ESP32 Merkez Kontrol
+// panelindeki AYNI ozellik - iki arayuz paralel tutulmali). ESP32'nin aksine
+// burada RTC YEREL (I2C DS1307) oldugundan RS485 gecikme riski yok - zaman
+// dogrudan simdikiZamanStr() ile aninda okunabilir, ayri bir onbellek
+// gerekmez. Son 5 kayit RAM'de, tumu LittleFS'e (/alarm_log.csv) kalici.
+#define ALARM_TRIGGER_TETIKLEYICI_ADET 6
+const char* ALARM_TETIKLEYICI_ADLARI[ALARM_TRIGGER_TETIKLEYICI_ADET] = {
+  "Sol Kapi", "Sag Kapi", "PIR", "Su Seviyesi", "Kacak", "Sensor Hatasi"
+};
+String alarmTetikleyenMetniStr(uint8_t mask, bool panik) {
+  if (panik) return "Panik (elle acildi)";
+  String l = "";
+  for (int i = 0; i < ALARM_TRIGGER_TETIKLEYICI_ADET; i++) {
+    if (mask & (1 << i)) { if (l.length()) l += ", "; l += ALARM_TETIKLEYICI_ADLARI[i]; }
+  }
+  return l.length() ? l : "-";
+}
+
+#define ALARM_LOG_RAM_ADET 5
+#define ALARM_LOG_DOSYASI "/alarm_log.csv"
+#define ALARM_LOG_MAX_SATIR 300 // LittleFS sinirli - asilirsa en eski yarisi silinir
+
+struct AlarmLogKaydi { String zaman; String baslik; String tetikleyen; };
+AlarmLogKaydi alarmLogRAM[ALARM_LOG_RAM_ADET];
+uint8_t alarmLogRAMDolu = 0;
+bool alarmLogOncekiVar = false;
+
+void alarmLoguDosyayaEkle(const String& satir) {
+  if (LittleFS.exists(ALARM_LOG_DOSYASI)) {
+    File f = LittleFS.open(ALARM_LOG_DOSYASI, "r");
+    int satirSayisi = 0;
+    if (f) { while (f.available()) { f.readStringUntil('\n'); satirSayisi++; } f.close(); }
+    if (satirSayisi >= ALARM_LOG_MAX_SATIR) {
+      File fr = LittleFS.open(ALARM_LOG_DOSYASI, "r");
+      String kalanlar; int atlanacak = satirSayisi / 2, i = 0;
+      while (fr.available()) {
+        String s = fr.readStringUntil('\n');
+        if (i++ >= atlanacak) { kalanlar += s; kalanlar += "\n"; }
+      }
+      fr.close();
+      File fw = LittleFS.open(ALARM_LOG_DOSYASI, "w");
+      if (fw) { fw.print(kalanlar); fw.close(); }
+    }
+  }
+  File f = LittleFS.open(ALARM_LOG_DOSYASI, "a");
+  if (f) { f.println(satir); f.close(); }
+}
+
+void alarmLoguKaydet(const String& baslik, const String& tetikleyen) {
+  String zaman = simdikiZamanStr();
+  for (int i = ALARM_LOG_RAM_ADET - 1; i > 0; i--) alarmLogRAM[i] = alarmLogRAM[i - 1];
+  alarmLogRAM[0] = { zaman, baslik, tetikleyen };
+  if (alarmLogRAMDolu < ALARM_LOG_RAM_ADET) alarmLogRAMDolu++;
+  String satir = zaman + "," + baslik + "," + tetikleyen;
+  satir.replace("\n", " "); satir.replace("\r", " ");
+  alarmLoguDosyayaEkle(satir);
+}
+
+// loop()'taki ana alarm bloguyla AYNI "aktif mi" hesabi (kucuk, bilerek
+// tekrarlanan bir kontrol - ayri bir fonksiyona cikarmak yerine, boylece
+// asil alarm/siren state machine'ine hic dokunulmuyor).
+void alarmLoguKontrolEt() {
+  bool alarmVar = panicRoleAktif || (ayar.alarmRoleAktif && (alarmTetikleyenMask != 0 || alarmOnayBekliyor));
+  if (alarmVar && !alarmLogOncekiVar) {
+    String baslik = panicRoleAktif ? "PANIK AKTIF" : (alarmOnayBekliyor ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
+    String tetikleyen = alarmTetikleyenMetniStr(alarmTetikleyenMask, panicRoleAktif);
+    alarmLoguKaydet(baslik, tetikleyen);
+  }
+  alarmLogOncekiVar = alarmVar;
+}
+
 bool geceModuMu() {
   if (!rtcHazir) return false;
   DateTime now = rtc.now();
@@ -1207,6 +1278,13 @@ void handleCSS() {
   css += ".led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;transition:background .15s,box-shadow .15s}";
   css += ".led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}";
   css += ".led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}";
+  // Sistem durumu 3 kademeli isik - ESP32 Merkez Kontrol panelindeki .sysdot
+  // ile AYNI (normal=yesil, kritik=sari, tehlike=kirmizi soft yanip soner).
+  css += ".sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}";
+  css += ".sysdot.normal{background:var(--accent);box-shadow:0 0 7px var(--accent)}";
+  css += ".sysdot.kritik{background:var(--warn);box-shadow:0 0 7px var(--warn)}";
+  css += ".sysdot.tehlike{background:var(--danger);box-shadow:0 0 9px var(--danger);animation:softblink 1.8s ease-in-out infinite}";
+  css += "@keyframes softblink{0%,100%{opacity:1}50%{opacity:.3}}";
   // Checkbox gruplari (Zaman Bazli Tetikleyiciler / Mod Senaryolari): checkbox+yazi
   // ayni satirda, dikeyde ortalanmis, birden fazla checkbox yan yana kirilarak dizilir.
   css += ".cb-grid{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}";
@@ -1231,6 +1309,13 @@ void handleCSS() {
   // Ayarlar/Alarm sekmelerindeki kartlar <details> oldugundan (ESP32'deki
   // acilir-kapanir Ayarlar deseniyle AYNI) - kenarlari daha belirgin.
   css += "details.card{padding:0}";
+  // Acilir-kapanir kartlarin her biri kendi renginde sol kenarla ayirt
+  // edilsin - ESP32 Merkez Kontrol panelindeki AYNI palet/mantik (2026-08-27,
+  // "iki arayuz paralel" kurali).
+  const char* kenarRenkleri[12] = {"#3b82f6","#06b6d4","#14b8a6","#f97316","#84cc16","#8b5cf6","#ec4899","#6366f1","#64748b","#f43f5e","#eab308","#22c55e"};
+  for (int i = 0; i < 12; i++) {
+    css += "details.card:nth-of-type(" + String(i + 1) + "){border-left:7px solid " + kenarRenkleri[i] + "}";
+  }
   css += "details.card>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;padding:16px;margin-bottom:0;font-size:15px;font-weight:700;color:var(--text);letter-spacing:.2px}";
   css += "details.card>summary::-webkit-details-marker{display:none}";
   css += "details.card>summary::before{content:'\\25B8';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}";
@@ -1420,6 +1505,21 @@ void handleAlarmOnaylaLamba() {
   // Mod 3 (Onayli): kullanici sadece lamba flasoru ister - siren/role calismaz.
   alarmOnaySadeceLamba = true; alarmOnayBekliyor = false; alarmOnaylandi = false;
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Sadece lamba flasoru aktif\"}");
+}
+String jsonKacir(const String& s) {
+  String out = s;
+  out.replace("\\", "\\\\");
+  out.replace("\"", "\\\"");
+  return out;
+}
+void handleAlarmLog() {
+  String j = "[";
+  for (uint8_t i = 0; i < alarmLogRAMDolu; i++) {
+    if (i) j += ",";
+    j += "{\"zaman\":\"" + jsonKacir(alarmLogRAM[i].zaman) + "\",\"baslik\":\"" + jsonKacir(alarmLogRAM[i].baslik) + "\",\"tetikleyen\":\"" + jsonKacir(alarmLogRAM[i].tetikleyen) + "\"}";
+  }
+  j += "]";
+  server.send(200, "application/json", j);
 }
 void handleWifiDurum() {
   bool b = (WiFi.status() == WL_CONNECTED);
@@ -1727,6 +1827,7 @@ void setup() {
   server.on("/kayit/liste", handleKayitListesi); server.on("/kayit/ekle", handleKayitEkle); server.on("/kayit/guncelle", handleKayitGuncelle); server.on("/kayit/sil", handleKayitSil); server.on("/kayit/csv", handleKayitCSV); server.on("/kc", handleKayitCSV); server.on("/kayit/temizle", handleKayitTemizle);
   server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
   server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
+  server.on("/alarm/log", handleAlarmLog);
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
   server.on("/wifi/scan", handleWifiScan);
@@ -2050,6 +2151,7 @@ void loop() {
       }
     }
   }
+  alarmLoguKontrolEt();
   // ALARM LAMBA FLASI - role fiziksel olarak tetikliyken (panik dahil) lamba
   // yanip soner; role kapaninca lamba tetiklenmeden onceki durumuna doner.
   // Kendi !nanoMesgul kontrolünü ayrı yapar ki yukarıdaki role komutu
