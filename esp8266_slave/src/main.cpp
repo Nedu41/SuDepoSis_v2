@@ -1605,6 +1605,12 @@ void handleRoleAyarla() {
 void handleRolePanic() {
   panicRoleAktif = !panicRoleAktif;  // Toggle - panik butonu her basış toggle yapar
   bool ok = nanoRoleKontrol(panicRoleAktif);
+  // FIX (kullanici sikayeti, 2026-08-27 - "banner butonlarda gecikme var"):
+  // eskiden burada ssePush() cagrilmiyordu, degisiklik ancak periyodik 4sn'lik
+  // otomatik push'ta veya tikleyen istemcinin kendi sonraki /olc cagrisinin
+  // YAN ETKISIYLE baska istemcilere yansiyordu - baska bir sekme/telefon
+  // acikken buyuk gecikme gibi hissediliyordu. Artik aninda push ediliyor.
+  ssePush();
   server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(panicRoleAktif?"Panik Acik":"Panik Kapali") + "\",\"panic\":" + String(panicRoleAktif?"true":"false") + "}");
 }
 void handleRolePolarite() {
@@ -1618,16 +1624,19 @@ void handleAlarmSustur() {
   // sese/tetiklenmeye devam etmesini durdurur. Yeni bir tetikleyici
   // (durum degisikligi) gelene kadar susturulmus kalir.
   alarmSusturuldu = !alarmSusturuldu;
+  ssePush(); // bkz handleRolePanic yorumu - aninda push
   server.send(200, "application/json", "{\"basarili\":true,\"susturuldu\":" + String(alarmSusturuldu ? "true" : "false") + "}");
 }
 void handleAlarmOnayla() {
   // Mod 3 (Onayli): kullanici tetiklenmeyi onaylar, siren sesli mod gibi calismaya baslar.
   alarmOnaylandi = true; alarmOnayBekliyor = false; alarmOnaySadeceLamba = false;
+  ssePush(); // bkz handleRolePanic yorumu - aninda push
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Onaylandi\"}");
 }
 void handleAlarmOnaylaLamba() {
   // Mod 3 (Onayli): kullanici sadece lamba flasoru ister - siren/role calismaz.
   alarmOnaySadeceLamba = true; alarmOnayBekliyor = false; alarmOnaylandi = false;
+  ssePush(); // bkz handleRolePanic yorumu - aninda push
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Sadece lamba flasoru aktif\"}");
 }
 String jsonKacir(const String& s) {
@@ -2366,6 +2375,25 @@ void loop() {
     if (!ilkBuzzerDegerlendirmesi && bannerAlarmVar && !bannerAlarmOncekiDurum) {
       bannerBipBaslangicMs = simdiBuzzerMs;
       bannerBipSonMs = 0;
+    }
+    // FIX (kullanici sikayeti, 2026-08-27 - "kapi kapatinca alarm gec
+    // susuyor"): eskiden banner/rolenin durum degisikligi tarayiciya SADECE
+    // periyodik 4sn'lik otomatik ssePush()'ta yansiyordu - kapi fiziksel
+    // olarak kapanip triggerActive false olsa, buzzer/role aninda tepki
+    // verse bile web sayfasi (SSE) bunu gormek icin 4sn'ye kadar bekliyordu.
+    // Artik banner GORUNURLUGU veya role/susturma durumu her DEGISTIGINDE
+    // aninda push ediliyor - dugmeye basmaya gerek yok, sensor kaynakli
+    // degisiklikler de aninda yansir.
+    {
+      static bool oncekiRoleFizikselDurum = false;
+      static bool oncekiAlarmSusturuldu = false;
+      static bool ilkDurumPushu = true;
+      if (!ilkDurumPushu && (bannerAlarmVar != bannerAlarmOncekiDurum || roleFizikselDurum != oncekiRoleFizikselDurum || alarmSusturuldu != oncekiAlarmSusturuldu)) {
+        ssePush();
+      }
+      oncekiRoleFizikselDurum = roleFizikselDurum;
+      oncekiAlarmSusturuldu = alarmSusturuldu;
+      ilkDurumPushu = false;
     }
     bannerAlarmOncekiDurum = bannerAlarmVar;
     if (bannerBipBaslangicMs != 0) {
