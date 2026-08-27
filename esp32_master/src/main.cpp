@@ -487,7 +487,10 @@ bool konteynerLambaOnayVerildi = false;    // mode==3 + bu bolum icin "Sessiz (L
 // (~600ms) ESP8266'nin kendi mute alaniyla eziliyor. Konteyner yerel
 // calistigindan (bkz PIR2 aciklamasi) kendi ayri, RS485'ten bagimsiz bayragi.
 bool konteynerSusturuldu = false;
-#define KONTEYNER_SIREN_MAX_MS (2UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi) otomatik susturulur
+// NOT: max kesintisiz calma suresi artik SABIT DEGIL - bkz asagida
+// konteynerSirenMaxDakika (kullanici talebi, 2026-08-27, web'den 1-30dk
+// ayarlanabilir). Kullanildigi yerde konteynerSirenMaxDakika*60000UL olarak
+// hesaplanir.
 unsigned long konteynerLambaMinSureBaslangicMs = 0; // 0 = MIN sure penceresi kapali
 #define KONTEYNER_LAMBA_MIN_SURE_MS (60UL * 1000UL) // alarm erken temizlense bile lamba en az bu kadar yanik kalir
 unsigned long konteynerSirenEpisodeMs = 0; // 0 = siren cikisi su an secili degil (bkz asagidaki kademeli zamanlama deseni) - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir
@@ -653,6 +656,72 @@ void konteynerAlarmAyarKaydet(bool etkin) {
   ayarPrefs.end();
 }
 
+// ===== Konteyner Siren Zamanlama + Mod Senaryolari (kullanici talebi,
+// 2026-08-27: "Sudepo'daki gibi mod senaryolari, siren zamanlama ayarlari
+// Kalburum'da da olsun, max sure de girebilmeliyim") - eskiden
+// KONTEYNER_TETIK_SIREN_* ve KONTEYNER_SIREN_MAX_MS SABIT (#define) idi, artik
+// NVS'de kalici, web'den degistirilebilir. Mod maskeleri (bit0=PIR,1=Swan
+// PIR,2=Kapi,3=Duman) Sudepo'daki alarmMaskSesli/Sessiz/Onayli ile AYNI
+// mantik - GAZ HARIC (guvenlik geregi mod'dan bagimsiz kalmaya devam eder,
+// degismedi). Cikis maskeleri (bit0=Siren,1=Lamba) Sudepo'daki
+// alarmOutputSesli/Sessiz ile ayni; Onayli'nin ayri bir cikis maskesi YOK
+// (Sudepo'da da yok) - onaydan sonra her zaman Siren+Lamba (Sesli'yle ayni).
+uint16_t konteynerSirenGecikmeSaniye = 10;  // ilk gecikme (sn) - eski KONTEYNER_TETIK_SIREN_GECIKME_MS/1000
+uint16_t konteynerSirenAtisMs = 300;        // her atisin acik kalma suresi (ms) - eski KONTEYNER_TETIK_SIREN_ATIS_MS
+uint16_t konteynerSirenAralikSaniye = 3;    // atislar arasi sessizlik (sn) - eski KONTEYNER_TETIK_SIREN_ARALIK_MS/1000
+uint8_t konteynerSirenMaxDakika = 2;        // kesintisiz max calma (dk) - eski KONTEYNER_SIREN_MAX_MS/60000, artik 1-30 arasi ayarlanabilir
+uint8_t konteynerMaskSesli = 15, konteynerMaskSessiz = 15, konteynerMaskOnayli = 15; // varsayilan: tum sensorler (eski davranisla AYNI - hicbir kisitlama yoktu)
+uint8_t konteynerOutputSesli = 3;  // varsayilan Siren+Lamba (Sudepo ile ayni varsayilan)
+uint8_t konteynerOutputSessiz = 2; // varsayilan sadece Lamba (Sudepo ile ayni varsayilan - ESKIDEN Konteyner'de Sessiz hicbir cikis vermiyordu, bu bir DAVRANIS DEGISIKLIGI, checkbox'tan kapatilabilir)
+
+void konteynerSirenAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerSirenGecikmeSaniye = ayarPrefs.getUShort("k_sr_gec", 10);
+  konteynerSirenAtisMs = ayarPrefs.getUShort("k_sr_atis", 300);
+  konteynerSirenAralikSaniye = ayarPrefs.getUShort("k_sr_arlk", 3);
+  konteynerSirenMaxDakika = ayarPrefs.getUChar("k_sr_max", 2);
+  ayarPrefs.end();
+}
+void konteynerSirenAyarKaydet(uint16_t gecikmeSn, uint16_t atisMs, uint16_t aralikSn, uint8_t maxDk) {
+  if (gecikmeSn > 120) gecikmeSn = 120;
+  if (atisMs < 50) atisMs = 50; if (atisMs > 5000) atisMs = 5000;
+  if (aralikSn < 1) aralikSn = 1; if (aralikSn > 60) aralikSn = 60;
+  if (maxDk < 1) maxDk = 1; if (maxDk > 30) maxDk = 30;
+  konteynerSirenGecikmeSaniye = gecikmeSn;
+  konteynerSirenAtisMs = atisMs;
+  konteynerSirenAralikSaniye = aralikSn;
+  konteynerSirenMaxDakika = maxDk;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putUShort("k_sr_gec", gecikmeSn);
+  ayarPrefs.putUShort("k_sr_atis", atisMs);
+  ayarPrefs.putUShort("k_sr_arlk", aralikSn);
+  ayarPrefs.putUChar("k_sr_max", maxDk);
+  ayarPrefs.end();
+}
+void konteynerModSenaryoYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerMaskSesli = ayarPrefs.getUChar("k_msk_ses", 15);
+  konteynerOutputSesli = ayarPrefs.getUChar("k_out_ses", 3);
+  konteynerMaskSessiz = ayarPrefs.getUChar("k_msk_ssz", 15);
+  konteynerOutputSessiz = ayarPrefs.getUChar("k_out_ssz", 2);
+  konteynerMaskOnayli = ayarPrefs.getUChar("k_msk_ony", 15);
+  ayarPrefs.end();
+}
+void konteynerModSenaryoKaydet(uint8_t maskSesli, uint8_t outSesli, uint8_t maskSessiz, uint8_t outSessiz, uint8_t maskOnayli) {
+  konteynerMaskSesli = maskSesli & 0x0F;
+  konteynerOutputSesli = outSesli & 0x03;
+  konteynerMaskSessiz = maskSessiz & 0x0F;
+  konteynerOutputSessiz = outSessiz & 0x03;
+  konteynerMaskOnayli = maskOnayli & 0x0F;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putUChar("k_msk_ses", konteynerMaskSesli);
+  ayarPrefs.putUChar("k_out_ses", konteynerOutputSesli);
+  ayarPrefs.putUChar("k_msk_ssz", konteynerMaskSessiz);
+  ayarPrefs.putUChar("k_out_ssz", konteynerOutputSessiz);
+  ayarPrefs.putUChar("k_msk_ony", konteynerMaskOnayli);
+  ayarPrefs.end();
+}
+
 // ===== Batarya (MPPT) Koruma Ayarlari =====
 // korumaAktif VARSAYILAN KAPALI: MPPT register/olcek sahada (bahcede)
 // dogrulanmadan otomatik kesme calismasin diye bilincli tercih - kullanici
@@ -767,39 +836,62 @@ void alarmLedGuncelle() {
   bool konteynerGazAlarmVar = konteynerGazEtkin && konteynerGazVar;
   bool konteynerAcilDurum = alarmStatus.panic_mode || konteynerGazAlarmVar;
   acilLambaGuncelle(konteynerAcilDurum);
-  bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && konteynerSwanEskalasyonOldu) || (konteynerDumanEtkin && konteynerDumanVar)));
+  // Mod'a gore GIRDI maskesi (bit0=PIR,1=Swan PIR,2=Kapi,3=Duman) - GAZ
+  // HARIC (o zaten yukarida konteynerAcilDurum'a dahil, mod'dan bagimsiz
+  // kalmaya devam eder). Sudepo'daki alarmMaskSesli/Sessiz/Onayli ile ayni
+  // mantik (kullanici talebi, 2026-08-27).
+  uint8_t konteynerModGirdiMask = (alarmStatus.mode == 2) ? konteynerMaskSessiz : (alarmStatus.mode == 3) ? konteynerMaskOnayli : konteynerMaskSesli;
+  bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && (
+    (konteynerPirEtkin && (konteynerModGirdiMask & 1) && konteynerPirEskalasyonOldu) ||
+    (konteynerSwanEtkin && (konteynerModGirdiMask & 2) && konteynerSwanEskalasyonOldu) ||
+    (konteynerKapiEtkin && (konteynerModGirdiMask & 4) && kapi2Acik) ||
+    (konteynerDumanEtkin && (konteynerModGirdiMask & 8) && konteynerDumanVar)
+  ));
+  // Cikis (Siren/Lamba) HEDEFI - mod'a gore AYRI AYRI (Sudepo'daki
+  // alarmOutputSesli/Sessiz ile ayni mantik, kullanici talebi 2026-08-27).
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
   // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
   // siren'i kessin, lamba yansin"). Panik/gaz icin susturma zaten asagida
-  // (konteynerBuzzerVar hesabinda) tamamen bypass edilir.
-  bool konteynerCikisIstenir = false;
+  // (konteynerBuzzerVar hesabinda) tamamen bypass edilir. Onayli'nin ayri
+  // cikis maskesi YOK (Sudepo'da da yok) - onaydan sonra Sesli'yle AYNI.
+  bool konteynerSirenIstenirHam = false, konteynerLambaIstenirHam = false;
   if (konteynerEskaleVar) {
-    if (konteynerAcilDurum) konteynerCikisIstenir = true; // Panik/gaz - susturmadan bagimsiz
-    else if (alarmStatus.mode == 1) konteynerCikisIstenir = true; // Sesli
-    else if (alarmStatus.mode == 3) konteynerCikisIstenir = konteynerOnayVerildi; // Onayli - onaydan sonra
-    // mode==2 (Sessiz) ve panik/gaz degilse: false kalir, Telegram/banner yine de calisir
+    if (konteynerAcilDurum) {
+      konteynerSirenIstenirHam = true; konteynerLambaIstenirHam = true; // Panik/gaz - susturmadan bagimsiz, hep ikisi
+    } else if (alarmStatus.mode == 1) {
+      konteynerSirenIstenirHam = (konteynerOutputSesli & 1) != 0;
+      konteynerLambaIstenirHam = (konteynerOutputSesli & 2) != 0;
+    } else if (alarmStatus.mode == 2) {
+      konteynerSirenIstenirHam = (konteynerOutputSessiz & 1) != 0;
+      konteynerLambaIstenirHam = (konteynerOutputSessiz & 2) != 0;
+    } else if (alarmStatus.mode == 3 && konteynerOnayVerildi) {
+      konteynerSirenIstenirHam = true; konteynerLambaIstenirHam = true; // Onayli - onaydan sonra Sesli ile ayni
+    }
   }
-  // Tetik animasyonu (2026-08-25, kullanici talebi, bkz config.h yorumu):
+  // Tetik animasyonu (2026-08-25'te eklendi, 2026-08-27'de zamanlamasi
+  // sabit #define'dan NVS'de kalici/web'den ayarlanabilir hale getirildi):
   // GAZ HARIC (patlayici gaz icin gecikme guvenlik riski - aninda/surekli
   // kalir, DEGISMEDI) her tetiklenmede (panik dahil - fiziksel Acil Durum
-  // Butonu artik gercek panigi tetikliyor) siren ilk
-  // KONTEYNER_TETIK_SIREN_GECIKME_MS sessiz kalir, sonra
-  // KONTEYNER_TETIK_SIREN_ATIS_MS acik / KONTEYNER_TETIK_SIREN_ARALIK_MS
+  // Butonu artik gercek panigi tetikliyor) siren ilk konteynerSirenGecikmeSaniye
+  // sessiz kalir, sonra konteynerSirenAtisMs acik / konteynerSirenAralikSaniye
   // kapali seklinde tetik surdukce TEKRARLAYAN kisa atislar halinde calar
   // (eski kademeli gecikme/chirp/bekleme/aktif deseninin YERINI ALDI).
-  bool konteynerAnimasyonluTetik = konteynerCikisIstenir && !konteynerGazAlarmVar;
+  bool konteynerAnimasyonluTetik = konteynerSirenIstenirHam && !konteynerGazAlarmVar;
   bool konteynerSirenRawHedef;
   if (konteynerGazAlarmVar) {
-    konteynerSirenRawHedef = konteynerCikisIstenir; // aninda, surekli - degismedi
+    konteynerSirenRawHedef = konteynerSirenIstenirHam; // aninda, surekli - degismedi
     konteynerSirenEpisodeMs = 0;
   } else if (konteynerAnimasyonluTetik) {
     if (konteynerSirenEpisodeMs == 0) konteynerSirenEpisodeMs = millis();
     unsigned long gecenMs = millis() - konteynerSirenEpisodeMs;
-    if (gecenMs < KONTEYNER_TETIK_SIREN_GECIKME_MS) {
+    unsigned long gecikmeMs = (unsigned long)konteynerSirenGecikmeSaniye * 1000UL;
+    unsigned long atisMs = (unsigned long)konteynerSirenAtisMs;
+    unsigned long aralikMs = (unsigned long)konteynerSirenAralikSaniye * 1000UL;
+    if (gecenMs < gecikmeMs) {
       konteynerSirenRawHedef = false;
     } else {
-      unsigned long donguMs = (gecenMs - KONTEYNER_TETIK_SIREN_GECIKME_MS) % (KONTEYNER_TETIK_SIREN_ATIS_MS + KONTEYNER_TETIK_SIREN_ARALIK_MS);
-      konteynerSirenRawHedef = donguMs < KONTEYNER_TETIK_SIREN_ATIS_MS;
+      unsigned long donguMs = (gecenMs - gecikmeMs) % (atisMs + aralikMs);
+      konteynerSirenRawHedef = donguMs < atisMs;
     }
   } else {
     konteynerSirenEpisodeMs = 0;
@@ -818,12 +910,12 @@ void alarmLedGuncelle() {
   // KONTEYNER_LAMBA_MIN_SURE_MS boyunca yanik kalir (kullanici talebi: "en
   // az 60sn lambalar yansın"). Manuel/onaylanmis-lamba-flasoru bu tutmaya
   // DAHIL DEGIL - onlarin kendi ani ac/kapa semantigi var.
-  if (konteynerCikisIstenir) {
+  if (konteynerLambaIstenirHam) {
     konteynerLambaMinSureBaslangicMs = millis();
   } else if (konteynerLambaMinSureBaslangicMs != 0 && millis() - konteynerLambaMinSureBaslangicMs >= KONTEYNER_LAMBA_MIN_SURE_MS) {
     konteynerLambaMinSureBaslangicMs = 0;
   }
-  bool konteynerCikisIstenirTutulmus = konteynerCikisIstenir || konteynerLambaMinSureBaslangicMs != 0;
+  bool konteynerCikisIstenirTutulmus = konteynerLambaIstenirHam || konteynerLambaMinSureBaslangicMs != 0;
 
   // Lamba icin MAX sure (kullanici talebi, enerji butcesi): alarm-tetikli
   // lamba (konteynerLambaOnayVerildi - "Sessiz (Lamba)" onayi da DAHIL,
@@ -847,7 +939,7 @@ void alarmLedGuncelle() {
   // olcum "kesintisiz calma" yerine konteynerSirenEpisodeMs referans alinarak
   // yapilir (aksi halde 2dk'ya asla ulasilamaz).
   if (konteynerSirenEpisodeMs != 0 && !konteynerAcilDurum) {
-    if (millis() - konteynerSirenEpisodeMs > KONTEYNER_SIREN_MAX_MS) {
+    if (millis() - konteynerSirenEpisodeMs > (unsigned long)konteynerSirenMaxDakika * 60000UL) {
       konteynerSusturuldu = true;
       konteynerBuzzerVar = false;
       konteynerOtoSusturBildirimBekliyor = true;
@@ -1449,7 +1541,7 @@ void telegramAnaGucKontrolEt() {
   }
 }
 
-// Konteyner sireni KONTEYNER_SIREN_MAX_MS'i asip otomatik susturuldugunda
+// Konteyner sireni konteynerSirenMaxDakika'yi asip otomatik susturuldugunda
 // bir kez bildirim gonderir - ayni bekle/retry deseni telegramBateryaKontrolEt ile ayni.
 void telegramKonteynerOtoSusturKontrolEt() {
   static bool bekliyor = false;
@@ -1460,7 +1552,7 @@ void telegramKonteynerOtoSusturKontrolEt() {
 
   if (konteynerOtoSusturBildirimBekliyor) {
     konteynerOtoSusturBildirimBekliyor = false;
-    metin = "📦 Konteyner: Siren " + String(KONTEYNER_SIREN_MAX_MS / 60000UL) + " dakikadir kesintisiz caldigi icin otomatik susturuldu - sensoru kontrol edin";
+    metin = "📦 Konteyner: Siren " + String(konteynerSirenMaxDakika) + " dakikadir kesintisiz caldigi icin otomatik susturuldu - sensoru kontrol edin";
     bekliyor = true; ilkDenemeMs = millis();
   }
 
@@ -2970,7 +3062,33 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <p style="font-size:11px;color:var(--muted);margin-top:4px">0/0 = anında eskale (varsayılan/eski davranış). Onay Süresi &gt; 0 girilirse, hareket kesintisiz o kadar sürmeden GERÇEK alarma dönüşmez.</p>
       </details>
 
-      <p style="font-size:11px;color:var(--muted);margin-top:10px">Tetik animasyonu (lamba pırpırı + atışlı siren) ve genel Alarm Modu (Sesli/Sessiz/Onaylı) ayarları için bkz üstteki Sudepo/Genel Alarm kartı - Konteyner Zonu aynı ortak sistemi kullanır.</p>
+      <details class="subdet" style="margin-top:8px">
+        <summary>Siren Zamanlama</summary>
+        <p style="font-size:12px;color:var(--muted);margin-top:6px">Siren, İlk Gecikme sonra kısa Atış/Aralık döngüsünü tetik bitene kadar tekrarlar (sürekli kesintisiz çalmaz - Sudepo Zonu ile aynı prensip). Panik/Gaz bu mantığı atlar (anında sürekli çalar). En fazla Max Süre kesintisiz çalarsa otomatik susturulur, bir sonraki YENİ tetiklenmeye kadar öyle kalır.</p>
+        <div class="sz-grid" style="margin-top:6px">
+          <div><label class="sz-label">İlk Gecikme (sn)</label><input class="input" type="number" min="0" max="120" id="kz_sirenGecikme" onchange="konteynerSirenAyarKaydet()"></div>
+          <div><label class="sz-label">Atış Süresi (ms)</label><input class="input" type="number" min="50" max="5000" id="kz_sirenAtis" onchange="konteynerSirenAyarKaydet()"></div>
+          <div><label class="sz-label">Atışlar Arası (sn)</label><input class="input" type="number" min="1" max="60" id="kz_sirenAralik" onchange="konteynerSirenAyarKaydet()"></div>
+          <div><label class="sz-label">Max Süre (dk)</label><input class="input" type="number" min="1" max="30" id="kz_sirenMax" onchange="konteynerSirenAyarKaydet()"></div>
+        </div>
+      </details>
+
+      <details class="subdet" style="margin-top:8px">
+        <summary>Mod Senaryoları</summary>
+        <p style="font-size:12px;color:var(--muted);margin-top:6px">Her modu (Sesli/Sessiz/Onaylı) hangi sensörlerin tetikleyeceğini (girdi) ve tetiklendiğinde neyin çalışacağını (çıkış) ayrı ayrı seçin - Sudepo Zonu'ndaki Mod Senaryoları ile aynı mantık. Gaz alarmı hariç - o her zaman mod'dan bağımsız anında/sürekli çalar.</p>
+        <p class="sz-label" style="margin-top:8px">Sesli - Girdi</p>
+        <div class="sz-cbgrid" id="kz-grid-sesli-girdi"></div>
+        <p class="sz-label" style="margin-top:6px">Sesli - Çıkış</p>
+        <div class="sz-cbgrid" id="kz-grid-sesli-cikis"></div>
+        <p class="sz-label" style="margin-top:10px">Sessiz - Girdi</p>
+        <div class="sz-cbgrid" id="kz-grid-sessiz-girdi"></div>
+        <p class="sz-label" style="margin-top:6px">Sessiz - Çıkış</p>
+        <div class="sz-cbgrid" id="kz-grid-sessiz-cikis"></div>
+        <p class="sz-label" style="margin-top:10px">Onaylı - Girdi</p>
+        <div class="sz-cbgrid" id="kz-grid-onayli-girdi"></div>
+        <div id="kz-mod-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      </details>
+
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
@@ -3988,6 +4106,68 @@ function szKaydet(){
   }).catch(()=>{ $('#sz-sonuc').textContent='Hata'; });
 }
 szAyarlarYukle();
+
+// === KONTEYNER ZONU - Siren Zamanlama + Mod Senaryolari (kullanici talebi,
+// 2026-08-27: "Sudepo'daki gibi mod senaryolari, siren zamanlama ayarlari
+// Kalburum'da da olsun") - Sudepo Zonu'ndaki sz* fonksiyonlarinin AYNISI,
+// sadece Konteyner'in kendi 4 sensorune (PIR/Swan/Kapi/Duman, gaz haric)
+// gore. Yerel (RS485 kopru yok) - dogrudan /api/konteyner/* kullanir.
+const kzTetikleyiciler=[['pir','HC505-1 PIR'],['swan','Swan PIR'],['kapi','Kapı'],['duman','Duman']];
+function kzGridHtml(prefix){
+  return kzTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'" onchange="konteynerModSenaryoKaydet()">'+t[1]+'</label>').join('');
+}
+function kzOutputGridHtml(prefix){
+  return '<label><input type="checkbox" id="'+prefix+'_siren" onchange="konteynerModSenaryoKaydet()">Siren</label><label><input type="checkbox" id="'+prefix+'_lamba" onchange="konteynerModSenaryoKaydet()">Lamba</label>';
+}
+function kzCalcTrigger(prefix){
+  let v=0;
+  kzTetikleyiciler.forEach((t,i)=>{ if($('#'+prefix+'_'+t[0]).checked) v|=(1<<i); });
+  return v;
+}
+function kzCalcOutput(prefix){
+  let v=0;
+  if($('#'+prefix+'_siren').checked) v|=1;
+  if($('#'+prefix+'_lamba').checked) v|=2;
+  return v;
+}
+function kzSetTrigger(prefix, mask){
+  kzTetikleyiciler.forEach((t,i)=>{ const el=$('#'+prefix+'_'+t[0]); if(el) el.checked=((mask&(1<<i))!==0); });
+}
+function kzSetOutput(prefix, mask){
+  const s=$('#'+prefix+'_siren'), l=$('#'+prefix+'_lamba');
+  if(s) s.checked=((mask&1)!==0);
+  if(l) l.checked=((mask&2)!==0);
+}
+function konteynerSirenAyarYukle(){
+  $('#kz-grid-sesli-girdi').innerHTML=kzGridHtml('kz_Sesli');
+  $('#kz-grid-sesli-cikis').innerHTML=kzOutputGridHtml('kz_Sesli');
+  $('#kz-grid-sessiz-girdi').innerHTML=kzGridHtml('kz_Sessiz');
+  $('#kz-grid-sessiz-cikis').innerHTML=kzOutputGridHtml('kz_Sessiz');
+  $('#kz-grid-onayli-girdi').innerHTML=kzGridHtml('kz_Onayli');
+  fetch('/api/konteyner/siren_ayar').then(r=>r.json()).then(d=>{
+    const set=(id,v)=>{ const el=$('#'+id); if(el) el.value=v; };
+    set('kz_sirenGecikme', d.gecikmeSn); set('kz_sirenAtis', d.atisMs); set('kz_sirenAralik', d.aralikSn); set('kz_sirenMax', d.maxDk);
+    kzSetTrigger('kz_Sesli', d.maskSesli); kzSetOutput('kz_Sesli', d.outSesli);
+    kzSetTrigger('kz_Sessiz', d.maskSessiz); kzSetOutput('kz_Sessiz', d.outSessiz);
+    kzSetTrigger('kz_Onayli', d.maskOnayli);
+  }).catch(()=>{});
+}
+function konteynerSirenAyarKaydet(){
+  const q=new URLSearchParams({gecikmeSn:$('#kz_sirenGecikme').value, atisMs:$('#kz_sirenAtis').value, aralikSn:$('#kz_sirenAralik').value, maxDk:$('#kz_sirenMax').value});
+  $('#kz-sonuc').textContent='Kaydediliyor...';
+  fetch('/api/konteyner/siren_ayar/kaydet?'+q.toString()).then(r=>r.json()).then(d=>{ $('#kz-sonuc').textContent=d.basarili?'Kaydedildi ✓':'Hata'; }).catch(()=>{ $('#kz-sonuc').textContent='Hata'; });
+}
+function konteynerModSenaryoKaydet(){
+  const q=new URLSearchParams({
+    maskSesli:kzCalcTrigger('kz_Sesli'), outSesli:kzCalcOutput('kz_Sesli'),
+    maskSessiz:kzCalcTrigger('kz_Sessiz'), outSessiz:kzCalcOutput('kz_Sessiz'),
+    maskOnayli:kzCalcTrigger('kz_Onayli')
+  });
+  $('#kz-mod-sonuc').textContent='Kaydediliyor...';
+  fetch('/api/konteyner/mod_senaryo/kaydet?'+q.toString()).then(r=>r.json()).then(d=>{ $('#kz-mod-sonuc').textContent=d.basarili?'Kaydedildi ✓':'Hata'; }).catch(()=>{ $('#kz-mod-sonuc').textContent='Hata'; });
+}
+konteynerSirenAyarYukle();
+
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
@@ -4671,6 +4851,43 @@ void handleAPI_TelegramAyar() {
     telegramAyarKaydet(server.arg("aktif").toInt() != 0);
   }
   server.send(200, "application/json", "{\"basarili\":true,\"aktif\":" + String(telegramBildirimAktif ? "true" : "false") + "}");
+}
+
+// Konteyner siren zamanlama + mod senaryolari - GET durum icin (Ayarlar
+// sayfasi acilinca mevcut degerleri gostersin diye), kaydetme icin ayri
+// endpoint (bkz asagida handleAPI_KonteynerSirenAyarKaydet/handleAPI_
+// KonteynerModSenaryoKaydet).
+void handleAPI_KonteynerSirenAyarDurum() {
+  String j = "{\"gecikmeSn\":" + String(konteynerSirenGecikmeSaniye) +
+    ",\"atisMs\":" + String(konteynerSirenAtisMs) +
+    ",\"aralikSn\":" + String(konteynerSirenAralikSaniye) +
+    ",\"maxDk\":" + String(konteynerSirenMaxDakika) +
+    ",\"maskSesli\":" + String(konteynerMaskSesli) + ",\"outSesli\":" + String(konteynerOutputSesli) +
+    ",\"maskSessiz\":" + String(konteynerMaskSessiz) + ",\"outSessiz\":" + String(konteynerOutputSessiz) +
+    ",\"maskOnayli\":" + String(konteynerMaskOnayli) + "}";
+  server.send(200, "application/json", j);
+}
+void handleAPI_KonteynerSirenAyarKaydet() {
+  uint16_t gecikme = konteynerSirenGecikmeSaniye, atis = konteynerSirenAtisMs, aralik = konteynerSirenAralikSaniye;
+  uint8_t maxDk = konteynerSirenMaxDakika;
+  if (server.hasArg("gecikmeSn")) gecikme = (uint16_t)server.arg("gecikmeSn").toInt();
+  if (server.hasArg("atisMs")) atis = (uint16_t)server.arg("atisMs").toInt();
+  if (server.hasArg("aralikSn")) aralik = (uint16_t)server.arg("aralikSn").toInt();
+  if (server.hasArg("maxDk")) maxDk = (uint8_t)server.arg("maxDk").toInt();
+  konteynerSirenAyarKaydet(gecikme, atis, aralik, maxDk);
+  server.send(200, "application/json", "{\"basarili\":true}");
+}
+void handleAPI_KonteynerModSenaryoKaydet() {
+  uint8_t maskSesli = konteynerMaskSesli, outSesli = konteynerOutputSesli;
+  uint8_t maskSessiz = konteynerMaskSessiz, outSessiz = konteynerOutputSessiz;
+  uint8_t maskOnayli = konteynerMaskOnayli;
+  if (server.hasArg("maskSesli")) maskSesli = (uint8_t)server.arg("maskSesli").toInt();
+  if (server.hasArg("outSesli")) outSesli = (uint8_t)server.arg("outSesli").toInt();
+  if (server.hasArg("maskSessiz")) maskSessiz = (uint8_t)server.arg("maskSessiz").toInt();
+  if (server.hasArg("outSessiz")) outSessiz = (uint8_t)server.arg("outSessiz").toInt();
+  if (server.hasArg("maskOnayli")) maskOnayli = (uint8_t)server.arg("maskOnayli").toInt();
+  konteynerModSenaryoKaydet(maskSesli, outSesli, maskSessiz, outSessiz, maskOnayli);
+  server.send(200, "application/json", "{\"basarili\":true}");
 }
 
 void handleAPI_KonteynerPirAyar() {
@@ -5640,6 +5857,9 @@ void setupWebServer() {
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
   server.on("/api/konteyner/duman_ayar", handleAPI_KonteynerDumanAyar);
+  server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyarDurum);
+  server.on("/api/konteyner/siren_ayar/kaydet", handleAPI_KonteynerSirenAyarKaydet);
+  server.on("/api/konteyner/mod_senaryo/kaydet", handleAPI_KonteynerModSenaryoKaydet);
   server.on("/api/batarya/ayar", handleAPI_BateryaAyar);
   server.on("/firmware/upload", HTTP_POST, handleFirmwareUpload, handleFirmwareUploadProgress);
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
@@ -5854,6 +6074,8 @@ void setup() {
   konteynerSensorAktifYukle();
   konteynerGazAyarYukle();
   konteynerDumanAyarYukle();
+  konteynerSirenAyarYukle();
+  konteynerModSenaryoYukle();
   bateryaAyarlariYukle();
 
   // WiFi Connect
