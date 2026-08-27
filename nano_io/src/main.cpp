@@ -247,6 +247,29 @@ void handleSerialCommand() {
         } else {
           Serial.println(F("NACK:PIN_WRITE:FORMAT"));
         }
+      } else if (inputString.startsWith(F("TONE_PLAY:"))) {
+        // Pasif buzzer icin: digitalWrite (PIN_WRITE) sabit HIGH/LOW veriyor,
+        // pasif buzzer'in ses cikarmasi icin osilasyona (tone()) ihtiyaci var.
+        // Format: TONE_PLAY:<pin>,<frekans_hz>,<sure_ms> (orn: TONE_PLAY:12,2500,1000)
+        // tone() kendi zamanlayicisiyla sure sonunda OTOMATIK durur - burada
+        // bekleme/noTone() gerekmez, ACK hemen donulur (2026-08-27, Sudepo
+        // zonu "on uyari" buzzer'i icin eklendi, D12).
+        String param = inputString.substring(10);
+        int c1 = param.indexOf(',');
+        int c2 = (c1 > 0) ? param.indexOf(',', c1 + 1) : -1;
+        if (c1 > 0 && c2 > c1) {
+          int pin = param.substring(0, c1).toInt();
+          int freq = param.substring(c1 + 1, c2).toInt();
+          int sure = param.substring(c2 + 1).toInt();
+          if (pin >= 2 && pin <= 19 && freq > 0 && sure > 0) {
+            tone(pin, freq, sure);
+            Serial.println(F("ACK:TONE_PLAY"));
+          } else {
+            Serial.println(F("NACK:TONE_PLAY:BAD_PARAM"));
+          }
+        } else {
+          Serial.println(F("NACK:TONE_PLAY:FORMAT"));
+        }
       } else if (inputString.startsWith(F("PIN_READ:"))) {
         // Genel GPIO: input pin oku
         // Format: PIN_READ:<pin>  (örn: PIN_READ:6)

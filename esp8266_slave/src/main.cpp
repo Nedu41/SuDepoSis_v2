@@ -253,6 +253,14 @@ bool pirAcik = false;           // PIR sensörü hareket algısı (ham deger)
 // pirTetikleyici, pencere icinde en az ayar.pirMinTetiklenme kez ayri darbe
 // olursa true olur (bkz nanoStatusAyristir).
 bool pirTetikleyici = false;
+// Konteyner (ESP32) zonundaki "on uyari" buzzer'iyla AYNI mantik (2026-08-27
+// kullanici talebi): her yeni PIR hareket "bolumu" basladiginda (henuz gercek
+// alarm degil) Nano'nun D12 pinine bagli PASIF buzzer'dan 1sn'lik kisa bir
+// bip verilir - GERCEK bir alarm/siren zaten calmiyorsa (roleFizikselDurum
+// false ise). Buzzer PASIF oldugundan (kendi osilatoru yok) digitalWrite
+// yeterli degil - Nano'ya ozel TONE_PLAY komutu eklenip TEK SEFERLIK USB ile
+// reflash edildi (bkz nano_io main.cpp). pinKorumali ile bu pin de korunuyor.
+#define NANO_BUZZER_PIN 12
 #define PIR_DARBE_GECMISI_BOYUTU 8
 unsigned long pirDarbeGecmisi[PIR_DARBE_GECMISI_BOYUTU]; // en son darbelerin baslangic zamanlari (dairesel tampon)
 uint8_t pirDarbeGecmisiIndex = 0; // pirDarbeGecmisi'nde bir sonraki yazilacak slot
@@ -285,6 +293,7 @@ String mdnsHostname() {
 void tuketimYukle();
 void olcumYap();
 void kayitlariSiniraGetir(int maxKayit);
+void nanoBuzzerChirp();
 
 // ============ ZAMAN YARDIMCILARI ============
 String simdikiZamanStr() {
@@ -458,6 +467,11 @@ void nanoStatusAyristir(const String& yanit) {
           if (!pirAcik) {
             pirDarbeGecmisi[pirDarbeGecmisiIndex] = simdiPir; // yeni darbe basliyor
             pirDarbeGecmisiIndex = (pirDarbeGecmisiIndex + 1) % PIR_DARBE_GECMISI_BOYUTU;
+            // Yeni PIR "bolumu" - Konteyner/ESP32'deki AYNI "on uyari" bip'i
+            // (bkz NANO_BUZZER_PIN yorumu). Gercek alarm/siren zaten
+            // calmiyorsa kisa bir bip verilir - calıyorsa gereksiz, siren
+            // zaten duyulur oldugundan atlanir.
+            if (!roleFizikselDurum) nanoBuzzerChirp();
           }
           pirSonAktifMs = simdiPir;
           pirAcik = true;
@@ -574,6 +588,18 @@ bool nanoMoistureKontrol(bool ac) {
   moistureOutputActive = ac;
   DEBUG_PRINTF("[NANO] Moisture komutu kuyruga alindi: %s\n", komut.c_str());
   return true;
+}
+
+// D12'ye baglanan PASIF buzzer icin - digitalWrite (PIN_WRITE) sabit HIGH/LOW
+// verir, pasif buzzer'in ses cikarmasi icin osilasyon (tone()) gerekir. Nano
+// tarafina bunun icin ozel TONE_PLAY komutu eklendi (2026-08-27, tek seferlik
+// USB reflash ile - genel PIN_WRITE API'si buna yetmiyordu). tone() Nano'da
+// kendi zamanlayicisiyla otomatik durur, burada ayrica "kapat" komutu gerekmez.
+#define BUZZER_CHIRP_FREKANS_HZ 2500
+#define BUZZER_CHIRP_SURE_MS 1000
+void nanoBuzzerChirp() {
+  pendingCmd = {"TONE_PLAY:" + String(NANO_BUZZER_PIN) + "," + String(BUZZER_CHIRP_FREKANS_HZ) + "," + String(BUZZER_CHIRP_SURE_MS), "ACK:TONE_PLAY", 0, 0};
+  nanoMesgul = true;
 }
 
 void moistureOku() {
@@ -1790,7 +1816,7 @@ void setupWiFi() {
 // ile SENKRON tutulmali: DOOR1_PIN=2, DOOR2_PIN=3, RELAY_PIN=4,
 // MOISTURE_PIN=5, PIR_PIN=6, LAMBA_PIN=13.
 bool pinKorumali(int pin) {
-  return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13;
+  return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13 || pin == NANO_BUZZER_PIN;
 }
 
 // ============ SETUP ============
