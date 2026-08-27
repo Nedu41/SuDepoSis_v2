@@ -1984,6 +1984,21 @@ void setup() {
     if (ok) { int eq = r.indexOf('='); if (eq >= 0) deger = r.substring(eq+1).toInt(); }
     server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"pin\":" + String(pin) + ",\"deger\":" + String(deger) + ",\"reply\":\"" + r + "\"}");
   });
+  // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden
+  // "ses geliyor mu" diye aninda kontrol edebilmek icin (2026-08-27, kullanici
+  // "ses gelmiyor" bulgusu sonrasi eklendi). Ornek: /buzzer/test?freq=3000&ms=500
+  server.on("/buzzer/test", []() {
+    int freq = server.hasArg("freq") ? server.arg("freq").toInt() : BUZZER_CHIRP_FREKANS_HZ;
+    int sure = server.hasArg("ms") ? server.arg("ms").toInt() : BUZZER_CHIRP_SURE_MS;
+    while (Serial.available()) Serial.read();
+    Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(freq); Serial.print(","); Serial.println(sure);
+    unsigned long t = millis(); String r = ""; bool ok = false;
+    while (millis() - t < 300) {
+      if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ACK:TONE_PLAY") >= 0) { ok = true; break; } if (r.indexOf("NACK") >= 0) break; }
+      yield();
+    }
+    server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"freq\":" + String(freq) + ",\"ms\":" + String(sure) + ",\"reply\":\"" + r + "\"}");
+  });
   server.on("/pin/readall", []() {
     while (Serial.available()) Serial.read();
     Serial.println("PIN_READ_ALL");
