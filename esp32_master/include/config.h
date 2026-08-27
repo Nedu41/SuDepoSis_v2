@@ -359,9 +359,9 @@
 // alarmLedGuncelle).
 #define KONTEYNER_TETIK_LAMBA_FLASH_TOPLAM_MS 3000   // lamba ilk bu kadar sure pirpir eder
 #define KONTEYNER_TETIK_LAMBA_FLASH_PERIYOT_MS 1000  // her pirpir cevrimi (yanik+sonuk) - 3000/1000=3 kez
-#define KONTEYNER_TETIK_SIREN_GECIKME_MS 10000       // siren ilk bu kadar sessiz kalir
-#define KONTEYNER_TETIK_SIREN_ATIS_MS 300            // her atisin acik kalma suresi
-#define KONTEYNER_TETIK_SIREN_ARALIK_MS 3000         // atislar arasi sessizlik
+// NOT: siren gecikme/atis/aralik/max-sure artik SABIT DEGIL - kullanici
+// talebiyle (2026-08-27) NVS'de kalici, web'den ayarlanabilir hale getirildi
+// (bkz main.cpp konteynerSirenGecikmeSaniye/AtisMs/AralikSaniye/MaxDakika).
 
 // Sari RCA (arka panel, 13'lu ic konnektor pin 4) - amaci henuz belirlenmedi,
 // pinMode input/output yonu belirlenince eklenecek.
