@@ -2715,6 +2715,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .subdet[open]>summary::before{transform:rotate(90deg)}
 .kpi{font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:26px;font-weight:700;letter-spacing:1px;display:inline-block;padding:4px 10px;border-radius:6px;background:#0a0f0a;color:#22ff66;text-shadow:0 0 2px rgba(34,255,102,.9),0 0 8px rgba(34,255,102,.55);border:1px solid #163d1e}
 .kpi.danger{color:#ff3b3b;text-shadow:0 0 2px rgba(255,59,59,.9),0 0 8px rgba(255,59,59,.55);border-color:#611515;animation:pulse 1.2s infinite}
+#kpi-cm.danger,#kpi-litre.danger{color:var(--danger)}
 .kpi small{font-size:12px;color:var(--muted);font-weight:400}
 .bar{background:var(--border);height:18px;border-radius:999px;overflow:hidden;margin-top:8px}
 .bar>div{height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));width:0%;transition:width .4s}
@@ -2815,9 +2816,16 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
     </div>
     <div class="grid">
-      <div class="card"><h3>Depo Doluluk</h3><div class="kpi" id="kpi-pct">--</div><div class="bar"><div id="bar-pct"></div></div></div>
-      <div class="card"><h3>Seviye</h3><div class="kpi" id="kpi-cm">--</div></div>
-      <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div></div>
+      <div class="card"><h3>Depo Doluluk</h3>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div class="kpi" id="kpi-pct">--</div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.7">
+            <div>Seviye: <b id="kpi-cm" style="color:var(--text)">--</b></div>
+            <div>Hacim: <b id="kpi-litre" style="color:var(--text)">--</b></div>
+          </div>
+        </div>
+        <div class="bar"><div id="bar-pct"></div></div>
+      </div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
