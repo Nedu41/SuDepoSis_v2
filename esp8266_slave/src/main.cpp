@@ -1766,9 +1766,15 @@ void performOTA(const String& url) {
     String host; uint16_t port;
     if (parseHttpsHost(url, host, port)) {
       int mfln = client.probeMaxFragmentLength(host.c_str(), port, 512);
+      DEBUG_PRINTF("[OTA] probeMaxFragmentLength(%s:%u) = %d (heap once: %u)\n", host.c_str(), port, mfln, ESP.getFreeHeap());
       if (mfln > 0) client.setBufferSizes(mfln, mfln);
     }
     ret = ESPhttpUpdate.update(client, url);
+    if (ret != HTTP_UPDATE_OK) {
+      char sslErr[128];
+      int sslCode = client.getLastSSLError(sslErr, sizeof(sslErr));
+      DEBUG_PRINTF("[OTA] BearSSL son hata: kod=%d mesaj=%s\n", sslCode, sslErr);
+    }
   } else {
     WiFiClient client;
     ret = ESPhttpUpdate.update(client, url);
