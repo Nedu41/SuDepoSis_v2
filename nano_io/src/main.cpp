@@ -64,10 +64,16 @@ int relayPasifSeviye() { return relayAktifSeviye == HIGH ? LOW : HIGH; }
 // yerine tone() ile kisa bir nota dizisi calinir (2026-08-27).
 #define BUZZER_PIN 12
 void acilisSesiCal() {
+  // Kullanici 2-3 kez tekrarlayan halini begendi (2026-08-27) - eskiden bu
+  // ESP8266->Nano ACK zamanlama bug'inin YAN ETKISIYDI (ongorulemez, 1-3
+  // arasi degisiyordu), simdi BILEREK 2 kez calinip sonra kesin duruyor.
   const int notalar[] = {1800, 2200, 2600};
-  for (int i = 0; i < 3; i++) {
-    tone(BUZZER_PIN, notalar[i], 90);
-    delay(120);
+  for (int tekrar = 0; tekrar < 2; tekrar++) {
+    for (int i = 0; i < 3; i++) {
+      tone(BUZZER_PIN, notalar[i], 90);
+      delay(120);
+    }
+    if (tekrar == 0) delay(150); // iki tekrar arasi kisa bosluk
   }
 }
 
@@ -295,6 +301,19 @@ void handleSerialCommand() {
         } else {
           Serial.println(F("NACK:TONE_STOP:BAD_PIN"));
         }
+      } else if (inputString == F("MELODY_PLAY")) {
+        // ESP8266 kendi restart/OTA sonrasi Nano'yu FIZIKSEL olarak resetlemez
+        // (ayri MCU, ayri reset hatti) - Nano'nun acilis melodisi (acilisSesiCal,
+        // setup()'ta calinir) o durumda hic duyulmaz. ESP8266 ilk basarili
+        // GET_STATUS'tan sonra bu komutu gonderip AYNI melodiyi burada tekrar
+        // caldirir (2026-08-27, kullanici talebi - "restart'ta melodi olsun").
+        // FIX: ACK'i melodiden SONRA gondermek "2 kez calma" bugu yaratti -
+        // acilisSesiCal() ~630ms delay() ile bloklar, ESP8266 tarafi ise
+        // ACK'i sadece 80ms bekliyor, gormeyince komutu TEKRAR gonderiyordu
+        // (her tekrar melodiyi yeniden baslatiyordu). ACK'i ONCE gondermek
+        // ESP8266'yi aninda tatmin edip retry'i onluyor.
+        Serial.println(F("ACK:MELODY_PLAY"));
+        acilisSesiCal();
       } else if (inputString.startsWith(F("PIN_READ:"))) {
         // Genel GPIO: input pin oku
         // Format: PIN_READ:<pin>  (örn: PIN_READ:6)
