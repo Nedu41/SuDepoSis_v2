@@ -1521,6 +1521,31 @@ void handleAlarmLog() {
   j += "]";
   server.send(200, "application/json", j);
 }
+// ESP32 Merkez Kontrol panelindeki handleAPI_AlarmLogTam ile AYNI mantik -
+// "tetikleyen" alani virgul icerebildigi icin sadece ILK IKI virgule kadar bolunur.
+void handleAlarmLogTam() {
+  String j = "[";
+  bool ilk = true;
+  if (LittleFS.exists(ALARM_LOG_DOSYASI)) {
+    File f = LittleFS.open(ALARM_LOG_DOSYASI, "r");
+    if (f) {
+      while (f.available()) {
+        String satir = f.readStringUntil('\n');
+        satir.trim();
+        if (satir.length() == 0) continue;
+        int v1 = satir.indexOf(',');
+        int v2 = (v1 >= 0) ? satir.indexOf(',', v1 + 1) : -1;
+        if (v1 < 0 || v2 < 0) continue;
+        if (!ilk) j += ",";
+        ilk = false;
+        j += "{\"zaman\":\"" + jsonKacir(satir.substring(0, v1)) + "\",\"baslik\":\"" + jsonKacir(satir.substring(v1 + 1, v2)) + "\",\"tetikleyen\":\"" + jsonKacir(satir.substring(v2 + 1)) + "\"}";
+      }
+      f.close();
+    }
+  }
+  j += "]";
+  server.send(200, "application/json", j);
+}
 void handleWifiDurum() {
   bool b = (WiFi.status() == WL_CONNECTED);
   server.send(200, "application/json", "{\"tanimli\":" + String(strlen(wifiAyar.ssid)>0?"true":"false") + ",\"ssid\":\"" + String(wifiAyar.ssid) + "\",\"bagli\":" + String(b?"true":"false") + ",\"ip\":\"" + (b?WiFi.localIP().toString():"-") + "\",\"sifreVar\":" + String(strlen(wifiAyar.sifre)>0?"true":"false") + "}");
@@ -1828,6 +1853,7 @@ void setup() {
   server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
   server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
   server.on("/alarm/log", handleAlarmLog);
+  server.on("/alarm/log/tam", handleAlarmLogTam);
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
   server.on("/wifi/scan", handleWifiScan);

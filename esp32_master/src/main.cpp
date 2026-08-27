@@ -2687,7 +2687,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div id="hata-box" style="margin-top:4px;color:var(--warn);font-size:12px"></div>
         <details id="alarm-log-det" style="margin-top:4px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Son 5 Alarm</summary>
+          <summary id="alarm-log-summary" style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Henüz alarm kaydı yok</summary>
           <div id="alarm-log-list" style="margin-top:4px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
         </details>
       </div>
@@ -3170,6 +3170,17 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <p><b>Kumanda:</b> IR kumanda tuş eşleştirmesi ayrı "Kumanda" sekmesinde - "Yeni Tuş Öğren" ile başlayıp kumandada ilgili tuşa basılınca kod yakalanır, sonra hangi komutu çalıştıracağı seçilir.</p>
       </div>
     </details>
+
+    <details class="card">
+      <summary>📋 Alarm Kayıtları (Günlük / Aylık)</summary>
+      <p style="font-size:12px;color:var(--muted)">Genel sayfadaki "Son 5 Alarm" sadece en yeni 5 kaydı RAM'den gösterir - burası SPIFFS'teki kalıcı günlüğün (reboot'lara dayanıklı) tamamını okur.</p>
+      <div class="row" style="gap:16px">
+        <div style="flex:1;min-width:180px"><p class="sz-label">Günlük Özet</p><div id="alarm-log-gunluk" style="font-size:12px">Yükleniyor...</div></div>
+        <div style="flex:1;min-width:180px"><p class="sz-label">Aylık Özet</p><div id="alarm-log-aylik" style="font-size:12px">Yükleniyor...</div></div>
+      </div>
+      <p class="sz-label" style="margin-top:12px">Tüm Kayıtlar</p>
+      <div id="alarm-log-tam" style="font-size:12px;max-height:300px;overflow-y:auto">Yükleniyor...</div>
+    </details>
   </div>
 </div>
 
@@ -3230,6 +3241,7 @@ function show(id){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('nav-'+id).classList.add('active');
   try{ localStorage.setItem('sonSekme', id); }catch(e){}
+  if(id==='bilgiler' && typeof alarmLoguTamYukle==='function') alarmLoguTamYukle();
 }
 (function(){
   try{
@@ -3980,12 +3992,43 @@ yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 function alarmLoguYukle(){
   api('/api/alarm/log').then(list=>{
+    const sum=$('#alarm-log-summary');
     const el=$('#alarm-log-list'); if(!el) return;
-    if(!Array.isArray(list) || list.length===0){ el.textContent='Kayıtlı alarm yok'; return; }
+    if(!Array.isArray(list) || list.length===0){
+      el.textContent='Kayıtlı alarm yok';
+      if(sum) sum.textContent='▸ Henüz alarm kaydı yok';
+      return;
+    }
+    const k0=list[0];
+    if(sum) sum.textContent='▸ Son alarm: '+(k0.zaman||'-')+' - '+(k0.baslik||'-')+' ('+(k0.tetikleyen||'-')+')';
     el.innerHTML = list.map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
   }).catch(()=>{});
 }
 setInterval(alarmLoguYukle, 15000); alarmLoguYukle();
+function alarmLoguTamYukle(){
+  const tamEl=$('#alarm-log-tam'), gunEl=$('#alarm-log-gunluk'), ayEl=$('#alarm-log-aylik');
+  if(!tamEl) return;
+  api('/api/alarm/log/tam').then(list=>{
+    if(!Array.isArray(list) || list.length===0){
+      tamEl.textContent='Kayıtlı alarm yok'; if(gunEl) gunEl.textContent='-'; if(ayEl) ayEl.textContent='-';
+      return;
+    }
+    // zaman formati "DD/MM/YYYY HH:MM:SS" - gunluk grup icin ilk 10 karakter,
+    // aylik grup icin MM/YYYY (3-10 arasi).
+    const gunSay={}, aySay={};
+    list.forEach(k=>{
+      const z=k.zaman||''; const gun=z.substring(0,10); const ay=z.substring(3,10);
+      if(gun) gunSay[gun]=(gunSay[gun]||0)+1;
+      if(ay) aySay[ay]=(aySay[ay]||0)+1;
+    });
+    const gunSirali=Object.keys(gunSay).sort().reverse();
+    const aySirali=Object.keys(aySay).sort().reverse();
+    if(gunEl) gunEl.innerHTML = gunSirali.map(g=>'<div>'+g+': <b>'+gunSay[g]+'</b></div>').join('') || '-';
+    if(ayEl) ayEl.innerHTML = aySirali.map(a=>'<div>'+a+': <b>'+aySay[a]+'</b></div>').join('') || '-';
+    tamEl.innerHTML = list.slice().reverse().map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
+  }).catch(()=>{ tamEl.textContent='Yüklenemedi'; });
+}
+if(document.getElementById('bilgiler') && document.getElementById('bilgiler').classList.contains('active')) alarmLoguTamYukle();
 // Son 5 Alarm listesi normalde kapali (tek satir) - tiklayinca (native
 // <details>) veya fare ile ustune gelince acilsin.
 (function(){
@@ -4573,6 +4616,35 @@ void handleAPI_AlarmLog() {
   for (uint8_t i = 0; i < alarmLogRAMDolu; i++) {
     if (i) j += ",";
     j += "{\"zaman\":\"" + jsonKacir(alarmLogRAM[i].zaman) + "\",\"baslik\":\"" + jsonKacir(alarmLogRAM[i].baslik) + "\",\"tetikleyen\":\"" + jsonKacir(alarmLogRAM[i].tetikleyen) + "\"}";
+  }
+  j += "]";
+  server.send(200, "application/json", j);
+}
+
+// Bilgiler sekmesindeki "Alarm Kayitlari" - RAM'deki son-5'ten FARKLI olarak
+// SPIFFS'teki /alarm_log.csv'nin TAMAMINI okur (gunluk/aylik ozet ve tam
+// liste icin). CSV alanlari virgulle ayrilir AMA "tetikleyen" alani kendi
+// icinde de virgul icerebilir (", " ile birlesmis liste) - bu yuzden sadece
+// ILK IKI virgule kadar bolunur, geri kalani oldugu gibi tetikleyen'e gider.
+void handleAPI_AlarmLogTam() {
+  String j = "[";
+  bool ilk = true;
+  if (SPIFFS.exists(ALARM_LOG_DOSYASI)) {
+    File f = SPIFFS.open(ALARM_LOG_DOSYASI, "r");
+    if (f) {
+      while (f.available()) {
+        String satir = f.readStringUntil('\n');
+        satir.trim();
+        if (satir.length() == 0) continue;
+        int v1 = satir.indexOf(',');
+        int v2 = (v1 >= 0) ? satir.indexOf(',', v1 + 1) : -1;
+        if (v1 < 0 || v2 < 0) continue;
+        if (!ilk) j += ",";
+        ilk = false;
+        j += "{\"zaman\":\"" + jsonKacir(satir.substring(0, v1)) + "\",\"baslik\":\"" + jsonKacir(satir.substring(v1 + 1, v2)) + "\",\"tetikleyen\":\"" + jsonKacir(satir.substring(v2 + 1)) + "\"}";
+      }
+      f.close();
+    }
   }
   j += "]";
   server.send(200, "application/json", j);
@@ -5466,6 +5538,7 @@ void setupWebServer() {
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
   server.on("/api/konteyner/swan_ayar", handleAPI_KonteynerSwanAyar);
   server.on("/api/alarm/log", handleAPI_AlarmLog);
+  server.on("/api/alarm/log/tam", handleAPI_AlarmLogTam);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
