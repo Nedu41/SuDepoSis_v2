@@ -4407,8 +4407,13 @@ void handleOTA() {
   http.end();
 
   server.send(200, "application/json", "{\"basarili\":" + String(basarili ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}");
+  // FIX (esp8266_slave'deki AYNI sikayet, 2026-08-27): 200ms gecikme yaniti
+  // tarayiciya tam ulastirmaya yetmeyebiliyordu - guvenliRestart() WiFi'yi
+  // sert kapatinca fetch() ne basariya ne hataya duser, buton sonsuza kadar
+  // "Guncelleniyor..." yazili kaliyordu. 500ms + flush ile ayni duzeltme.
   if (basarili) {
-    delay(200);
+    server.client().flush();
+    delay(500);
     guvenliRestart();
   }
 }
@@ -4417,7 +4422,8 @@ void handleOTA() {
 void handleFileUploadUpdate() {
   server.sendHeader("Connection", "close");
   server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
-  delay(100);
+  server.client().flush();
+  delay(500); // bkz yukaridaki OTA yorumu
   guvenliRestart();
 }
 
@@ -5586,6 +5592,7 @@ void guvenliRestart() {
 
 void handleAPI_Restart() {
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Yeniden baslatiliyor\"}");
+  server.client().flush();
   delay(500);
   guvenliRestart();
 }
