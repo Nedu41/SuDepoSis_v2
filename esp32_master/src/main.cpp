@@ -2743,6 +2743,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}
 .led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}
 .led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}
+/* "Karta/gostergeye tikla, ilgili ayara git" kisayolu (kullanici talebi,
+   2026-08-27) - tum kartlar/projelerde tutarli kullanilacak genel sinif. */
+.tikla{cursor:pointer;transition:opacity .15s}
+.tikla:hover{opacity:.72}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
 /* Etiket:deger listeleri (Sudepo/ESP8266'daki .info p ile AYNI desen, tum
    projelerde tutarli olsun diye buraya da eklendi - kullanici talebi,
@@ -2826,20 +2830,20 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <div class="grid">
       <div class="card" style="grid-column:span 2"><h3>Konteyner Sensörleri</h3>
         <div class="row" style="gap:16px;margin-top:0;align-items:center;flex-wrap:wrap">
-          <div><span class="led led-big" id="db-pir"></span> PIR</div>
-          <div><span class="led led-big" id="db-swan"></span> Swan PIR</div>
-          <div><span class="led led-big" id="db-kapi"></span> Kapı</div>
-          <div><span class="led led-big" id="db-duman"></span> Duman</div>
-          <div><span class="led led-big" id="db-gaz"></span> Gaz</div>
-          <div><span class="led led-big" id="db-siren"></span> Siren</div>
-          <div><span class="led led-big" id="db-acillamba"></span> Acil Lamba</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-pir')"><span class="led led-big" id="db-pir"></span> PIR</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-swan')"><span class="led led-big" id="db-swan"></span> Swan PIR</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-sensorAktif')"><span class="led led-big" id="db-kapi"></span> Kapı</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-gazduman')"><span class="led led-big" id="db-duman"></span> Duman</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-gazduman')"><span class="led led-big" id="db-gaz"></span> Gaz</div>
+          <div class="tikla" onclick="gitAyar('ayar-kz-siren')"><span class="led led-big" id="db-siren"></span> Siren</div>
+          <div class="tikla" onclick="gitKontrol('acil-lamba-btn')"><span class="led led-big" id="db-acillamba"></span> Acil Lamba</div>
         </div>
         <div class="row" style="margin-top:10px;gap:24px;font-size:12px;color:var(--muted)">
           <div>Gaz (MQ6): <b id="db-mq6">-</b></div>
           <div>Duman (GP2Y10): <b id="db-gp2y10">-</b></div>
         </div>
       </div>
-      <div class="card"><h3>Depo Doluluk</h3>
+      <div class="card tikla" onclick="gitAyar('ayar-sudepo')"><h3>Depo Doluluk</h3>
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div class="kpi" id="kpi-pct">--</div>
           <div style="font-size:13px;color:var(--muted);line-height:1.7">
@@ -2849,7 +2853,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div class="bar"><div id="bar-pct"></div></div>
       </div>
-      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
+      <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
@@ -2968,7 +2972,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div id="telegram-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card zone-sudepo">
+    <details class="card zone-sudepo" id="ayar-sudepo">
       <summary>🚰 Su Deposu Zonu - Ayarlar <small id="sum-sudepo" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted)">Karar/yürütme hâlâ ESP8266+Nano'da yapılır (RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için köprü. Sudepo.local aynı ayarları gösterir.</p>
       <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
@@ -3048,7 +3052,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
 
       <p class="sz-label" style="margin-top:12px">Sensör Aktif/Pasif</p>
-      <div class="row" style="gap:16px">
+      <div class="row" style="gap:16px" id="ayar-kz-sensorAktif">
         <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> HC505-1 PIR Aktif</label>
         <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
@@ -3057,7 +3061,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:4px">Henüz kablolanmamış/arızalı bir sensörü buradan pasif yapabilirsiniz - pasifken hâlâ yukarıdaki "Canlı Durum"da ham değeri görünür ama alarma/banner'a hiç katkı yapmaz.</p>
 
-      <details class="subdet" style="margin-top:12px">
+      <details class="subdet" style="margin-top:12px" id="ayar-kz-gazduman">
         <summary>Gaz (MQ6) &amp; Duman (GP2Y10)</summary>
         <div class="row" style="gap:16px;margin-top:6px">
           <div style="font-size:12px;color:var(--muted)">MQ6: <b id="kz-mq6">-</b></div>
@@ -3073,7 +3077,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <p style="font-size:11px;color:var(--muted);margin-top:4px">MQ6'ün ısıtıcısı artık adaptif: gündüz ana güç (solar) ≥26V ise sürekli açık; gece/düşük güçte yedek akü doluluğuna göre 3dk/6dk/10dk'da bir 60sn açılıp kapanıyor (akü zayıfken en konservatif 10dk). Gösterilen değer, döngü kapalıyken en fazla o döngü kadar eski olabilir. GP2Y10'un ısıtıcısı yok, her zaman canlı (2sn'de bir tazelenir).</p>
       </details>
 
-      <details class="subdet" style="margin-top:8px">
+      <details class="subdet" style="margin-top:8px" id="ayar-kz-pir">
         <summary>HC505-1 PIR Hassasiyet</summary>
         <p style="font-size:12px;color:var(--muted);margin-top:6px">HC-SR505'in potansiyometresi yok, tetiklenince çıkışı sabit ~6-12sn HIGH'ta kalır. "Hassasiyet" bu yüzden iki kademeli süre mantığıyla ayarlanır: her yeni harekette hemen 1sn'lik bir bip/LED darbesi verilir (henüz alarm değil); hareket kesintisiz "Onay Süresi" kadar sürerse GERÇEK alarm sayılır.</p>
         <div class="sz-grid" style="margin-top:6px">
@@ -3083,7 +3087,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği.</p>
       </details>
 
-      <details class="subdet" style="margin-top:8px">
+      <details class="subdet" style="margin-top:8px" id="ayar-kz-swan">
         <summary>Swan PIR Zamanlama</summary>
         <p style="font-size:12px;color:var(--muted);margin-top:6px">Swan Quad PET PIR'in kendi donanımsal debounce/evcil-hayvan-bağışıklığı var, bu yüzden varsayılan olarak (0/0) kapı gibi ANINDA eskale eder. Sahada yanlış tetiklenme yaşarsanız buraya da HC505-1 PIR'daki gibi bir Tutma/Onay süresi girebilirsiniz - 0 bırakılırsa davranış değişmez.</p>
         <div class="sz-grid" style="margin-top:6px">
@@ -3093,7 +3097,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <p style="font-size:11px;color:var(--muted);margin-top:4px">0/0 = anında eskale (varsayılan/eski davranış). Onay Süresi &gt; 0 girilirse, hareket kesintisiz o kadar sürmeden GERÇEK alarma dönüşmez.</p>
       </details>
 
-      <details class="subdet" style="margin-top:8px">
+      <details class="subdet" style="margin-top:8px" id="ayar-kz-siren">
         <summary>Siren Zamanlama</summary>
         <p style="font-size:12px;color:var(--muted);margin-top:6px">Siren, İlk Gecikme sonra kısa Atış/Aralık döngüsünü tetik bitene kadar tekrarlar (sürekli kesintisiz çalmaz - Sudepo Zonu ile aynı prensip). Panik/Gaz bu mantığı atlar (anında sürekli çalar). En fazla Max Süre kesintisiz çalarsa otomatik susturulur, bir sonraki YENİ tetiklenmeye kadar öyle kalır.</p>
         <div class="sz-grid" style="margin-top:6px">
@@ -3137,7 +3141,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div id="batarya-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card">
+    <details class="card" id="ayar-anaguc">
       <summary>⚡ Ana Güç (24V) İzleme Eşikleri <small id="sum-anaguc" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Ana hat voltajı ADS1115 (I2C) ile izlenir. Eşiklerin altına inince SADECE bildirim (Telegram) gönderilir - hiçbir röle/lamba otomatik açılmaz. Acil Durum Lambasını Kontrol sekmesinden manuel açabilirsiniz.</p>
       <div class="sz-grid">
@@ -3432,6 +3436,27 @@ function show(id){
   try{ localStorage.setItem('sonSekme', id); }catch(e){}
   if(id==='bilgiler' && typeof alarmLoguTamYukle==='function') alarmLoguTamYukle();
   if(id==='bilgiler' && typeof suAkisiYukle==='function') suAkisiYukle();
+}
+// Genel "karta/gostergeye tikla, ilgili ayara git" kisayolu (kullanici
+// talebi, 2026-08-27: "ana guc kartina tikladigimda ana guc ayarlarina
+// gitsin, swan pira tikladigimda onun ayarina gitsin - bu kisa yolu tum
+// projelerimizde tanimlayalim"). Ayarlar sekmesine gecer, hedef elemani
+// (ve varsa kapali ust <details> zincirini) acar, gorunur alana kaydirir.
+function gitAyar(hedefId){
+  show('ayarlar');
+  const el = document.getElementById(hedefId);
+  if(!el) return;
+  if(el.tagName === 'DETAILS') el.open = true;
+  let p = el.parentElement;
+  while(p){ if(p.tagName === 'DETAILS') p.open = true; p = p.parentElement; }
+  setTimeout(()=>{ el.scrollIntoView({behavior:'smooth', block:'start'}); }, 60);
+}
+// Ayarlar sekmesinde degil, Kontrol sekmesinde bir elemana gitmek icin (orn.
+// Acil Durum Lambasi butonu Ayarlar'da degil Kontrol'de).
+function gitKontrol(hedefId){
+  show('kontrol');
+  if(!hedefId) return;
+  setTimeout(()=>{ const el=document.getElementById(hedefId); if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); }, 60);
 }
 (function(){
   try{
