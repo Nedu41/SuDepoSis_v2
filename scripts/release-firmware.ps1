@@ -51,3 +51,11 @@ foreach ($t in $targets) {
 }
 
 Write-Host "`nTamamlandi. Simdi 'git add esp32_master/firmware esp8266_slave/firmware' + commit + push gerekiyor." -ForegroundColor Green
+
+# esp8266_slave GITHUB_FIRMWARE_URL artik cdn.jsdelivr.net uzerinden servis
+# ediyor (2026-08-27, raw.githubusercontent.com'un ESP8266 BearSSL ile
+# uyumsuzlugu icin - bkz config.h'daki GITHUB_FIRMWARE_URL yorumu). jsDelivr
+# ~7 gun onbellekliyor - PUSH SONRASI bu adim calistirilmazsa cihaz eski
+# firmware'i cekmeye devam eder.
+Write-Host "`nONEMLI: git push BITTIKTEN SONRA jsDelivr onbellegini temizle:" -ForegroundColor Yellow
+Write-Host "  Invoke-RestMethod https://purge.jsdelivr.net/gh/Nedu41/SuDepoSis_v2@main/esp8266_slave/firmware/esp8266.bin" -ForegroundColor Yellow
