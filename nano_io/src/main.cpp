@@ -59,6 +59,18 @@ void relayPolariteKaydet(bool aktifHigh) {
 
 int relayPasifSeviye() { return relayAktifSeviye == HIGH ? LOW : HIGH; }
 
+// Acilis "hazir" onay sesi - Konteyner/ESP32'deki acilisSesiCal() ile ayni
+// amac, ama D12'deki buzzer PASIF oldugundan (kendi osilatoru yok) HIGH/LOW
+// yerine tone() ile kisa bir nota dizisi calinir (2026-08-27).
+#define BUZZER_PIN 12
+void acilisSesiCal() {
+  const int notalar[] = {1800, 2200, 2600};
+  for (int i = 0; i < 3; i++) {
+    tone(BUZZER_PIN, notalar[i], 90);
+    delay(120);
+  }
+}
+
 // ============================================================
 // SETUP
 // ============================================================
@@ -80,6 +92,8 @@ void setup() {
   digitalWrite(LAMBA_PIN, LAMBA_OFF_STATE); // Lamba başta kapalı
   digitalWrite(MOISTURE_PIN, LOW);         // Nem kontrolu kapali
   moisture_output = false;
+
+  acilisSesiCal();
 
   delay(1000);
 }
@@ -269,6 +283,17 @@ void handleSerialCommand() {
           }
         } else {
           Serial.println(F("NACK:TONE_PLAY:FORMAT"));
+        }
+      } else if (inputString.startsWith(F("TONE_STOP:"))) {
+        // TONE_PLAY erken kesmek icin (orn. gercek alarm/siren rolesi kapanirken
+        // devam eden uzun-sureli buzzer tonunu hemen susturmak - bkz esp8266_slave
+        // nanoBuzzerKontrol). Format: TONE_STOP:<pin> (orn: TONE_STOP:12)
+        int pin = inputString.substring(10).toInt();
+        if (pin >= 2 && pin <= 19) {
+          noTone(pin);
+          Serial.println(F("ACK:TONE_STOP"));
+        } else {
+          Serial.println(F("NACK:TONE_STOP:BAD_PIN"));
         }
       } else if (inputString.startsWith(F("PIN_READ:"))) {
         // Genel GPIO: input pin oku

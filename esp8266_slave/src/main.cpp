@@ -415,6 +415,7 @@ bool geceModuMu() {
 }
 
 // ============ NANO HABERLESME ============
+void nanoBuzzerKontrolPoll(); // asagida tanimli - nanoPoll() bundan once kullaniyor
 // Bekleyen komut kuyruğu - GET_STATUS ile çakışmayı önler
 struct NanoPendingCmd {
   String komut;         // "LAMBA_ON", "LAMBA_OFF", vb.
@@ -540,6 +541,11 @@ void nanoPoll() {
     return; // Pending komut varken GET_STATUS gönderme
   }
 
+  // Buzzer hedefi (alarm rolesini izler) degistiyse GET_STATUS'tan ONCE
+  // gonder - alarm sesi periyodik pollun arkasinda gecikmesin.
+  nanoBuzzerKontrolPoll();
+  if (pendingCmd.komut.length() > 0) return;
+
   // --- Periyodik GET_STATUS ---
   if (simdi - son < NANO_POLL_INTERVAL) return;
   son = simdi;
@@ -602,6 +608,31 @@ void nanoBuzzerChirp() {
   nanoMesgul = true;
 }
 
+// Sudepo zonunda henuz ayri/harici bir siren cihazi YOK (2026-08-27) - alarm
+// rolesi (D4, nanoRoleKontrol) su an hicbir sey calistirmiyor, tek sesli
+// kaynak Nano'nun D12 pasif buzzer'i. Bu yuzden roleFizikselDurum'un HER
+// degisimi (nanoRoleKontrol icinde) bu hedefi de guncelliyor, nanoPoll()
+// pendingCmd bosken (GET_STATUS/diger komutlarla CAKISMADAN, tek-slot seri
+// protokolune uygun) TONE_PLAY/TONE_STOP gonderiyor. Boylece siren FSM'inin
+// (sirenFaz: gecikme/chirp/bekleme/aktif) zaten hesapladigi ac/kapa
+// zamanlamasi dogrudan buzzer'da duyulur - harici siren eklendiginde bu
+// bagimlilik kaldirilmaz, ikisi ayni anda calismaya devam eder.
+#define BUZZER_ALARM_MAX_MS 130000UL // guvenlik ust siniri (en uzun sirenAktifSaniye=120s'i asar) - TONE_STOP normalde cok daha once gelir
+bool buzzerHedefAktif = false;
+bool buzzerSonGonderilenAktif = false;
+
+void nanoBuzzerKontrolPoll() {
+  if (pendingCmd.komut.length() > 0 || nanoMesgul) return; // tek-slot protokol - mevcut komutu ezme
+  if (buzzerHedefAktif == buzzerSonGonderilenAktif) return;
+  if (buzzerHedefAktif) {
+    pendingCmd = {"TONE_PLAY:" + String(NANO_BUZZER_PIN) + "," + String(BUZZER_CHIRP_FREKANS_HZ) + "," + String(BUZZER_ALARM_MAX_MS), "ACK:TONE_PLAY", 0, 0};
+  } else {
+    pendingCmd = {"TONE_STOP:" + String(NANO_BUZZER_PIN), "ACK:TONE_STOP", 0, 0};
+  }
+  nanoMesgul = true;
+  buzzerSonGonderilenAktif = buzzerHedefAktif;
+}
+
 void moistureOku() {
   moistureRaw = analogRead(A0);
   moisturePercent = 100.0 - (moistureRaw * 100.0 / 1023.0);
@@ -657,6 +688,7 @@ bool nanoRoleKontrol(bool tetikle) {
   nanoMesgul = true;
 
   roleFizikselDurum = tetikle;
+  buzzerHedefAktif = tetikle; // bkz nanoBuzzerKontrolPoll - harici siren yokken buzzer roleyi izler
   DEBUG_PRINTF("[NANO] Role komutu kuyruga alindi: %s\n", komut.c_str());
   return true;
 }
@@ -1321,7 +1353,15 @@ void handleCSS() {
   css += "@keyframes dalga{0%{transform:translateX(0)}50%{transform:translateX(25%) translateY(-5px)}100%{transform:translateX(0)}}";
   css += ".seviye-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;font-weight:bold;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.5);z-index:2}";
   css += ".info{padding:14px;background:var(--tab-bg);border-radius:10px;margin:10px 0}";
+  // FIX (kullanici sikayeti, 2026-08-27): etiket ("Sol Kapi:" vb.) uzunlugu
+  // satirdan satira degistiginden LED/deger farkli x konumlarinda kaliyor,
+  // "girintili cikintili" gorunuyordu. ILK DENEME (space-between) LED'i
+  // kart kenarina kadar itip etiketten kopardigi icin GERI ALINDI - kullanici
+  // "yakinlarda ama hizali" istedi. Cozum: etikete sabit genislik (.info-label),
+  // deger/LED hemen ardindan sabit x konumunda baslar (bkz web/index.html'de
+  // etiketlerin <span class=info-label> icine alinmasi).
   css += ".info p{margin:6px 0;font-size:14px;display:flex;align-items:center;gap:6px}";
+  css += ".info-label{min-width:78px;color:var(--muted)}";
   css += ".info strong{color:var(--primary)}";
   css += ".btn-satir{display:flex;gap:8px;margin:16px 0 6px;flex-wrap:wrap}";
   css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:8px;border:none;font-size:14px;cursor:pointer;font-weight:600;min-width:120px}";
