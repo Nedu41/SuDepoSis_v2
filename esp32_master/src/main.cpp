@@ -2701,7 +2701,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div id="hata-box" style="margin-top:4px;color:var(--warn);font-size:12px"></div>
         <details id="alarm-log-det" style="margin-top:4px">
-          <summary style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Alarm Geçmişi</summary>
+          <summary id="alarm-log-summary" style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ -</summary>
           <div id="alarm-log-list" style="margin-top:4px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
         </details>
       </div>
@@ -4017,8 +4017,15 @@ yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 function alarmLoguYukle(){
   api('/api/alarm/log').then(list=>{
+    const sum=$('#alarm-log-summary');
     const el=$('#alarm-log-list'); if(!el) return;
-    if(!Array.isArray(list) || list.length===0){ el.textContent='Kayıtlı alarm yok'; return; }
+    if(!Array.isArray(list) || list.length===0){
+      if(sum) sum.textContent='▸ -';
+      el.textContent='Kayıtlı alarm yok';
+      return;
+    }
+    const k0=list[0];
+    if(sum) sum.textContent='▸ '+(k0.zaman||'-')+' - '+(k0.baslik||'-')+' ('+(k0.tetikleyen||'-')+')';
     el.innerHTML = list.map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
   }).catch(()=>{});
 }

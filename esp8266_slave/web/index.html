@@ -30,7 +30,7 @@
 <details class=card open><summary>Alarm Durumu</summary>
 <div style='display:flex;align-items:center;gap:8px;padding:0 16px'><span class=sysdot id=sysDot></span><b id=sysText style='font-size:13px'></b></div>
 <div class=info id=alarmDurumKutu>Yukleniyor...</div>
-<details id=alarmLogDet style='margin:0 16px 16px'><summary style='cursor:pointer;font-size:12px;color:var(--muted);list-style:none'>&#9656; Alarm Gecmisi</summary><div id=alarmLogList style='margin-top:6px;font-size:12px;color:var(--muted);max-height:110px;overflow-y:auto'>Yukleniyor...</div></details>
+<details id=alarmLogDet style='margin:0 16px 16px'><summary id=alarmLogSummary style='cursor:pointer;font-size:12px;color:var(--muted);list-style:none'>&#9656; -</summary><div id=alarmLogList style='margin-top:6px;font-size:12px;color:var(--muted);max-height:110px;overflow-y:auto'>Yukleniyor...</div></details>
 </details>
 <details class=card><summary>Alarm Modu <small id=sum-alarmmod style='margin-left:auto;font-weight:400;color:var(--muted)'></small></summary><p class=muted>Tetiklenince sistemin nasil davranacagini secin.</p><label class=cb><input type=radio name=alarmMod id=mod1 value=1> 1 - Sesli (siren hemen calisir)</label><label class=cb><input type=radio name=alarmMod id=mod2 value=2> 2 - Sessiz (siren calismaz, sadece bildirim)</label><label class=cb><input type=radio name=alarmMod id=mod3 value=3> 3 - Sadece uyari mesaji (onay verince sesli gibi calisir)</label></details>
 <details class=card><summary>Alarm Esigi ve Gece Saatleri</summary><label>Alarm %</label><input type=number step=1 id=alarmYuzde><label>Gece bas</label><input type=number min=0 max=23 id=geceBaslangic><label>Gece bit</label><input type=number min=0 max=23 id=geceBitis></details>
