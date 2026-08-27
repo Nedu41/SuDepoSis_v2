@@ -220,10 +220,10 @@ bool alarmCikisLambaIstenen = false; // Bu dongude lamba flasinin acik olmasi ge
 unsigned long lambaMinSureBaslangicMs = 0; // 0 = lamba hedefi su an kapali; !=0 ise bu andan itibaren LAMBA_MIN_SURE_MS boyunca lamba acik tutulur
 #define LAMBA_MIN_SURE_MS (60UL * 1000UL) // Sustur/tetikleyici erken temizlense bile lamba en az bu kadar yanik kalir
 bool alarmSusturuldu = false;   // Susturma - tetikleyici aktifken siren susturulur (mesaj/banner kalir)
-unsigned long sirenEpisodeBaslangicMs = 0; // 0 = siren cikisi su an secili degil - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir (bkz asagidaki kademeli zamanlama deseni)
-uint8_t sirenFaz = 0;              // 0=ilk gecikme,1=chirp,2=bekleme,3=aktif (Konteyner/ESP32 ile ayni mantik)
+unsigned long sirenEpisodeBaslangicMs = 0; // 0 = siren cikisi su an secili degil - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir (bkz asagidaki tekrarlayan-atis deseni)
+uint8_t sirenFaz = 0;              // 0=ilk gecikme,1=atis-acik,2=atislar-arasi (Konteyner/ESP32 ile BIREBIR ayni mantik, 2026-08-27)
 unsigned long sirenFazBaslangicMs = 0;
-#define SIREN_MAX_SURE_MS (2UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi, Konteyner/ESP32 ile ayni deger) otomatik susturulur - ESP8266'nin Telegram'i olmadigindan bildirim gitmez, sadece susturulur
+#define SIREN_MAX_SURE_MS (5UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi) otomatik susturulur - bir sonraki YENI tetiklenmeye kadar boyle kalir (kullanici talebi, 2026-08-27: "en fazla 5dk aktif olsunlar"). ESP8266'nin Telegram'i olmadigindan bildirim gitmez, sadece susturulur
 unsigned long lambaSurekliBaslangicMs = 0; // 0 = alarm-tetikli lamba su an surekli yanmiyor
 #define LAMBA_MAX_SURE_MS (10UL * 60UL * 1000UL) // alarm-tetikli lamba (manuel haric) bu kadar kesintisiz yanarsa zorla soner - Konteyner/ESP32 ile ayni deger, enerji butcesi ust siniri
 bool alarmOnayBekliyor = false; // Mod 3 (Onayli): tetiklendi, onay bekleniyor
@@ -745,13 +745,14 @@ void masterGonder() {
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     kapi1Acik ? 1 : 0,
     kapi2Acik ? 1 : 0,
     roleFizikselDurum ? 1 : 0,
     lambaAcik ? 1 : 0,
+    nanoBaglantiVar ? 1 : 0,
     ayar.alarmRoleAktif ? 1 : 0,
     sensorHatasi ? 1 : 0,
     rtcHazir ? 1 : 0,
@@ -2246,12 +2247,17 @@ void loop() {
           sirenSeciliHam = false;
           lambaHedefHam = false;
         }
-        // Kademeli zamanlama deseni (kullanici talebi, "yanlis tetiklerden
-        // etkilenmemek icin", Konteyner/ESP32 ile ayni mantik): tetik
-        // baslangicindan ayar.sirenGecikmeSaniye sonra kisa ayar.sirenChirpMs'lik
-        // bir "chirp" calar, sonra ayar.sirenBeklemeSaniye sessiz kalir - tetik
-        // hala suruyorsa ayar.sirenAktifSaniye boyunca SUREKLI calar; bu
-        // bekleme/aktif dongusu tetik bitene kadar TEKRARLANIR.
+        // Tekrarlayan-atis deseni (2026-08-27, kullanici talebi: "Sudepo
+        // siren prensibi de Kalburum'unkiyle ayni olsun") - Konteyner/ESP32
+        // ile BIREBIR ayni mantik (bkz alarmLedGuncelle/konteynerAnimasyonluTetik
+        // yorumu): eski "gecikme+chirp+bekleme+UZUN SUREKLI aktif" deseni
+        // 2026-08-25'te Konteyner'de KALDIRILMISTI, Sudepo o guncellemeyi hic
+        // almamisti. Simdi ayni: tetik baslangicindan ayar.sirenGecikmeSaniye
+        // sonra, ayar.sirenChirpMs acik / ayar.sirenBeklemeSaniye kapali
+        // seklinde KISA ATISLAR tetik bitene kadar SONSUZA TEKRARLANIR - ayrı
+        // bir "uzun sureli surekli aktif" fazi YOK (eski sirenAktifSaniye
+        // ayari artik kullanilmiyor, sadece EEPROM/API uyumlulugu icin
+        // struct'ta duruyor).
         bool sirenIstenen;
         if (sirenSeciliHam) {
           unsigned long simdiMs = millis();
@@ -2263,23 +2269,18 @@ void loop() {
           unsigned long gecikmeMs = (unsigned long)ayar.sirenGecikmeSaniye * 1000UL;
           unsigned long chirpMs = (unsigned long)ayar.sirenChirpMs;
           unsigned long beklemeMs = (unsigned long)ayar.sirenBeklemeSaniye * 1000UL;
-          unsigned long aktifMs = (unsigned long)ayar.sirenAktifSaniye * 1000UL;
           switch (sirenFaz) {
             case 0: // ilk gecikme - sessiz
               sirenIstenen = false;
               if (simdiMs - sirenFazBaslangicMs >= gecikmeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
               break;
-            case 1: // chirp
+            case 1: // atis - acik
               sirenIstenen = true;
               if (simdiMs - sirenFazBaslangicMs >= chirpMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
               break;
-            case 2: // bekleme (chirp sonrasi VEYA aktif-periyot sonrasi)
+            default: // 2: atislar arasi - kapali
               sirenIstenen = false;
-              if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 3; sirenFazBaslangicMs = simdiMs; }
-              break;
-            default: // 3: tam aktif
-              sirenIstenen = true;
-              if (simdiMs - sirenFazBaslangicMs >= aktifMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+              if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
               break;
           }
         } else {
