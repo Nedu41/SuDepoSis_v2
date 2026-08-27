@@ -1,6 +1,6 @@
 function temaAyarla(k){document.body.classList.toggle('dark',k);document.getElementById('temaBtn').innerHTML=k?'Sun':'Moon';localStorage.setItem('tema',k?'dark':'light')}
 function temaDegistir(){temaAyarla(!document.body.classList.contains('dark'))}
-function sekmeAc(ad){document.querySelectorAll('.sekme-icerik').forEach(e=>e.style.display='none');document.getElementById('sekme-'+ad).style.display='block';document.querySelectorAll('.sekme-btn').forEach(b=>b.classList.remove('aktif'));document.querySelector('[data-sekme="'+ad+'"]').classList.add('aktif');try{localStorage.setItem('sonSekme',ad);}catch(e){}if(ad=='kayitlar')kayitlariYukle();if(ad=='ayarlar'){loadAyarlar();wifiDurumYukle();}if(ad=='alarm'){loadAyarlar();loadTriggers();}}
+function sekmeAc(ad){document.querySelectorAll('.sekme-icerik').forEach(e=>e.style.display='none');document.getElementById('sekme-'+ad).style.display='block';document.querySelectorAll('.sekme-btn').forEach(b=>b.classList.remove('aktif'));document.querySelector('[data-sekme="'+ad+'"]').classList.add('aktif');try{localStorage.setItem('sonSekme',ad);}catch(e){}if(ad=='kayitlar')kayitlariYukle();if(ad=='ayarlar'){loadAyarlar();wifiDurumYukle();}if(ad=='alarm'){loadAyarlar();loadTriggers();alarmLoguTamYukle();}}
 var alarmModAdi={1:'Sesli',2:'Sessiz',3:'Onayli'};
 var tetikleyiciAdlari=['Sol Kapi','Sag Kapi','PIR','Su Seviyesi','Kacak','Sensor Hatasi'];
 function tetikleyenMetni(mask,panicAktif){
@@ -68,5 +68,19 @@ function otaDosyaOnay(){var f=document.getElementById('otaDosya').files[0];if(!f
 function restartSistem(){if(!confirm('Cihaz yeniden baslatilsin mi?'))return;document.getElementById('restartSonuc').innerHTML='Yeniden baslatiliyor...';fetch('/restart').then(r=>r.json()).then(d=>{document.getElementById('restartSonuc').innerHTML=d.mesaj;}).catch(()=>{document.getElementById('restartSonuc').innerHTML='Yeniden baslatiliyor...';});}
 var _es=null;
 function connectSSE(){if(_es)return;_es=new EventSource('/events');_es.onmessage=function(e){try{guncelle(JSON.parse(e.data));}catch(err){}};_es.onerror=function(){if(_es){_es.close();_es=null;}setTimeout(connectSSE,3000);};}
-function alarmLoguYukle(){fetch('/alarm/log').then(r=>r.json()).then(function(list){var el=document.getElementById('alarmLogList');if(!el)return;if(!Array.isArray(list)||list.length===0){el.textContent='Kayitli alarm yok';return;}el.innerHTML=list.map(function(k){return '<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>';}).join('');}).catch(function(){});}
+function alarmLoguYukle(){fetch('/alarm/log').then(r=>r.json()).then(function(list){var el=document.getElementById('alarmLogList');var sum=document.getElementById('alarmLogSummary');if(!el)return;if(!Array.isArray(list)||list.length===0){el.textContent='Kayitli alarm yok';if(sum)sum.textContent='▸ Henuz alarm kaydi yok';return;}var k0=list[0];if(sum)sum.textContent='▸ Son alarm: '+(k0.zaman||'-')+' - '+(k0.baslik||'-')+' ('+(k0.tetikleyen||'-')+')';el.innerHTML=list.map(function(k){return '<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>';}).join('');}).catch(function(){});}
+function alarmLoguTamYukle(){
+  var tamEl=document.getElementById('alarmLogTam'),gunEl=document.getElementById('alarmLogGunluk'),ayEl=document.getElementById('alarmLogAylik');
+  if(!tamEl) return;
+  fetch('/alarm/log/tam').then(r=>r.json()).then(function(list){
+    if(!Array.isArray(list)||list.length===0){tamEl.textContent='Kayitli alarm yok';if(gunEl)gunEl.textContent='-';if(ayEl)ayEl.textContent='-';return;}
+    var gunSay={},aySay={};
+    list.forEach(function(k){var z=k.zaman||'';var gun=z.substring(0,10);var ay=z.substring(3,10);if(gun)gunSay[gun]=(gunSay[gun]||0)+1;if(ay)aySay[ay]=(aySay[ay]||0)+1;});
+    var gunSirali=Object.keys(gunSay).sort().reverse();
+    var aySirali=Object.keys(aySay).sort().reverse();
+    if(gunEl)gunEl.innerHTML=gunSirali.map(function(g){return '<div>'+g+': <b>'+gunSay[g]+'</b></div>';}).join('')||'-';
+    if(ayEl)ayEl.innerHTML=aySirali.map(function(a){return '<div>'+a+': <b>'+aySay[a]+'</b></div>';}).join('')||'-';
+    tamEl.innerHTML=list.slice().reverse().map(function(k){return '<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>';}).join('');
+  }).catch(function(){tamEl.textContent='Yuklenemedi';});
+}
 window.onload=function(){temaAyarla(localStorage.getItem('tema')=='dark');try{var sonSekme=localStorage.getItem('sonSekme');if(sonSekme&&document.getElementById('sekme-'+sonSekme))sekmeAc(sonSekme);}catch(e){}olc();zamanGoster();loadAyarlar();loadTriggers();connectSSE();setInterval(function(){fetch('/durum').then(r=>r.json()).then(guncelle);},15000);document.querySelectorAll('#sekme-ayarlar input[type=number], #sekme-ayarlar select, #sekme-alarm input[type=number], #sekme-alarm select').forEach(function(el){el.addEventListener('change',ayarKaydet);});document.querySelectorAll('#sekme-ayarlar input[type=checkbox], #sekme-alarm input[type=checkbox], #sekme-alarm input[type=radio]').forEach(function(el){el.addEventListener('change',ayarKaydet);});var fi=document.getElementById('footerIp');if(fi)fi.innerHTML='AP IP: '+window.location.hostname+' | Web: '+window.location.origin;setInterval(alarmLoguYukle,15000);alarmLoguYukle();var ald=document.getElementById('alarmLogDet');if(ald){ald.addEventListener('mouseenter',function(){ald.open=true;});ald.addEventListener('mouseleave',function(){ald.open=false;});}};
