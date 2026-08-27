@@ -59,6 +59,7 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
 // RS485 uzerinden esp8266_slave'e komut gonderir (tanimi asagida) -
 // hava durumu fonksiyonlari bunu kullanir, bu yuzden ileri bildirim gerekir.
 bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
+String jsonKacir(const String& s); // JSON string escape (tanimi asagida) - erken kullanimlar icin ileri bildirim
 
 // ============ Hava Durumu / Yagmur Tahmini (sabit konum) ============
 // Konum GARDEN_LATITUDE/GARDEN_LONGITUDE (config.h) - secim/geocode yok,
@@ -1311,6 +1312,14 @@ struct AlarmLogKaydi { String zaman; String baslik; String tetikleyen; };
 AlarmLogKaydi alarmLogRAM[ALARM_LOG_RAM_ADET];
 uint8_t alarmLogRAMDolu = 0;
 bool alarmLogOncekiVar = false;
+// Ayni tetikleyici (orn. surekli cirpinan Swan PIR) her "bolum" bittiginde
+// ANINDA yeniden basladiginda her seferinde ayri kayit acmasin diye (2026-08-27
+// kullanici bulgusu: bir sensorden onlarca kayit birikti) - AYNI tetikleyen
+// metni bu pencere icinde tekrar gelirse yeni kayit YAZILMAZ. Farkli bir
+// tetikleyici (orn. Panik veya baska bir sensor) HER ZAMAN aninda yazilir.
+#define ALARM_LOG_TEKRAR_BASTIRMA_MS (5UL * 60UL * 1000UL)
+String alarmLogSonTetikleyen = "";
+unsigned long alarmLogSonYazmaMs = 0;
 
 void alarmLoguDosyayaEkle(const String& satir) {
   if (SPIFFS.exists(ALARM_LOG_DOSYASI)) {
@@ -1364,7 +1373,12 @@ void alarmLoguKontrolEt() {
   if (alarmVar && !alarmLogOncekiVar) {
     String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" : (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
     String tetikleyen = alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerDumanTetik, konteynerGazTetik);
-    alarmLoguKaydet(baslik, tetikleyen);
+    bool aynisiYakinda = (tetikleyen == alarmLogSonTetikleyen) && (millis() - alarmLogSonYazmaMs < ALARM_LOG_TEKRAR_BASTIRMA_MS);
+    if (!aynisiYakinda) {
+      alarmLoguKaydet(baslik, tetikleyen);
+      alarmLogSonTetikleyen = tetikleyen;
+      alarmLogSonYazmaMs = millis();
+    }
   }
   alarmLogOncekiVar = alarmVar;
 }
@@ -2687,7 +2701,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div id="hata-box" style="margin-top:4px;color:var(--warn);font-size:12px"></div>
         <details id="alarm-log-det" style="margin-top:4px">
-          <summary id="alarm-log-summary" style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Henüz alarm kaydı yok</summary>
+          <summary style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Alarm Geçmişi</summary>
           <div id="alarm-log-list" style="margin-top:4px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
         </details>
       </div>
@@ -3171,6 +3185,16 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
     </details>
 
+    <details class="card zone-sudepo">
+      <summary>💧 Sudepo Su Akışı Kayıtları</summary>
+      <p style="font-size:12px;color:var(--muted)">ESP8266'daki (Sudepo) su alım/tüketim kayıtları - buradaki liste en son "Yenile" ile çekilen yedeğin görüntüsüdür (canlı değil, RS485 üzerinden istek üzerine çekilir).</p>
+      <div class="row">
+        <button class="btn btn-primary" onclick="suAkisiYenile()">Yenile (ESP8266'dan çek)</button>
+      </div>
+      <div id="su-akisi-durum" style="margin-top:8px;font-size:12px;color:var(--muted)">Yükleniyor...</div>
+      <div id="su-akisi-liste" style="margin-top:8px;font-size:12px;max-height:260px;overflow-y:auto">Yükleniyor...</div>
+    </details>
+
     <details class="card">
       <summary>📋 Alarm Kayıtları (Günlük / Aylık)</summary>
       <p style="font-size:12px;color:var(--muted)">Genel sayfadaki "Son 5 Alarm" sadece en yeni 5 kaydı RAM'den gösterir - burası SPIFFS'teki kalıcı günlüğün (reboot'lara dayanıklı) tamamını okur.</p>
@@ -3242,6 +3266,7 @@ function show(id){
   document.getElementById('nav-'+id).classList.add('active');
   try{ localStorage.setItem('sonSekme', id); }catch(e){}
   if(id==='bilgiler' && typeof alarmLoguTamYukle==='function') alarmLoguTamYukle();
+  if(id==='bilgiler' && typeof suAkisiYukle==='function') suAkisiYukle();
 }
 (function(){
   try{
@@ -3992,15 +4017,8 @@ yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 function alarmLoguYukle(){
   api('/api/alarm/log').then(list=>{
-    const sum=$('#alarm-log-summary');
     const el=$('#alarm-log-list'); if(!el) return;
-    if(!Array.isArray(list) || list.length===0){
-      el.textContent='Kayıtlı alarm yok';
-      if(sum) sum.textContent='▸ Henüz alarm kaydı yok';
-      return;
-    }
-    const k0=list[0];
-    if(sum) sum.textContent='▸ Son alarm: '+(k0.zaman||'-')+' - '+(k0.baslik||'-')+' ('+(k0.tetikleyen||'-')+')';
+    if(!Array.isArray(list) || list.length===0){ el.textContent='Kayıtlı alarm yok'; return; }
     el.innerHTML = list.map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
   }).catch(()=>{});
 }
@@ -4028,7 +4046,23 @@ function alarmLoguTamYukle(){
     tamEl.innerHTML = list.slice().reverse().map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
   }).catch(()=>{ tamEl.textContent='Yüklenemedi'; });
 }
-if(document.getElementById('bilgiler') && document.getElementById('bilgiler').classList.contains('active')) alarmLoguTamYukle();
+function suAkisiYukle(){
+  const durEl=$('#su-akisi-durum'), listEl=$('#su-akisi-liste');
+  if(!listEl) return;
+  api('/api/kayit/liste_goster').then(d=>{
+    if(durEl) durEl.textContent='Son yedekleme: '+(d.sonYedek||'-');
+    const list=d.kayitlar||[];
+    if(!Array.isArray(list) || list.length===0){ listEl.textContent='Kayıt yok (henüz yedek çekilmemiş olabilir)'; return; }
+    listEl.innerHTML = '<table class="table"><tr><th>Tarih</th><th>Kişi</th><th>Litre</th><th>Ücret</th><th>Kaynak</th></tr>' +
+      list.slice().reverse().map(k=>'<tr><td>'+(k.tarih||'-')+'</td><td>'+(k.kisi||'-')+'</td><td>'+(k.litre||0)+'</td><td>'+(k.ucret||0)+'</td><td>'+(k.kaynak||'-')+'</td></tr>').join('') +
+      '</table>';
+  }).catch(()=>{ if(listEl) listEl.textContent='Yüklenemedi'; });
+}
+function suAkisiYenile(){
+  $('#su-akisi-durum').textContent='Çekiliyor (RS485)...';
+  api('/api/kayit/yedekle').then(()=>{ suAkisiYukle(); }).catch(()=>{ $('#su-akisi-durum').textContent='Hata oluştu'; });
+}
+if(document.getElementById('bilgiler') && document.getElementById('bilgiler').classList.contains('active')){ alarmLoguTamYukle(); suAkisiYukle(); }
 // Son 5 Alarm listesi normalde kapali (tek satir) - tiklayinca (native
 // <details>) veya fare ile ustune gelince acilsin.
 (function(){
@@ -4533,6 +4567,33 @@ void handleAPI_KayitGeriYukle() {
 void handleAPI_KayitYedekDurum() {
   bool varMi = SPIFFS.exists(KAYIT_BACKUP_DOSYASI);
   server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"dosya\":\"" + String(KAYIT_BACKUP_DOSYASI) + "\",\"sonYedek\":\"" + sonYedekZamanStr + "\"}");
+}
+
+// Bilgiler sekmesindeki "Sudepo Su Akisi Kayitlari" - RS485 uzerinden yeni
+// istek ATMAZ, sadece en son "Yenile" ile cekilmis yedegi (KAYIT_BACKUP_DOSYASI)
+// okur/gosterir - boylece tab her acildiginda RS485 hattina yuk binmez.
+void handleAPI_KayitListesiOku() {
+  String j = "[";
+  bool ilk = true;
+  File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "r");
+  if (f) {
+    while (f.available()) {
+      String satir = f.readStringUntil('\n');
+      satir.trim();
+      if (satir.length() == 0) continue;
+      int p1 = satir.indexOf(','), p2 = (p1 >= 0) ? satir.indexOf(',', p1 + 1) : -1,
+          p3 = (p2 >= 0) ? satir.indexOf(',', p2 + 1) : -1, p4 = (p3 >= 0) ? satir.indexOf(',', p3 + 1) : -1;
+      if (p1 < 0 || p2 < 0 || p3 < 0 || p4 < 0) continue;
+      String tarih = satir.substring(0, p1), kisi = satir.substring(p1 + 1, p2),
+             litre = satir.substring(p2 + 1, p3), ucret = satir.substring(p3 + 1, p4), kaynak = satir.substring(p4 + 1);
+      if (!ilk) j += ",";
+      ilk = false;
+      j += "{\"tarih\":\"" + jsonKacir(tarih) + "\",\"kisi\":\"" + jsonKacir(kisi) + "\",\"litre\":" + litre + ",\"ucret\":" + ucret + ",\"kaynak\":\"" + jsonKacir(kaynak) + "\"}";
+    }
+    f.close();
+  }
+  j += "]";
+  server.send(200, "application/json", "{\"sonYedek\":\"" + jsonKacir(sonYedekZamanStr) + "\",\"kayitlar\":" + j + "}");
 }
 
 // ============ HAVA DURUMU API'LERI ============
@@ -5531,6 +5592,7 @@ void setupWebServer() {
   server.on("/api/kayit/yedekle", handleAPI_KayitYedekle);
   server.on("/api/kayit/geri_yukle", handleAPI_KayitGeriYukle);
   server.on("/api/kayit/yedek_durum", handleAPI_KayitYedekDurum);
+  server.on("/api/kayit/liste_goster", handleAPI_KayitListesiOku);
   server.on("/api/weather", handleAPI_WeatherGet);
   server.on("/api/weather/check", handleAPI_WeatherCheck);
   server.on("/api/telegram/test", handleAPI_TelegramTest);

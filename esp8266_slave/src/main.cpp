@@ -185,11 +185,24 @@ float sonSeviyeCm = 0, sonYuzde = 0, sonLitre = 0;
 String sonOlcumZamani = "-";
 
 // ============ DOLUM TESPITI ============
+// 2026-08-27 kullanici bulgusu: "Canli Izle" 2sn'de bir olctugunden, su
+// yuzeyi dalgalanmasi/ultrasonik yankı gurultusu TEK ORNEKTE 100L'e varan
+// sahte "ani dolum/bosalma" gibi gorunebiliyordu - bu da "Otomatik Tespit"
+// kayitlarini (ve tuketim/kacak sayaclarini) gereksiz yere sisiriyordu.
+// Iki onlem birden alindi: (1) karar mekanizmasi HAM ardisik farka degil,
+// yumusatilmis (EMA) seviyeye bakar - ekrandaki ANLIK deger (sonLitre) BUNDAN
+// ETKILENMEZ, sadece dolum/kacak/kayit KARARI icin ayri bir seviyeEMA
+// tutulur; (2) bir dolum "bolumu" en az MIN_DOLUM_SURESI_MS surmeden
+// Otomatik Tespit kaydi YAZILMAZ - gercek bir tanker/sebeke dolumu dakikalar
+// surer, tek olcumluk bir sicrama olmaz.
 #define NOISE_ESIK_LITRE 3.0
+#define SEVIYE_EMA_AGIRLIK 0.25f
+#define MIN_DOLUM_SURESI_MS (30UL * 1000UL)
 bool ilkOlcumTamamlandi = false;
-float oncekiSonLitre = 0;
+float seviyeEMA = 0;
 bool dolumDevamEdiyor = false;
 float dolumBaslangicLitre = 0, dolumSonPikLitre = 0;
+unsigned long dolumBaslangicMs = 0;
 
 // ============ TUKETIM ============
 float gunlukTuketim = 0, aylikTuketim = 0;
@@ -327,6 +340,11 @@ struct AlarmLogKaydi { String zaman; String baslik; String tetikleyen; };
 AlarmLogKaydi alarmLogRAM[ALARM_LOG_RAM_ADET];
 uint8_t alarmLogRAMDolu = 0;
 bool alarmLogOncekiVar = false;
+// Ayni tetikleyici pencere icinde tekrar tekrar kayit acmasin (ESP32 Merkez
+// Kontrol panelindeki AYNI mantik - iki arayuz paralel tutulmali).
+#define ALARM_LOG_TEKRAR_BASTIRMA_MS (5UL * 60UL * 1000UL)
+String alarmLogSonTetikleyen = "";
+unsigned long alarmLogSonYazmaMs = 0;
 
 void alarmLoguDosyayaEkle(const String& satir) {
   if (LittleFS.exists(ALARM_LOG_DOSYASI)) {
@@ -367,7 +385,12 @@ void alarmLoguKontrolEt() {
   if (alarmVar && !alarmLogOncekiVar) {
     String baslik = panicRoleAktif ? "PANIK AKTIF" : (alarmOnayBekliyor ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
     String tetikleyen = alarmTetikleyenMetniStr(alarmTetikleyenMask, panicRoleAktif);
-    alarmLoguKaydet(baslik, tetikleyen);
+    bool aynisiYakinda = (tetikleyen == alarmLogSonTetikleyen) && (millis() - alarmLogSonYazmaMs < ALARM_LOG_TEKRAR_BASTIRMA_MS);
+    if (!aynisiYakinda) {
+      alarmLoguKaydet(baslik, tetikleyen);
+      alarmLogSonTetikleyen = tetikleyen;
+      alarmLogSonYazmaMs = millis();
+    }
   }
   alarmLogOncekiVar = alarmVar;
 }
@@ -978,15 +1001,18 @@ void olcumYap() {
     sonOlcumZamani = simdikiZamanStr();
 
     if (ilkOlcumTamamlandi) {
-      float fark = sonLitre - oncekiSonLitre;
+      float oncekiEMA = seviyeEMA;
+      seviyeEMA = seviyeEMA + SEVIYE_EMA_AGIRLIK * (sonLitre - seviyeEMA);
+      float fark = seviyeEMA - oncekiEMA;
       if (fark > NOISE_ESIK_LITRE) {
-        if (!dolumDevamEdiyor) { dolumDevamEdiyor = true; dolumBaslangicLitre = oncekiSonLitre; }
-        dolumSonPikLitre = sonLitre;
+        if (!dolumDevamEdiyor) { dolumDevamEdiyor = true; dolumBaslangicLitre = oncekiEMA; dolumBaslangicMs = millis(); }
+        dolumSonPikLitre = seviyeEMA;
         kacakSuruyor = false; kacakAlarmi = false;
       } else {
         if (dolumDevamEdiyor) {
           float toplamArtis = dolumSonPikLitre - dolumBaslangicLitre;
-          if (toplamArtis >= ayar.minDolumLitre) {
+          bool yeterinceUzunSurdu = (millis() - dolumBaslangicMs) >= MIN_DOLUM_SURESI_MS;
+          if (toplamArtis >= ayar.minDolumLitre && yeterinceUzunSurdu) {
             File f = LittleFS.open(KAYIT_DOSYASI, "a");
             if (f) {
               f.print(simdikiTarihISO()); f.print(",");
@@ -1028,9 +1054,9 @@ void olcumYap() {
       }
     } else {
       ilkOlcumTamamlandi = true;
+      seviyeEMA = sonLitre;
       tuketimYukle();
     }
-    oncekiSonLitre = sonLitre;
 
     DEBUG_PRINTF("Olcum: %.1f cm (%.1f%%) ~%.0f L\n", sonSeviyeCm, sonYuzde, sonLitre);
   } else {
@@ -1057,24 +1083,37 @@ void tuketimYukle() {
 // ============ KAYIT ISLEMLERI ============
 String csvTemizle(String s) { s.replace(",", " "); s.replace("\n", " "); s.replace("\r", " "); return s; }
 
-// Sadece en son MAX_KAYIT_SAYISI kaydi tutar, daha eskileri siler.
+// Sadece en son MAX_KAYIT_SAYISI kaydi tutar, daha eskileri siler - AMA
+// (2026-08-27 kullanici talebi) ELLE GIRILEN kayitlar ASLA silinmez, sadece
+// "Otomatik Tespit" (kisi alani tam olarak bu) kayitlari, EN ESKISINDEN
+// baslayarak trim edilir. Otomatik kayitlar bitip hala limit asiliysa
+// (yani elle girilenlerin kendisi limiti asiyorsa) hicbir sey silinmez -
+// kullanicinin kendi girdigi gecmis, nominal sinirdan daha uzun kalabilir.
 void kayitlariSiniraGetir(int maxKayit) {
   File f = LittleFS.open(KAYIT_DOSYASI, "r");
   if (!f) return;
-  int toplam = 0;
-  while (f.available()) { String s = f.readStringUntil('\n'); s.trim(); if (s.length() > 0) toplam++; }
+  int toplam = 0, otomatikSayisi = 0;
+  while (f.available()) {
+    String s = f.readStringUntil('\n'); s.trim();
+    if (s.length() == 0) continue;
+    toplam++;
+    if (s.indexOf(",Otomatik Tespit,") >= 0) otomatikSayisi++;
+  }
   f.close();
   if (toplam <= maxKayit) return;
 
-  int atlanacak = toplam - maxKayit;
+  int silinecek = toplam - maxKayit;
+  if (silinecek > otomatikSayisi) silinecek = otomatikSayisi; // elle girilenlere dokunma
+  if (silinecek <= 0) return;
+
   File k = LittleFS.open(KAYIT_DOSYASI, "r");
   File g = LittleFS.open("/k_tmp.csv", "w");
   if (!k || !g) { if (k) k.close(); if (g) g.close(); return; }
-  int i = 0;
+  int silinen = 0;
   while (k.available()) {
     String s = k.readStringUntil('\n'); s.trim(); if (s.length() == 0) continue;
-    if (i >= atlanacak) g.println(s);
-    i++;
+    if (silinen < silinecek && s.indexOf(",Otomatik Tespit,") >= 0) { silinen++; continue; }
+    g.println(s);
   }
   k.close(); g.close();
   LittleFS.remove(KAYIT_DOSYASI); LittleFS.rename("/k_tmp.csv", KAYIT_DOSYASI);
