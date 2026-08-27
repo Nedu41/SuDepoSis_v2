@@ -2572,21 +2572,26 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .card summary::-webkit-details-marker{display:none}
 .card summary::before{content:'▸';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}
 .card[open]>summary::before{transform:rotate(90deg)}
-.card.zone-sudepo{border-left:4px solid #3b82f6}
-.card.zone-konteyner{border-left:4px solid var(--warn)}
-/* Genel sayfadaki kartların her biri kendi renginde sol kenarla ayırt edilsin
-   (kullanıcı talebi) - sadece kategori/marka amaçlı, alarm/durum rengiyle
-   (accent/warn/danger) karışmasın diye ayrı bir palet kullanılıyor. */
-#dashboard>.row:first-of-type>.card:nth-child(1){border-left:4px solid #64748b}
-#dashboard>.row:first-of-type>.card:nth-child(2){border-left:4px solid #f43f5e}
-#dashboard .grid>.card:nth-child(1){border-left:4px solid #3b82f6}
-#dashboard .grid>.card:nth-child(2){border-left:4px solid #06b6d4}
-#dashboard .grid>.card:nth-child(3){border-left:4px solid #14b8a6}
-#dashboard .grid>.card:nth-child(4){border-left:4px solid #f97316}
-#dashboard .grid>.card:nth-child(5){border-left:4px solid #84cc16}
-#dashboard .grid>.card:nth-child(6){border-left:4px solid #8b5cf6}
-#dashboard .grid>.card:nth-child(7){border-left:4px solid #ec4899}
-#dashboard .grid>.card:nth-child(8){border-left:4px solid #6366f1}
+.card.zone-sudepo{border-left:7px solid #3b82f6}
+.card.zone-konteyner{border-left:7px solid var(--warn)}
+/* Acilir-kapanir (accordion) kartlarin her biri kendi renginde sol kenarla
+   ayirt edilsin (kullanici talebi - Genel/Dashboard'daki KPI kartlarindan
+   DEGIL, Ayarlar ve benzeri sekmelerdeki <details class=card> ogelerinden
+   istendi, bkz 2026-08-27 geri alma). zone-sudepo/zone-konteyner ayri bir
+   :not() ile disarida birakiliyor - onlar zaten kendi (mavi/sari) rengini
+   tasiyor, karisik renk almasinlar.*/
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(1){border-left:7px solid #3b82f6}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(2){border-left:7px solid #06b6d4}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(3){border-left:7px solid #14b8a6}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(4){border-left:7px solid #f97316}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(5){border-left:7px solid #84cc16}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(6){border-left:7px solid #8b5cf6}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(7){border-left:7px solid #ec4899}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(8){border-left:7px solid #6366f1}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(9){border-left:7px solid #64748b}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(10){border-left:7px solid #f43f5e}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(11){border-left:7px solid #eab308}
+details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:7px solid #22c55e}
 .subdet{margin-top:16px;border:2.5px solid var(--border-strong);border-radius:8px;padding:10px 12px}
 .subdet summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--text)}
 .subdet summary::-webkit-details-marker{display:none}
@@ -2662,10 +2667,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   <div id="dashboard" class="section active">
     <div class="row" style="margin-top:0;gap:12px;align-items:stretch;flex-wrap:wrap">
       <div class="card" style="padding:8px 16px;flex:2;min-width:280px">
-        <div style="display:flex;align-items:center;gap:10px;overflow-x:auto;white-space:nowrap">
-          <b style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">ESP8266</b>
-          <span class="badge" id="esp8266-badge" style="font-size:11px;padding:2px 7px">Bekleniyor</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="badge" id="esp8266-badge" style="font-size:11px;padding:2px 7px">ESP8266: Bekleniyor</span>
           <span class="badge" id="nano-badge" style="font-size:11px;padding:2px 7px">Nano: Bekleniyor</span>
+        </div>
+        <div style="margin-top:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--muted)">K1:<b id="d1">-</b></span>
           <span style="font-size:12px;color:var(--muted)">K2:<b id="d2">-</b></span>
           <span style="font-size:12px;color:var(--muted)">Röle:<b id="rl">-</b></span>
@@ -2680,7 +2686,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
           <span id="alarm-text" style="font-size:12px;font-weight:700"></span>
         </div>
         <div id="hata-box" style="margin-top:4px;color:var(--warn);font-size:12px"></div>
-        <div id="alarm-log-list" style="margin-top:6px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
+        <details id="alarm-log-det" style="margin-top:4px">
+          <summary style="cursor:pointer;font-size:11px;color:var(--muted);list-style:none">▸ Son 5 Alarm</summary>
+          <div id="alarm-log-list" style="margin-top:4px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
+        </details>
       </div>
     </div>
     <div class="grid">
@@ -3389,7 +3398,7 @@ function renderUI(d){
   const esp8266Ok = d.esp8266_online !== false;
   const nanoOk    = d.nano_online !== false;
   const espBadge=$('#esp8266-badge'), nanoBadge=$('#nano-badge');
-  espBadge.textContent=esp8266Ok?'OK':'Offline';
+  espBadge.textContent='ESP8266: '+(esp8266Ok?'OK':'Offline');
   espBadge.style.background=esp8266Ok?'rgba(16,185,129,.15)':'rgba(239,68,68,.15)';
   espBadge.style.color=esp8266Ok?'var(--accent)':'var(--danger)';
   nanoBadge.textContent='Nano: '+(nanoOk?'OK':'Offline');
@@ -3977,6 +3986,13 @@ function alarmLoguYukle(){
   }).catch(()=>{});
 }
 setInterval(alarmLoguYukle, 15000); alarmLoguYukle();
+// Son 5 Alarm listesi normalde kapali (tek satir) - tiklayinca (native
+// <details>) veya fare ile ustune gelince acilsin.
+(function(){
+  const det=$('#alarm-log-det'); if(!det) return;
+  det.addEventListener('mouseenter', ()=>{ det.open=true; });
+  det.addEventListener('mouseleave', ()=>{ det.open=false; });
+})();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
 const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
