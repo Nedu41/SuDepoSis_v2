@@ -114,6 +114,28 @@ bool simdikiGunSayisi(long& out) {
   return true;
 }
 
+// Alarm logu icin "zaman" onbellegi - GET_ZAMAN'i HER alarm basladiginda
+// (hot path) sormak yerine, dusuk oncelikli olarak arka planda ~60sn'de bir
+// tek denemeyle (kisa timeout, retry YOK) yeniler. Boylece bir alarm tam da
+// tetiklendigi anda RS485 hattini bloke edip siren/lamba tepkisini
+// geciktirme riski YOK - bkz RS485 gecikme dersi (proje hafizasi).
+String zamanCacheStr = "-";
+unsigned long zamanCacheSonGuncellemeMs = 0;
+#define ZAMAN_CACHE_YENILEME_MS (60UL * 1000UL)
+
+void zamanCacheGuncelle() {
+  if (zamanCacheSonGuncellemeMs != 0 && millis() - zamanCacheSonGuncellemeMs < ZAMAN_CACHE_YENILEME_MS) return;
+  zamanCacheSonGuncellemeMs = millis();
+  String zamanReply;
+  if (rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 500, 1)) {
+    int eq = zamanReply.indexOf("GET_ZAMAN=");
+    if (eq >= 0) {
+      zamanCacheStr = zamanReply.substring(eq + 10);
+      zamanCacheStr.trim();
+    }
+  }
+}
+
 void weatherYukle() {
   File f = SPIFFS.open(WEATHER_DOSYASI, "r");
   if (!f) return;
@@ -1274,6 +1296,77 @@ void telegramAlarmKontrolEt() {
       telegramBekleyenVar = false; // vazgecildi - internet gelmedi
     }
   }
+}
+
+// ===== Gunluk Alarm Logu (2026-08-27 kullanici talebi) =====
+// Telegram ac/kapa anahtarindan BAGIMSIZ - kullanici bildirimleri kapatsa
+// bile log tutulmaya devam eder. Son 5 kayit RAM'de (dashboard'daki "Son 5
+// Alarm" listesi icin, aninda erisim), TUMU SPIFFS'e (/alarm_log.csv) kalici
+// olarak eklenir - reboot'a dayanikli "gunluk" gecmis.
+#define ALARM_LOG_RAM_ADET 5
+#define ALARM_LOG_DOSYASI "/alarm_log.csv"
+#define ALARM_LOG_MAX_SATIR 300 // SPIFFS sinirli - asilirsa en eski yarisi silinir
+
+struct AlarmLogKaydi { String zaman; String baslik; String tetikleyen; };
+AlarmLogKaydi alarmLogRAM[ALARM_LOG_RAM_ADET];
+uint8_t alarmLogRAMDolu = 0;
+bool alarmLogOncekiVar = false;
+
+void alarmLoguDosyayaEkle(const String& satir) {
+  if (SPIFFS.exists(ALARM_LOG_DOSYASI)) {
+    File f = SPIFFS.open(ALARM_LOG_DOSYASI, "r");
+    int satirSayisi = 0;
+    if (f) {
+      while (f.available()) { f.readStringUntil('\n'); satirSayisi++; }
+      f.close();
+    }
+    if (satirSayisi >= ALARM_LOG_MAX_SATIR) {
+      File fr = SPIFFS.open(ALARM_LOG_DOSYASI, "r");
+      String kalanlar;
+      int atlanacak = satirSayisi / 2, i = 0;
+      while (fr.available()) {
+        String s = fr.readStringUntil('\n');
+        if (i++ >= atlanacak) { kalanlar += s; kalanlar += "\n"; }
+      }
+      fr.close();
+      File fw = SPIFFS.open(ALARM_LOG_DOSYASI, "w");
+      if (fw) { fw.print(kalanlar); fw.close(); }
+    }
+  }
+  File f = SPIFFS.open(ALARM_LOG_DOSYASI, "a");
+  if (f) { f.println(satir); f.close(); }
+}
+
+void alarmLoguKaydet(const String& baslik, const String& tetikleyen) {
+  String zaman = (zamanCacheStr == "-") ? "Bilinmiyor" : zamanCacheStr;
+  for (int i = ALARM_LOG_RAM_ADET - 1; i > 0; i--) alarmLogRAM[i] = alarmLogRAM[i - 1];
+  alarmLogRAM[0] = { zaman, baslik, tetikleyen };
+  if (alarmLogRAMDolu < ALARM_LOG_RAM_ADET) alarmLogRAMDolu++;
+
+  String satir = zaman + "," + baslik + "," + tetikleyen;
+  satir.replace("\n", " "); satir.replace("\r", " "); satir.replace(",,", ", ,");
+  alarmLoguDosyayaEkle(satir);
+}
+
+// telegramAlarmKontrolEt() ile AYNI "yeni alarm basladi" tespiti - bilerek
+// tekrarlanan kucuk bir hesap (ortak bir fonksiyona cikarmak yerine), ikisi
+// birbirinden BAGIMSIZ calissin diye (Telegram kapaliyken bile log tutulsun).
+void alarmLoguKontrolEt() {
+  uint8_t mask = alarmStatus.trigger_mask;
+  bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
+  bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
+  bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && konteynerSwanEskalasyonOldu;
+  bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
+  bool konteynerGazTetik = konteynerGazEtkin && konteynerGazVar;
+  bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanTetik || konteynerGazTetik;
+  bool alarmVar = anyAlarm || alarmStatus.pending;
+
+  if (alarmVar && !alarmLogOncekiVar) {
+    String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" : (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
+    String tetikleyen = alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerDumanTetik, konteynerGazTetik);
+    alarmLoguKaydet(baslik, tetikleyen);
+  }
+  alarmLogOncekiVar = alarmVar;
 }
 
 // anaGucPoll() (asagida tanimli, ADS1115 ana guc izleme) tarafindan set edilir.
@@ -2481,6 +2574,19 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .card[open]>summary::before{transform:rotate(90deg)}
 .card.zone-sudepo{border-left:4px solid #3b82f6}
 .card.zone-konteyner{border-left:4px solid var(--warn)}
+/* Genel sayfadaki kartların her biri kendi renginde sol kenarla ayırt edilsin
+   (kullanıcı talebi) - sadece kategori/marka amaçlı, alarm/durum rengiyle
+   (accent/warn/danger) karışmasın diye ayrı bir palet kullanılıyor. */
+#dashboard>.row:first-of-type>.card:nth-child(1){border-left:4px solid #64748b}
+#dashboard>.row:first-of-type>.card:nth-child(2){border-left:4px solid #f43f5e}
+#dashboard .grid>.card:nth-child(1){border-left:4px solid #3b82f6}
+#dashboard .grid>.card:nth-child(2){border-left:4px solid #06b6d4}
+#dashboard .grid>.card:nth-child(3){border-left:4px solid #14b8a6}
+#dashboard .grid>.card:nth-child(4){border-left:4px solid #f97316}
+#dashboard .grid>.card:nth-child(5){border-left:4px solid #84cc16}
+#dashboard .grid>.card:nth-child(6){border-left:4px solid #8b5cf6}
+#dashboard .grid>.card:nth-child(7){border-left:4px solid #ec4899}
+#dashboard .grid>.card:nth-child(8){border-left:4px solid #6366f1}
 .subdet{margin-top:16px;border:2.5px solid var(--border-strong);border-radius:8px;padding:10px 12px}
 .subdet summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--text)}
 .subdet summary::-webkit-details-marker{display:none}
@@ -2498,11 +2604,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .btn-danger{background:var(--danger);color:#fff}
 .btn-warn{background:var(--warn);color:#fff}
 .btn:disabled{opacity:.6;cursor:not-allowed}
-.status{display:inline-flex;align-items:center;gap:6px;font-weight:600}
-.dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--muted)}
-.dot.active{background:var(--accent)}
-.dot.warn{background:var(--warn)}
-.dot.alarm{background:var(--danger);animation:pulse 1.2s infinite}
+.sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}
+.sysdot.normal{background:var(--accent);box-shadow:0 0 7px var(--accent)}
+.sysdot.kritik{background:var(--warn);box-shadow:0 0 7px var(--warn)}
+.sysdot.tehlike{background:var(--danger);box-shadow:0 0 9px var(--danger);animation:softblink 1.8s ease-in-out infinite}
+@keyframes softblink{0%,100%{opacity:1}50%{opacity:.3}}
 .led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;margin-right:3px;transition:background .15s,box-shadow .15s}
 .led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
 .led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
@@ -2555,24 +2661,26 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 
   <div id="dashboard" class="section active">
     <div class="row" style="margin-top:0;gap:12px;align-items:stretch;flex-wrap:wrap">
-      <div class="card" style="padding:10px 16px;flex:2;min-width:280px">
-        <h3 style="margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">RS485 Cihaz Durumu</h3>
-        <div class="row" style="margin-top:0;gap:10px;align-items:center;flex-wrap:wrap">
-          <span class="badge" id="esp8266-badge" style="font-size:11px;padding:2px 7px">ESP8266: Bekleniyor</span>
+      <div class="card" style="padding:8px 16px;flex:2;min-width:280px">
+        <div style="display:flex;align-items:center;gap:10px;overflow-x:auto;white-space:nowrap">
+          <b style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">ESP8266</b>
+          <span class="badge" id="esp8266-badge" style="font-size:11px;padding:2px 7px">Bekleniyor</span>
           <span class="badge" id="nano-badge" style="font-size:11px;padding:2px 7px">Nano: Bekleniyor</span>
-          <span style="font-size:12px;color:var(--muted)">Kapı 1: <b id="d1">-</b></span>
-          <span style="font-size:12px;color:var(--muted)">Kapı 2: <b id="d2">-</b></span>
-          <span style="font-size:12px;color:var(--muted)">Alarm Röle: <b id="rl">-</b></span>
-          <span style="font-size:12px;color:var(--muted)">Lamba: <b id="lm">-</b></span>
-          <span style="font-size:12px;color:var(--muted)">Nem Röle: <b id="mr">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">K1:<b id="d1">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">K2:<b id="d2">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Röle:<b id="rl">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Lamba:<b id="lm">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">NemR:<b id="mr">-</b></span>
         </div>
       </div>
-      <div class="card" style="padding:10px 16px;flex:1;min-width:200px">
-        <h3 style="margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Alarmlar</h3>
-        <div id="alarm-box">
-          <span class="status"><span class="dot active" id="alarm-dot"></span><span id="alarm-text">Sistem Normal</span></span>
+      <div class="card" style="padding:8px 16px;flex:1;min-width:220px">
+        <div class="row" style="margin-top:0;align-items:center;gap:8px">
+          <span class="sysdot normal" id="alarm-dot"></span>
+          <b style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Alarmlar</b>
+          <span id="alarm-text" style="font-size:12px;font-weight:700"></span>
         </div>
-        <div id="hata-box" style="margin-top:8px;color:var(--warn);font-size:13px"></div>
+        <div id="hata-box" style="margin-top:4px;color:var(--warn);font-size:12px"></div>
+        <div id="alarm-log-list" style="margin-top:6px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
       </div>
     </div>
     <div class="grid">
@@ -3080,6 +3188,7 @@ function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Da
 // Alarm tetiklendiginde kisa bip - ESP8266 panelindeki ile ayni desen.
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
 let alarmOncekiDurum = false;
+let sysDurumOncekiTehlike = false;
 function bipSesi(){
   try{
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -3151,7 +3260,7 @@ function renderUI(d){
   $('#kpi-temp').textContent = kzAhtOk ? (d.konteyner.sicaklik||0).toFixed(1)+' °C' : '--';
   $('#kpi-nem').textContent = kzAhtOk ? (d.konteyner.nem||0).toFixed(1)+' %' : '--';
   // Alarm
-  const ad=$('#alarm-dot'); let at='Sistem Normal';
+  const ad=$('#alarm-dot'); let at='';
   // FIX: alarm sistemi kapaliyken (d.alarm.enabled===false) bile ham kapi/
   // kacak/seviye durumuna bakip banner gosteriyordu - esp8266_slave ise
   // sistem kapaliyken hicbir sey gostermiyor (tetikleyici mask'i sifirliyor).
@@ -3200,13 +3309,28 @@ function renderUI(d){
   // Gercek bir alarm zaten varsa onun metnine eklenir (ikisi de gorunur
   // olsun), yoksa "Sistem Normal" yerine dogrudan baglanti sorunu yazilir.
   const baglantiSorunu = (d.esp8266_online === false) || (d.nano_online === false);
-  if(baglantiSorunu){
+  const digerSorun = (d.rtc_ok === false) || !!d.sensor_err;
+  if(baglantiSorunu || digerSorun){
     const sorunMetni = (d.esp8266_online === false && d.nano_online === false) ? 'ESP8266 VE Nano bağlantısı yok'
-      : (d.esp8266_online === false) ? 'ESP8266 (Sudepo) bağlantısı yok' : 'Nano bağlantısı yok';
-    at = (at === 'Sistem Normal') ? sorunMetni : at + ' | ' + sorunMetni;
+      : (d.esp8266_online === false) ? 'ESP8266 (Sudepo) bağlantısı yok'
+      : (d.nano_online === false) ? 'Nano bağlantısı yok'
+      : (d.rtc_ok === false) ? 'RTC geçersiz' : 'Sensör hatası';
+    at = at ? (at + ' | ' + sorunMetni) : sorunMetni;
   }
-  ad.className = anyAlarm ? 'dot alarm' : (baglantiSorunu ? 'dot warn' : 'dot active');
-  $('#alarm-text').textContent=at;
+  // Sistem durumu 3 kademeli: Tehlike (kırmızı, soft yanıp söner) = aktif
+  // alarm veya onay bekleniyor; Kritik (sarı) = alarm yok ama bağlantı/RTC/
+  // sensör sorunu var; Normal (yeşil) = ikisi de yok. "Sistem Normal" metni
+  // KALDIRILDI (kullanıcı talebi) - durum sadece ışıkla anlatılır, metin
+  // sadece bir sorun/alarm varsa gösterilir.
+  const bekliyorGenel = !!((d.alarm && d.alarm.pending) || (d.konteyner && d.konteyner.pending));
+  const tehlikeVar = anyAlarm || bekliyorGenel;
+  const kritikVar = !tehlikeVar && (baglantiSorunu || digerSorun);
+  ad.className = 'sysdot ' + (tehlikeVar ? 'tehlike' : (kritikVar ? 'kritik' : 'normal'));
+  $('#alarm-text').textContent = tehlikeVar ? (bekliyorGenel && !anyAlarm ? ('ONAY BEKLİYOR - '+at) : at) : (kritikVar ? at : '');
+  // Yeni bir tehlike baslarsa listeyi hemen tazele (aksi halde periyodik
+  // alarmLoguYukle() dongusune kadar - en fazla 15sn - eski liste gorunur).
+  if(tehlikeVar && !sysDurumOncekiTehlike) alarmLoguYukle();
+  sysDurumOncekiTehlike = tehlikeVar;
   // Buyuk uyari banner'i - ESP8266'daki gibi, tetiklendiginde sayfanin
   // her sekmesinde gorunur olsun diye header'in hemen altina konuldu.
   const ban=$('#alarm-banner');
@@ -3265,7 +3389,7 @@ function renderUI(d){
   const esp8266Ok = d.esp8266_online !== false;
   const nanoOk    = d.nano_online !== false;
   const espBadge=$('#esp8266-badge'), nanoBadge=$('#nano-badge');
-  espBadge.textContent='ESP8266: '+(esp8266Ok?'OK':'Offline');
+  espBadge.textContent=esp8266Ok?'OK':'Offline';
   espBadge.style.background=esp8266Ok?'rgba(16,185,129,.15)':'rgba(239,68,68,.15)';
   espBadge.style.color=esp8266Ok?'var(--accent)':'var(--danger)';
   nanoBadge.textContent='Nano: '+(nanoOk?'OK':'Offline');
@@ -3845,6 +3969,14 @@ connectSSE();
 setInterval(guncelle, 5000); guncelle();
 yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
+function alarmLoguYukle(){
+  api('/api/alarm/log').then(list=>{
+    const el=$('#alarm-log-list'); if(!el) return;
+    if(!Array.isArray(list) || list.length===0){ el.textContent='Kayıtlı alarm yok'; return; }
+    el.innerHTML = list.map(k=>'<div style="padding:3px 0;border-bottom:1px solid var(--border)"><b>'+(k.zaman||'-')+'</b> - '+(k.baslik||'-')+' <span style="color:var(--muted)">('+(k.tetikleyen||'-')+')</span></div>').join('');
+  }).catch(()=>{});
+}
+setInterval(alarmLoguYukle, 15000); alarmLoguYukle();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
 const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
@@ -4411,6 +4543,23 @@ void handleAPI_KonteynerSwanAyar() {
   if (server.hasArg("onay")) onay = (uint16_t)server.arg("onay").toInt();
   konteynerSwanAyarKaydet(tutma, onay);
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerSwanTutmaSaniye) + ",\"onay\":" + String(konteynerSwanOnaySaniye) + "}");
+}
+
+String jsonKacir(const String& s) {
+  String out = s;
+  out.replace("\\", "\\\\");
+  out.replace("\"", "\\\"");
+  return out;
+}
+
+void handleAPI_AlarmLog() {
+  String j = "[";
+  for (uint8_t i = 0; i < alarmLogRAMDolu; i++) {
+    if (i) j += ",";
+    j += "{\"zaman\":\"" + jsonKacir(alarmLogRAM[i].zaman) + "\",\"baslik\":\"" + jsonKacir(alarmLogRAM[i].baslik) + "\",\"tetikleyen\":\"" + jsonKacir(alarmLogRAM[i].tetikleyen) + "\"}";
+  }
+  j += "]";
+  server.send(200, "application/json", j);
 }
 
 // Her Konteyner sensorunun kendi aktif/pasif anahtari - verilmeyen parametre
@@ -5300,6 +5449,7 @@ void setupWebServer() {
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
   server.on("/api/konteyner/swan_ayar", handleAPI_KonteynerSwanAyar);
+  server.on("/api/alarm/log", handleAPI_AlarmLog);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
@@ -5634,6 +5784,8 @@ void loop() {
 
   // Alarm baslarsa Telegram'a bildirim gonder
   telegramAlarmKontrolEt();
+  alarmLoguKontrolEt();
+  zamanCacheGuncelle();
   telegramBateryaKontrolEt();
   telegramKonteynerOtoSusturKontrolEt();
   telegramAnaGucKontrolEt();
