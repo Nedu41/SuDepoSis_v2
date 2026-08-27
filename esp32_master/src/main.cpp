@@ -415,9 +415,17 @@ Preferences ayarPrefs;
 
 bool kapi2Acik = false;       // Konteyner reed switch - true = kapi acik
 // Swan Quad PET PIR (ticari alarm dedektoru, NC/COM role kontagi) - HC-SR505
-// (pir2HareketVar) gibi yazilim tutma/onay suresine ihtiyaci yok, kendi
-// donanimsal debounce/pet-immunity'si var; kapi gibi ANINDA eskale eder.
+// (pir2HareketVar) gibi kendi donanimsal debounce/pet-immunity'si var, bu
+// yuzden VARSAYILAN olarak hala kapi gibi ANINDA eskale eder (bkz
+// konteynerSwanTutmaSaniye/OnaySaniye varsayilan 0). 2026-08-27 kullanici
+// talebiyle PIR2'deki gibi ISTEGE BAGLI Tutma/Onay suresi eklendi - sifir
+// birakilirsa davranis DEGISMEZ, kullanici sahada yanlis tetiklenme
+// yasarsa buradan bir gecikme ekleyebilir.
 bool swanPirVar = false;
+bool konteynerSwanAlarmVar = false;        // Hareket VAR veya tutma suresi icinde (PIR2'deki konteynerPirAlarmVar esdegeri)
+bool konteynerSwanEskalasyonOldu = false;  // bu "bolum"de Onay Suresi asildi mi
+unsigned long konteynerSwanBolumBaslangicMs = 0; // 0 = aktif bolum yok
+unsigned long konteynerSwanSonHareketMs = 0;     // 0 = HENUZ HIC true olmadi (sentinel)
 bool konteynerDumanVar = false; // GP2Y10 (optik toz/duman sensoru) esik asildi mi - kapi/Swan gibi ANINDA eskale eder, tutma/onay suresi yok (bkz gp2y10Poll)
 bool konteynerGazVar = false; // MQ6 esik asildi mi - panik gibi ANINDA eskale eder (bkz alarmLedGuncelle, mq6Poll)
 bool pir2HareketVar = false;  // Konteyner PIR - true = hareket var (ham)
@@ -488,6 +496,30 @@ void konteynerPirAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
   ayarPrefs.begin("ayarlar", false);
   ayarPrefs.putUShort("k_pir_tut", tutmaSaniye);
   ayarPrefs.putUShort("k_pir_onay", onaySaniye);
+  ayarPrefs.end();
+}
+
+// Swan Quad PET PIR icin de PIR2 ile AYNI Tutma/Onay Suresi mantigi (2026-08-27
+// kullanici talebi) - ONCEDEN Swan'in kendi donanimsal debounce'u oldugu icin
+// yazilim gecikmesine gerek olmadigi dusunulmustu (bkz asagidaki swanPirVar
+// yorumu), ama kullanici sahada zamanlama ayari istedi. Varsayilan 0/0 =
+// ESKI DAVRANISLA AYNI (aninda eskale) - boylece bu ozellik mevcut sahadaki
+// cihazlarda davranisi SESSIZCE degistirmez, kullanici acikca bir sure girene
+// kadar Swan hala aninda tetikler.
+uint16_t konteynerSwanTutmaSaniye = 0;
+uint16_t konteynerSwanOnaySaniye = 0;
+void konteynerSwanAyarYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  konteynerSwanTutmaSaniye = ayarPrefs.getUShort("k_swan_tut", 0);
+  konteynerSwanOnaySaniye = ayarPrefs.getUShort("k_swan_onay", 0);
+  ayarPrefs.end();
+}
+void konteynerSwanAyarKaydet(uint16_t tutmaSaniye, uint16_t onaySaniye) {
+  konteynerSwanTutmaSaniye = tutmaSaniye;
+  konteynerSwanOnaySaniye = onaySaniye;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putUShort("k_swan_tut", tutmaSaniye);
+  ayarPrefs.putUShort("k_swan_onay", onaySaniye);
   ayarPrefs.end();
 }
 
@@ -704,7 +736,7 @@ void alarmLedGuncelle() {
   bool konteynerGazAlarmVar = konteynerGazEtkin && konteynerGazVar;
   bool konteynerAcilDurum = alarmStatus.panic_mode || konteynerGazAlarmVar;
   acilLambaGuncelle(konteynerAcilDurum);
-  bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && swanPirVar) || (konteynerDumanEtkin && konteynerDumanVar)));
+  bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && ((konteynerPirEtkin && konteynerPirEskalasyonOldu) || (konteynerKapiEtkin && kapi2Acik) || (konteynerSwanEtkin && konteynerSwanEskalasyonOldu) || (konteynerDumanEtkin && konteynerDumanVar)));
   // Susturmadan ONCEKI hedef durum - Sustur basildiginda SIREN kesin susar
   // ama LAMBA bu durum surdukce yanmaya devam eder (kullanici talebi: "sustur
   // siren'i kessin, lamba yansin"). Panik/gaz icin susturma zaten asagida
@@ -863,7 +895,6 @@ void alarmLedGuncelle() {
 void konteynerSensorleriOku() {
   bool kapiOncekiDurum = kapi2Acik;
   kapi2Acik = (digitalRead(KAPI_REED_PIN) == HIGH);
-  bool swanOncekiDurum = swanPirVar;
   swanPirVar = (digitalRead(SWAN_PIR_PIN) == HIGH);
   // konteynerDumanVar artik burada degil, ayri gp2y10Poll() dongusunde (2sn'de
   // bir) guncelleniyor - bu yuzden "onceki durum" burada normal local degisken
@@ -880,19 +911,51 @@ void konteynerSensorleriOku() {
   // yorumu (Swan PIR henuz baglanmadigindan surekli true okuyor, aksi halde
   // asagidaki reset kosulunu sonsuza kadar engellerdi).
   bool kapiEfektif = konteynerKapiEtkin && kapi2Acik;
-  bool swanEfektif = konteynerSwanEtkin && swanPirVar;
   bool dumanEfektif = konteynerDumanEtkin && konteynerDumanVar;
 
-  // Kapi, Swan PIR ve Duman ANLIK/kesin tetikleyiciler (PIR2'deki gibi bir
-  // "onay suresi" beklemesi gerekmiyor - bkz PIR eskalasyon yorumu asagida) -
-  // bu yuzden Onayli modda yukselen kenarda DOGRUDAN onay beklemeye alinir.
+  // Kapi ve Duman ANLIK/kesin tetikleyiciler (bir "onay suresi" beklemesi
+  // gerekmiyor) - bu yuzden Onayli modda yukselen kenarda DOGRUDAN onay
+  // beklemeye alinir. Swan PIR artik (tutma/onay 0 degilse) PIR2 gibi
+  // "bolum" tabanli oldugundan bu ANLIK blokta DEGIL, asagidaki kendi
+  // eskalasyon kontrolunde onay bekleniyor'u tetikler.
   // ONCEDEN BUG (kapi icin): bu blok hic yoktu, sadece PIR'in kendi "bolum"
   // takibi konteynerOnayBekleniyor'u set ediyordu - PIR hic tetiklenmeden
   // sadece kapi acilirsa Onayli modda alarm sessizce hicbir sey yapmiyordu.
-  if (((kapiEfektif && !kapiOncekiDurum) || (swanEfektif && !swanOncekiDurum) || (dumanEfektif && !dumanOncekiDurum)) && alarmStatus.mode == 3) {
+  if (((kapiEfektif && !kapiOncekiDurum) || (dumanEfektif && !dumanOncekiDurum)) && alarmStatus.mode == 3) {
     konteynerOnayBekleniyor = true;
   }
   dumanOncekiDurum = dumanBuTur; // bir sonraki cagiri icin sakla
+
+  // Swan PIR - PIR2 ile AYNI Tutma/Onay Suresi mantigi (bkz konteynerSwanTutmaSaniye
+  // yorumu). Devre disi oldugunda veya "sifir/sifir" (varsayilan, eski davranis)
+  // durumunda ANINDA eskale eder - PIR2'nin boot-grace'i burada YOK, Swan'in
+  // isinma sorunu (HC-SR505'in aksine) olmadigindan gerekmiyor.
+  if (konteynerSwanEtkin) {
+    if (swanPirVar && konteynerSwanBolumBaslangicMs == 0) {
+      konteynerSwanBolumBaslangicMs = millis();
+      konteynerSwanEskalasyonOldu = false;
+    }
+    if (swanPirVar) konteynerSwanSonHareketMs = millis();
+    unsigned long swanTutmaMs = (unsigned long)konteynerSwanTutmaSaniye * 1000UL;
+    konteynerSwanAlarmVar = swanPirVar || (konteynerSwanSonHareketMs != 0 && (millis() - konteynerSwanSonHareketMs <= swanTutmaMs));
+
+    if (konteynerSwanAlarmVar && konteynerSwanBolumBaslangicMs != 0 && !konteynerSwanEskalasyonOldu) {
+      unsigned long swanOnaySuresiMs = (unsigned long)konteynerSwanOnaySaniye * 1000UL;
+      if (millis() - konteynerSwanBolumBaslangicMs >= swanOnaySuresiMs) {
+        konteynerSwanEskalasyonOldu = true;
+        if (alarmStatus.mode == 3) konteynerOnayBekleniyor = true;
+      }
+    }
+    if (!konteynerSwanAlarmVar && konteynerSwanBolumBaslangicMs != 0) {
+      konteynerSwanBolumBaslangicMs = 0;
+      konteynerSwanEskalasyonOldu = false;
+    }
+  } else {
+    konteynerSwanAlarmVar = false;
+    konteynerSwanBolumBaslangicMs = 0;
+    konteynerSwanEskalasyonOldu = false;
+  }
+  bool swanEfektif = konteynerSwanEtkin && konteynerSwanEskalasyonOldu;
 
   if (konteynerPirEtkin) {
     // Yeni hareket "bolumu" mu basliyor? (bolum = kesintisiz/tutma-suresiyle-
@@ -940,9 +1003,12 @@ void konteynerSensorleriOku() {
 
   // Onay bayraklari: ONCEDEN sadece yukaridaki PIR-bolum kosuluna bagliydi -
   // kapidan gelen bir onay hic sifirlanmiyordu (kapi bolum takibine dahil
-  // degildi). Artik NE PIR NE kapi NE Swan PIR eskale degilse (ucu de
-  // kapandi/bitti) sifirlanir - hangi kaynaktan gelirse gelsin dogru zamanda temizlenir.
-  if (!konteynerPirAlarmVar && !kapiEfektif && !swanEfektif) {
+  // degildi). Artik NE PIR NE kapi NE Swan PIR bolumu aktif degilse (ucu de
+  // kapandi/bitti) sifirlanir - hangi kaynaktan gelirse gelsin dogru zamanda
+  // temizlenir. Swan icin BOLUM durumu (konteynerSwanAlarmVar) kullanilir,
+  // sadece eskalasyon degil - PIR2'deki konteynerPirAlarmVar ile AYNI mantik
+  // (onay suresi dolmadan bolum devam ederken erken sifirlanmasin diye).
+  if (!konteynerPirAlarmVar && !kapiEfektif && !(konteynerSwanEtkin && konteynerSwanAlarmVar)) {
     konteynerOnayBekleniyor = false;
     konteynerOnayVerildi = false;
     konteynerLambaOnayVerildi = false;
@@ -1177,7 +1243,7 @@ void telegramAlarmKontrolEt() {
   // panik/onay bekleme ESP8266'ya ozgu oldugundan onlara karismazlar.
   bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
-  bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && swanPirVar;
+  bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && konteynerSwanEskalasyonOldu;
   bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
   // Gaz (MQ6), panik gibi konteynerAlarmEtkin'den BAGIMSIZ (bkz alarmLedGuncelle
   // konteynerAcilDurum) - burada da ayni sekilde zon ac/kapa anahtarina bakmaz.
@@ -2398,8 +2464,8 @@ void handleRoot() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Kalburum - Merkez Kontrol</title>
 <style>
-:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#94a8c9;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--shadow:0 1px 3px rgba(0,0,0,.1)}
-@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#5b6b8c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--shadow:0 1px 3px rgba(0,0,0,.4)}}
+:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--shadow:0 1px 3px rgba(0,0,0,.1)}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);padding:12px;-webkit-tap-highlight-color:transparent}
 .container{max-width:1100px;margin:0 auto}
@@ -2407,7 +2473,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .header h1{font-size:20px}
 .header .meta{font-size:12px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.card{background:var(--card);border:2.5px solid var(--border-strong);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
 .card h3,.card summary{font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px;letter-spacing:.2px}
 .card summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px}
 .card summary::-webkit-details-marker{display:none}
@@ -2415,8 +2481,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .card[open]>summary::before{transform:rotate(90deg)}
 .card.zone-sudepo{border-left:4px solid #3b82f6}
 .card.zone-konteyner{border-left:4px solid var(--warn)}
-details.card{border:1.5px solid var(--border-strong)}
-.subdet{margin-top:16px;border:1.5px solid var(--border-strong);border-radius:8px;padding:10px 12px}
+.subdet{margin-top:16px;border:2.5px solid var(--border-strong);border-radius:8px;padding:10px 12px}
 .subdet summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--text)}
 .subdet summary::-webkit-details-marker{display:none}
 .subdet summary::before{content:'▸';display:inline-block;font-size:11px;color:var(--muted);transition:transform .15s}
@@ -2489,18 +2554,25 @@ details.card{border:1.5px solid var(--border-strong)}
   </div>
 
   <div id="dashboard" class="section active">
-    <div class="card">
-      <h3>RS485 Cihaz Durumu</h3>
-      <div class="row">
-        <div style="flex:1"><span class="badge" id="esp8266-badge">ESP8266: Bekleniyor</span></div>
-        <div style="flex:1"><span class="badge" id="nano-badge">Nano: Bekleniyor</span></div>
+    <div class="row" style="margin-top:0;gap:12px;align-items:stretch;flex-wrap:wrap">
+      <div class="card" style="padding:10px 16px;flex:2;min-width:280px">
+        <h3 style="margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">RS485 Cihaz Durumu</h3>
+        <div class="row" style="margin-top:0;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="badge" id="esp8266-badge" style="font-size:11px;padding:2px 7px">ESP8266: Bekleniyor</span>
+          <span class="badge" id="nano-badge" style="font-size:11px;padding:2px 7px">Nano: Bekleniyor</span>
+          <span style="font-size:12px;color:var(--muted)">Kapı 1: <b id="d1">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Kapı 2: <b id="d2">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Alarm Röle: <b id="rl">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Lamba: <b id="lm">-</b></span>
+          <span style="font-size:12px;color:var(--muted)">Nem Röle: <b id="mr">-</b></span>
+        </div>
       </div>
-      <div class="row" style="gap:12px">
-        <div><small>Kapı 1:</small> <b id="d1">-</b></div>
-        <div><small>Kapı 2:</small> <b id="d2">-</b></div>
-        <div><small>Alarm Röle:</small> <b id="rl">-</b></div>
-        <div><small>Lamba:</small> <b id="lm">-</b></div>
-        <div><small>Nem Röle:</small> <b id="mr">-</b></div>
+      <div class="card" style="padding:10px 16px;flex:1;min-width:200px">
+        <h3 style="margin-bottom:6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Alarmlar</h3>
+        <div id="alarm-box">
+          <span class="status"><span class="dot active" id="alarm-dot"></span><span id="alarm-text">Sistem Normal</span></span>
+        </div>
+        <div id="hata-box" style="margin-top:8px;color:var(--warn);font-size:13px"></div>
       </div>
     </div>
     <div class="grid">
@@ -2512,14 +2584,6 @@ details.card{border:1.5px solid var(--border-strong)}
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
       <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
       <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
-    </div>
-
-    <div class="card">
-      <h3>Alarmlar</h3>
-      <div id="alarm-box">
-        <span class="status"><span class="dot active" id="alarm-dot"></span><span id="alarm-text">Sistem Normal</span></span>
-      </div>
-      <div id="hata-box" style="margin-top:8px;color:var(--warn);font-size:13px"></div>
     </div>
   </div>
 
@@ -2635,7 +2699,7 @@ details.card{border:1.5px solid var(--border-strong)}
     </details>
 
     <details class="card zone-sudepo">
-      <summary>🚰 Su Deposu Zonu - Ayarlar</summary>
+      <summary>🚰 Su Deposu Zonu - Ayarlar <small id="sum-sudepo" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted)">Karar/yürütme hâlâ ESP8266+Nano'da yapılır (RS485 gecikmesi olmadan tepki verir) - burası sadece tek panelden yönetebilmen için köprü. Sudepo.local aynı ayarları gösterir.</p>
       <div id="sz-yukleniyor" style="font-size:12px;color:var(--muted)">Yükleniyor...</div>
       <div id="sz-form" style="display:none">
@@ -2699,7 +2763,7 @@ details.card{border:1.5px solid var(--border-strong)}
     </details>
 
     <details class="card zone-konteyner" open>
-      <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
+      <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları <small id="sum-konteyner" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
 
       <p class="sz-label">Canlı Durum</p>
       <div class="row" style="gap:16px;align-items:center">
@@ -2749,6 +2813,16 @@ details.card{border:1.5px solid var(--border-strong)}
         <p style="font-size:11px;color:var(--muted);margin-top:4px">Tutma Süresi: hareket bittikten sonra ne kadar daha aktif sayılsın. Onay Süresi: kesintisiz hareketin kaç saniye sonra GERÇEK alarma dönüşeceği.</p>
       </details>
 
+      <details class="subdet" style="margin-top:8px">
+        <summary>Swan PIR Zamanlama</summary>
+        <p style="font-size:12px;color:var(--muted);margin-top:6px">Swan Quad PET PIR'in kendi donanımsal debounce/evcil-hayvan-bağışıklığı var, bu yüzden varsayılan olarak (0/0) kapı gibi ANINDA eskale eder. Sahada yanlış tetiklenme yaşarsanız buraya da HC505-1 PIR'daki gibi bir Tutma/Onay süresi girebilirsiniz - 0 bırakılırsa davranış değişmez.</p>
+        <div class="sz-grid" style="margin-top:6px">
+          <div><label class="sz-label">Tutma Süresi (sn)</label><input class="input" type="number" min="0" max="120" id="kz_swanTutma" onchange="konteynerSwanKaydet()"></div>
+          <div><label class="sz-label">Onay Süresi (sn)</label><input class="input" type="number" min="0" max="120" id="kz_swanOnay" onchange="konteynerSwanKaydet()"></div>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px">0/0 = anında eskale (varsayılan/eski davranış). Onay Süresi &gt; 0 girilirse, hareket kesintisiz o kadar sürmeden GERÇEK alarma dönüşmez.</p>
+      </details>
+
       <p style="font-size:11px;color:var(--muted);margin-top:10px">Tetik animasyonu (lamba pırpırı + atışlı siren) ve genel Alarm Modu (Sesli/Sessiz/Onaylı) ayarları için bkz üstteki Sudepo/Genel Alarm kartı - Konteyner Zonu aynı ortak sistemi kullanır.</p>
       <div id="kz-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
@@ -2768,7 +2842,7 @@ details.card{border:1.5px solid var(--border-strong)}
     </details>
 
     <details class="card">
-      <summary>⚡ Ana Güç (24V) İzleme Eşikleri</summary>
+      <summary>⚡ Ana Güç (24V) İzleme Eşikleri <small id="sum-anaguc" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Ana hat voltajı ADS1115 (I2C) ile izlenir. Eşiklerin altına inince SADECE bildirim (Telegram) gönderilir - hiçbir röle/lamba otomatik açılmaz. Acil Durum Lambasını Kontrol sekmesinden manuel açabilirsiniz.</p>
       <div class="sz-grid">
         <div><label class="sz-label">Düşük (V)</label><input class="input" type="number" step="0.1" min="0" id="ana-guc-esik1" onchange="anaGucEsikKaydet()"></div>
@@ -2797,7 +2871,7 @@ details.card{border:1.5px solid var(--border-strong)}
     </details>
 
     <details class="card">
-      <summary>Nem Ayarları</summary>
+      <summary>Nem Ayarları <small id="sum-nem" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)">
         Nem: <b id="settings-moisture-val">-</b> | Çıkış: <b id="settings-moisture-out">-</b> | Mod: <b id="settings-moisture-mod">-</b>
       </div>
@@ -3097,7 +3171,7 @@ function renderUI(d){
   const konteynerEnabledMi = !(kz.enabled === false);
   const konteynerPirVar = konteynerEnabledMi && kz.pir_en!==false && !!kz.pir_alarm;
   const konteynerKapiVar = konteynerEnabledMi && kz.kapi_en!==false && !!kz.kapi_acik;
-  const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_pir;
+  const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_alarm;
   const konteynerDumanVar = konteynerEnabledMi && kz.duman_en!==false && !!kz.duman;
   // Gaz (MQ6) panik gibi davranir - backend'de konteynerAlarmEtkin'den de
   // BAGIMSIZ (bkz alarmLedGuncelle konteynerAcilDurum), bu yuzden burada da
@@ -3219,7 +3293,7 @@ function renderUI(d){
   const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
   const kzmqt=$('#kz_mq6Test'); if(kzmqt && document.activeElement!==kzmqt) kzmqt.checked = !!kz.mq6_test_modu;
   const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
-  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.classList.toggle('on', !!kzAktif && !kz.pending); kza.classList.toggle('pending', !!kz.pending); const kzat=$('#kz-alarm-txt'); if(kzat) kzat.textContent = kz.pending?'ONAY BEKLİYOR':''; }
+  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_alarm)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.classList.toggle('on', !!kzAktif && !kz.pending); kza.classList.toggle('pending', !!kz.pending); const kzat=$('#kz-alarm-txt'); if(kzat) kzat.textContent = kz.pending?'ONAY BEKLİYOR':''; }
   const kzs=$('#kz-siren'); if(kzs) kzs.classList.toggle('on', !!kz.siren);
   const kzl=$('#kz-lamba'); if(kzl) kzl.classList.toggle('on', !!kz.lamba);
   const kzpe=$('#kz_pirEtkin'); if(kzpe && document.activeElement!==kzpe) kzpe.checked = kz.pir_en!==false;
@@ -3231,6 +3305,8 @@ function renderUI(d){
   const kzdes=$('#kz_dumanEsik'); if(kzdes && !kzdes.matches(':focus') && !yakinKorumali('kz_dumanEsik') && kz.duman_esik!=null) kzdes.value=kz.duman_esik;
   const kzpt=$('#kz_pirTutma'); if(kzpt && !kzpt.matches(':focus') && !yakinKorumali('kz_pirTutma') && kz.pir_tutma!=null) kzpt.value=kz.pir_tutma;
   const kzpo=$('#kz_pirOnay'); if(kzpo && !kzpo.matches(':focus') && !yakinKorumali('kz_pirOnay') && kz.pir_onay!=null) kzpo.value=kz.pir_onay;
+  const kzst=$('#kz_swanTutma'); if(kzst && !kzst.matches(':focus') && !yakinKorumali('kz_swanTutma') && kz.swan_tutma!=null) kzst.value=kz.swan_tutma;
+  const kzso=$('#kz_swanOnay'); if(kzso && !kzso.matches(':focus') && !yakinKorumali('kz_swanOnay') && kz.swan_onay!=null) kzso.value=kz.swan_onay;
   // Nano IO - dashboard (K1/K2/R/LAMBA hepsi ESP8266'nin tek RS485 mesajinda
   // geliyor - esp8266Baglı degilse hepsi ayni sekilde bayat kalir, level/
   // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
@@ -3248,6 +3324,8 @@ function renderUI(d){
   { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
   $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
+  { const ss=$('#sum-sudepo'); if(ss) ss.textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Aktif' : 'Kapalı'; }
+  { const sk=$('#sum-konteyner'); if(sk) sk.textContent = (d.konteyner&&d.konteyner.enabled!==false) ? 'Aktif' : 'Kapalı'; }
   { const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
   { const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
   { const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
@@ -3265,6 +3343,7 @@ function renderUI(d){
   const smv=$('#settings-moisture-val'); if(smv) smv.textContent=esp8266Ok?(mo.percent||0).toFixed(1)+'%':'--';
   const smo=$('#settings-moisture-out'); if(smo) smo.textContent=esp8266Ok?(mo.output?'Açık':'Kapalı'):'--';
   const smm=$('#settings-moisture-mod'); if(smm) smm.textContent=esp8266Ok?(mo.auto?'Otomatik':'Manuel'):'--';
+  { const sn=$('#sum-nem'); if(sn) sn.textContent = esp8266Ok ? ((mo.output?'Açık':'Kapalı')+' - '+(mo.auto?'Otomatik':'Manuel')) : 'Bağlantı yok'; }
   const sml=$('#moisture-settings-low'); if(sml&&!sml.matches(':focus')&&!yakinKorumali('moisture-settings-low')) sml.value=mo.low||0;
   const smh=$('#moisture-settings-high'); if(smh&&!smh.matches(':focus')&&!yakinKorumali('moisture-settings-high')) smh.value=mo.high||0;
   // Batarya (MPPT) - kendi ayri "online" bayragi var (esp8266Ok'tan bagimsiz,
@@ -3343,6 +3422,7 @@ function renderUI(d){
   if(agDurum){
     const kademeEtiket = {0:'✅ Normal', 1:'⚠️ Düşük', 2:'🔶 Kritik', 3:'🔴 Acil'};
     agDurum.textContent = agOk ? (kademeEtiket[ag.kademe]||'-') : 'Bağlantı yok';
+    const sag=$('#sum-anaguc'); if(sag) sag.textContent = agOk ? (ag.volt||0).toFixed(1)+'V - '+(kademeEtiket[ag.kademe]||'-') : 'Bağlantı yok';
     agDurum.style.color = (agOk && ag.kademe>=2) ? 'var(--danger)' : '';
   }
   const ae1=$('#ana-guc-esik1'); if(ae1&&!ae1.matches(':focus')&&!yakinKorumali('ana-guc-esik1')&&ag.esik1!=null) ae1.value=ag.esik1;
@@ -3586,6 +3666,15 @@ function konteynerPirKaydet(){
   const tutma=$('#kz_pirTutma').value;
   const onay=$('#kz_pirOnay').value;
   api('/api/konteyner/pir_ayar?tutma='+encodeURIComponent(tutma)+'&onay='+encodeURIComponent(onay)).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
+function konteynerSwanKaydet(){
+  yakinDuzenlendi('kz_swanTutma'); yakinDuzenlendi('kz_swanOnay');
+  const tutma=$('#kz_swanTutma').value;
+  const onay=$('#kz_swanOnay').value;
+  api('/api/konteyner/swan_ayar?tutma='+encodeURIComponent(tutma)+'&onay='+encodeURIComponent(onay)).then(()=>{
     $('#kz-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
@@ -3863,7 +3952,10 @@ String durumJson() {
 
   doc["konteyner"]["enabled"] = konteynerAlarmEtkin;
   doc["konteyner"]["kapi_acik"] = kapi2Acik;
-  doc["konteyner"]["swan_pir"] = swanPirVar;
+  doc["konteyner"]["swan_pir"] = swanPirVar; // ham anlik pin durumu (Canli Durum gostergesi icin)
+  doc["konteyner"]["swan_alarm"] = konteynerSwanEskalasyonOldu; // eskale olmus (GERCEK) alarm - bkz konteynerPirAyar ile ayni desen
+  doc["konteyner"]["swan_tutma"] = konteynerSwanTutmaSaniye;
+  doc["konteyner"]["swan_onay"] = konteynerSwanOnaySaniye;
   doc["konteyner"]["pir"] = pir2HareketVar;
   doc["konteyner"]["pir_en"] = konteynerPirEtkin;
   doc["konteyner"]["kapi_en"] = konteynerKapiEtkin;
@@ -4308,6 +4400,17 @@ void handleAPI_KonteynerPirAyar() {
   }
   konteynerPirAyarKaydet(tutma, onay);
   server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerPirTutmaSaniye) + ",\"onay\":" + String(konteynerPirOnaySaniye) + "}");
+}
+
+void handleAPI_KonteynerSwanAyar() {
+  // PIR2'den FARKLI: 0 gecerli (varsayilan) - "aninda eskale" eski davranisi
+  // korur, bkz konteynerSwanTutmaSaniye yorumu.
+  uint16_t tutma = konteynerSwanTutmaSaniye;
+  uint16_t onay = konteynerSwanOnaySaniye;
+  if (server.hasArg("tutma")) tutma = (uint16_t)server.arg("tutma").toInt();
+  if (server.hasArg("onay")) onay = (uint16_t)server.arg("onay").toInt();
+  konteynerSwanAyarKaydet(tutma, onay);
+  server.send(200, "application/json", "{\"basarili\":true,\"tutma\":" + String(konteynerSwanTutmaSaniye) + ",\"onay\":" + String(konteynerSwanOnaySaniye) + "}");
 }
 
 // Her Konteyner sensorunun kendi aktif/pasif anahtari - verilmeyen parametre
@@ -5196,6 +5299,7 @@ void setupWebServer() {
   server.on("/api/telegram/test", handleAPI_TelegramTest);
   server.on("/api/telegram/ayar", handleAPI_TelegramAyar);
   server.on("/api/konteyner/pir_ayar", handleAPI_KonteynerPirAyar);
+  server.on("/api/konteyner/swan_ayar", handleAPI_KonteynerSwanAyar);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
@@ -5409,6 +5513,7 @@ void setup() {
   irEslesmeYukle();
   telegramAyarYukle();
   konteynerPirAyarYukle();
+  konteynerSwanAyarYukle();
   konteynerAlarmAyarYukle();
   konteynerSensorAktifYukle();
   konteynerGazAyarYukle();
