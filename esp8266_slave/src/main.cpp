@@ -1193,11 +1193,20 @@ void handleCSS() {
   css += ".btn-yesil{background:var(--accent)}.btn-turuncu{background:var(--warn)}.btn-mavi{background:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
   css += "label{display:block;font-size:12px;color:var(--muted);margin-top:10px}";
-  // LED gostergesi (varken yanan/dolu renkli, yokken sonuk) - "var/yok" metni
-  // yerine kullanilir, ESP32 Merkez Kontrol panelindeki .led ile AYNI (bkz
-  // kullanicinin genel arayuz tercihi, tum projelerde uygulanir).
+  // LED gostergesi - "var/yok" metni yerine kullanilir, ESP32 Merkez Kontrol
+  // panelindeki .led ile AYNI (kullanicinin genel arayuz tercihi, tum
+  // projelerde uygulanir). RENK ANLAMI (2026-08-27 kullanici duzeltmesi -
+  // ayni mantik butun projelerde gecerli): KIRMIZI = ariza/tehlike/anormal
+  // durum (ornek: baglanti YOK, kapi ACIK, duman/gaz VAR); YESIL = saglikli/
+  // bagli/normal calisiyor (ornek: Nano bagli, role/lamba gorevini yapiyor);
+  // SONUK/gri = notr yokluk (alarm tarafinda "tetiklenmedi" gibi). Ayni
+  // gostergeyi hem "saglik" hem "alarm" anlaminda ayni renge (orn. hep
+  // kirmizi=aktif) baglamak yanlis - "Nano bagli" gibi baglanti gostergeleri
+  // .ok (yesil) ile, "kapi acik/duman var" gibi tehlike gostergeleri .on
+  // (kirmizi) ile isaretlenir.
   css += ".led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;transition:background .15s,box-shadow .15s}";
   css += ".led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}";
+  css += ".led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}";
   // Checkbox gruplari (Zaman Bazli Tetikleyiciler / Mod Senaryolari): checkbox+yazi
   // ayni satirda, dikeyde ortalanmis, birden fazla checkbox yan yana kirilarak dizilir.
   css += ".cb-grid{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}";

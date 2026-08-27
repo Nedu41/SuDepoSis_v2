@@ -2440,6 +2440,7 @@ details.card{border:1.5px solid var(--border-strong)}
 .dot.alarm{background:var(--danger);animation:pulse 1.2s infinite}
 .led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;margin-right:3px;transition:background .15s,box-shadow .15s}
 .led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+.led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
 #alarm-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:var(--danger-bg-t);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:var(--danger);border:2px solid var(--danger);padding:20px 24px;border-radius:12px;font-weight:700;font-size:17px;text-align:center;animation:pulse 1.2s infinite;box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:90vw;width:420px}
