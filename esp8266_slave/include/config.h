@@ -119,23 +119,28 @@
 // yerel firmware deposu (http://kalburum.local/firmware/esp8266.bin)
 // kullanilabilir; Ayarlar sayfasindaki "Firmware URL" alani ile secilir.
 //
-// FIX (2026-08-27, saha sikayeti "Hata: HTTP error: connection failed
-// [heap:17960 ...]"): raw.githubusercontent.com (Fastly) TLS Max Fragment
-// Length Negotiation (MFLN) DESTEKLEMIYOR - performOTA()'daki
-// probeMaxFragmentLength() bu sunucuda basarisiz olup varsayilan buyuk
-// (~16KB+) BearSSL tamponuna donuyor, bu da ESP8266'nin kisitli (~18-20KB
-// calisma-zamani free heap) RAM'inde ayrilamayip "connection failed"
-// veriyor - kod hatasi degil, sunucu-uyumluluk siniri. cdn.jsdelivr.net
-// AYNI GitHub icerigini MFLN DESTEKLEYEN bir CDN'den (Cloudflare/Fastly
-// karisik ag, kucuk TLS kayit boyutunu kabul ediyor) aynali servis eder -
-// ESP8266 BearSSL OTA icin yaygin bilinen cozum budur. TEK DEZAVANTAJ:
-// jsDelivr agresif onbellekliyor (~7 gun) - release-firmware.ps1 ile
-// yeni firmware push edildikten SONRA jsDelivr onbellegi PURGE edilmezse
-// cihaz eski surumu yuklemeye devam eder (bkz scripts/release-firmware.ps1
-// sonundaki purge URL'i - push sonrasi mutlaka calistirilmali).
-#define GITHUB_FIRMWARE_URL "https://cdn.jsdelivr.net/gh/Nedu41/SuDepoSis_v2@main/esp8266_slave/firmware/esp8266.bin"
+// KOK NEDEN KESIN TESHIS EDILDI (2026-08-27, DEBUG_SERIAL=1 + seri log ile
+// olculdu, spekulasyon degil): raw.githubusercontent.com VE cdn.jsdelivr.net
+// ikisi de bu cihazda basarisiz - performOTA()'daki probeMaxFragmentLength()
+// jsDelivr'de de 0 donuyor (MFLN desteklenmiyor), BearSSL varsayilan buyuk
+// tampona dusup net "Unable to allocate memory for SSL structures and
+// buffers" hatasi veriyor (heap o an ~12KB'a dusuyor). Yani sorun CDN secimi
+// DEGIL - bu ESP8266'nin (WebServer+LittleFS+RS485+alarm state ile zaten
+// dolu ~80KB RAM) HICBIR HTTPS sunucusuna (MFLN destekleyen haric, ki
+// bulunamadi) yetecek bellegi yok. cdn.jsdelivr.net'in TEK dezavantaji
+// (agresif ~7gun onbellek, push sonrasi purge gerektirmesi) fayda saglamadan
+// eklendigi icin raw.githubusercontent.com'a GERI DONULDU (daha basit, ekstra
+// purge adimi yok). GitHub-dogrudan HTTPS OTA bu donanimda GUVENILMEZ -
+// Kalburum'un yerel HTTP deposu (http://kalburum.local/firmware/esp8266.bin,
+// TLS yok) BIRINCIL yontem, bu sadece "internet varsa bonus" secenegi.
+#define GITHUB_FIRMWARE_URL "https://raw.githubusercontent.com/Nedu41/SuDepoSis_v2/main/esp8266_slave/firmware/esp8266.bin"
 
 // ===== Debug =====
+// NOT: Serial (UART0) Nano ile PAYLASILIYOR (D9/D10) - acarken Nano'yu
+// fiziksel olarak ayirin (jumper) yoksa debug metni Nano'nun komut
+// parser'ina karisip yanlis komut sanilabilir. 2026-08-27'de GitHub OTA
+// "connection failed" teshisi icin kullanildi, sonuc: BearSSL heap yetersiz
+// (bkz GITHUB_FIRMWARE_URL yorumu) - artik kapali.
 #define DEBUG_SERIAL 0
 
 #if DEBUG_SERIAL
