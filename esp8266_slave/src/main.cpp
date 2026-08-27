@@ -1158,8 +1158,8 @@ void handleCSS() {
   // arayuzu gorsel olarak tutarli olsun. Koyu/acik tema burada ESP32'deki
   // gibi prefers-color-scheme DEGIL, mevcut elle-secilen .dark class'iyla
   // calismaya devam ediyor (bu sayfanin zaten calisan tema butonu var).
-  String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#94a8c9;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1)}";
-  css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#5b6b8c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4)}";
+  String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1)}";
+  css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4)}";
   css += "*{margin:0;padding:0;box-sizing:border-box}";
   css += "body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);min-height:100vh;padding:12px;color:var(--text);max-width:1100px;margin:0 auto;transition:background .3s,color .3s;-webkit-tap-highlight-color:transparent}";
   css += ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}";
@@ -1169,7 +1169,7 @@ void handleCSS() {
   css += ".dark .sekmeler{background:rgba(11,18,32,.75)}";
   css += ".sekme-btn{padding:8px 12px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;cursor:pointer;font-size:13px}";
   css += ".sekme-btn.aktif{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}";
-  css += ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}";
+  css += ".card{background:var(--card);border:2.5px solid var(--border-strong);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}";
   css += ".card h3{color:var(--text);margin-bottom:8px;font-size:15px;font-weight:700;letter-spacing:.2px}";
   css += ".zaman-bilgisi{color:var(--muted);margin-bottom:10px;font-size:12px;text-align:center}";
   css += ".alarm-kutu{background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3);padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;text-align:center;animation:pulse 1.2s infinite}";
@@ -1230,7 +1230,7 @@ void handleCSS() {
   css += ".btn-sil{background:none;border:none;cursor:pointer;font-size:14px}";
   // Ayarlar/Alarm sekmelerindeki kartlar <details> oldugundan (ESP32'deki
   // acilir-kapanir Ayarlar deseniyle AYNI) - kenarlari daha belirgin.
-  css += "details.card{border:1.5px solid var(--border-strong);padding:0}";
+  css += "details.card{padding:0}";
   css += "details.card>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;padding:16px;margin-bottom:0;font-size:15px;font-weight:700;color:var(--text);letter-spacing:.2px}";
   css += "details.card>summary::-webkit-details-marker{display:none}";
   css += "details.card>summary::before{content:'\\25B8';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}";
