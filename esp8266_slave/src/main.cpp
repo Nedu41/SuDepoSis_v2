@@ -1153,20 +1153,30 @@ String durumJson() {
 
 // ============ CSS ============
 void handleCSS() {
-  String css = ":root{--bg1:#e3f2fd;--bg2:#bbdefb;--card:#fff;--text:#222;--muted:#666;--primary:#1976d2;--accent:#4CAF50;--warn:#FF9800;--danger:#e53935;--danger-bg:#ffebee;--input-bg:#fff;--input-border:#ddd;--tab-bg:#eef3f8;--shadow:rgba(0,0,0,.1)}";
-  css += ".dark{--bg1:#0f1720;--bg2:#182430;--card:#1c2733;--text:#e8eef4;--muted:#9aa7b4;--primary:#64b5f6;--accent:#66bb6a;--warn:#ffb74d;--danger:#ef5350;--danger-bg:#3a2222;--input-bg:#243140;--input-border:#3a4a5a;--tab-bg:#243140;--shadow:rgba(0,0,0,.4)}";
+  // ESP32 Merkez Kontrol paneliyle AYNI tasarim dili (renk tokenlari, kart/
+  // buton/nav/led stilleri) - 2026-08-27 kullanici talebi: iki cihazin web
+  // arayuzu gorsel olarak tutarli olsun. Koyu/acik tema burada ESP32'deki
+  // gibi prefers-color-scheme DEGIL, mevcut elle-secilen .dark class'iyla
+  // calismaya devam ediyor (bu sayfanin zaten calisan tema butonu var).
+  String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#94a8c9;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1)}";
+  css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#5b6b8c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4)}";
   css += "*{margin:0;padding:0;box-sizing:border-box}";
-  css += "body{font-family:-apple-system,sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2));min-height:100vh;padding:16px;color:var(--text);max-width:460px;margin:0 auto;transition:background .3s,color .3s}";
-  css += ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}";
-  css += ".topbar h1{color:var(--primary);font-size:22px}";
-  css += ".tema-btn{background:var(--card);border:none;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer;box-shadow:0 2px 8px var(--shadow)}";
-  css += ".sekmeler{display:flex;background:var(--tab-bg);border-radius:14px;padding:4px;margin-bottom:16px}";
-  css += ".sekme-btn{flex:1;border:none;background:transparent;padding:10px 4px;border-radius:10px;font-size:13px;color:var(--muted);cursor:pointer}";
-  css += ".sekme-btn.aktif{background:var(--card);color:var(--primary);font-weight:bold;box-shadow:0 2px 6px var(--shadow)}";
-  css += ".card{background:var(--card);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 6px 20px var(--shadow)}";
-  css += ".card h3{color:var(--primary);margin-bottom:14px;font-size:16px}";
-  css += ".zaman-bilgisi{background:var(--tab-bg);padding:10px;border-radius:10px;margin-bottom:14px;font-size:12px;color:var(--muted);text-align:center}";
-  css += ".alarm-kutu{background:var(--danger-bg);color:var(--danger);border:2px solid var(--danger);padding:10px;border-radius:10px;margin-bottom:14px;font-weight:bold;text-align:center;animation:pulse 1.5s infinite}";
+  css += "body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);min-height:100vh;padding:12px;color:var(--text);max-width:1100px;margin:0 auto;transition:background .3s,color .3s;-webkit-tap-highlight-color:transparent}";
+  css += ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}";
+  css += ".topbar h1{font-size:20px;color:var(--text)}";
+  css += ".tema-btn{background:var(--card);border:1px solid var(--border);border-radius:50%;width:38px;height:38px;font-size:14px;cursor:pointer;box-shadow:var(--shadow);color:var(--text)}";
+  css += ".sekmeler{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100;padding:8px 0;background:rgba(246,248,250,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}";
+  css += ".dark .sekmeler{background:rgba(11,18,32,.75)}";
+  css += ".sekme-btn{padding:8px 12px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;cursor:pointer;font-size:13px}";
+  css += ".sekme-btn.aktif{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}";
+  css += ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}";
+  css += ".card h3{color:var(--text);margin-bottom:8px;font-size:15px;font-weight:700;letter-spacing:.2px}";
+  css += ".zaman-bilgisi{color:var(--muted);margin-bottom:10px;font-size:12px;text-align:center}";
+  css += ".alarm-kutu{background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3);padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;text-align:center;animation:pulse 1.2s infinite}";
+  // Genel alarm banner'i (id alarmGenelKutu) - ESP32 #alarm-banner ile AYNI:
+  // sabit, ekranin ortasinda, seffaf+bulanik zemin (altindaki yazi/icerik
+  // secilebilsin), sayfa scroll'undan etkilenmez, kaydirma/reflow yapmaz.
+  css += "#alarmGenelKutu{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:var(--danger-bg-t);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:var(--danger);border:2px solid var(--danger);padding:20px 24px;border-radius:12px;font-weight:700;font-size:16px;text-align:center;animation:pulse 1.2s infinite;box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:90vw;width:380px}";
   css += "@keyframes pulse{0%{opacity:1}50%{opacity:.6}100%{opacity:1}}";
   css += ".depo-container{display:flex;justify-content:center;margin:10px 0 20px}";
   css += ".depo{width:170px;height:230px;background:var(--tab-bg);border-radius:20px 20px 10px 10px;position:relative;overflow:hidden;border:3px solid var(--primary)}";
@@ -1174,36 +1184,52 @@ void handleCSS() {
   css += ".su-dalga{position:absolute;bottom:100%;left:-50%;width:200%;height:15px;background:rgba(255,255,255,.3);border-radius:50%;animation:dalga 3s ease-in-out infinite}";
   css += "@keyframes dalga{0%{transform:translateX(0)}50%{transform:translateX(25%) translateY(-5px)}100%{transform:translateX(0)}}";
   css += ".seviye-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;font-weight:bold;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.5);z-index:2}";
-  css += ".info{padding:14px;background:var(--tab-bg);border-radius:12px;margin:10px 0}";
-  css += ".info p{margin:6px 0;font-size:15px}";
+  css += ".info{padding:14px;background:var(--tab-bg);border-radius:10px;margin:10px 0}";
+  css += ".info p{margin:6px 0;font-size:14px;display:flex;align-items:center;gap:6px}";
   css += ".info strong{color:var(--primary)}";
-  css += ".btn-satir{display:flex;gap:8px;margin:16px 0 6px}";
-  css += ".btn{flex:1;color:white;padding:12px 10px;border-radius:12px;border:none;font-size:14px;cursor:pointer;font-weight:600}";
-  css += ".btn:active{transform:scale(.96)}";
+  css += ".btn-satir{display:flex;gap:8px;margin:16px 0 6px;flex-wrap:wrap}";
+  css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:8px;border:none;font-size:14px;cursor:pointer;font-weight:600;min-width:120px}";
+  css += ".btn:active{transform:scale(.97)}";
   css += ".btn-yesil{background:var(--accent)}.btn-turuncu{background:var(--warn)}.btn-mavi{background:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
   css += "label{display:block;font-size:12px;color:var(--muted);margin-top:10px}";
+  // LED gostergesi (varken yanan/dolu renkli, yokken sonuk) - "var/yok" metni
+  // yerine kullanilir, ESP32 Merkez Kontrol panelindeki .led ile AYNI (bkz
+  // kullanicinin genel arayuz tercihi, tum projelerde uygulanir).
+  css += ".led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;transition:background .15s,box-shadow .15s}";
+  css += ".led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}";
   // Checkbox gruplari (Zaman Bazli Tetikleyiciler / Mod Senaryolari): checkbox+yazi
   // ayni satirda, dikeyde ortalanmis, birden fazla checkbox yan yana kirilarak dizilir.
   css += ".cb-grid{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}";
   css += ".cb-grid p{flex-basis:100%;margin:0 0 4px;color:var(--muted);font-size:12px}";
   css += ".cb{display:flex;align-items:center;gap:6px;margin-top:0;font-size:13px;color:var(--text);width:auto}";
-  // NOT: genel "input,select{width:100%;padding:11px;border:2px solid...}" kurali
+  // NOT: genel "input,select{width:100%;padding:11px;border:...}" kurali
   // checkbox'lari da dev, kenarlikli kutulara ceviriyordu - burada sifirlaniyor.
-  css += ".cb input[type=checkbox],.cb input[type=radio]{width:16px;height:16px;flex-shrink:0;padding:0;border:1px solid var(--input-border);margin:0;background:var(--input-bg)}";
+  css += ".cb input[type=checkbox],.cb input[type=radio]{width:16px;height:16px;flex-shrink:0;padding:0;border:1px solid var(--border);margin:0;background:var(--card)}";
   css += ".cb input[type=checkbox]{border-radius:4px}";
-  css += "input,select{padding:11px;border:2px solid var(--input-border);border-radius:10px;font-size:14px;width:100%;margin-top:4px;background:var(--input-bg);color:var(--text)}";
+  css += "input,select{padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;width:100%;margin-top:4px;background:var(--card);color:var(--text)}";
   css += ".sonuc-metni{margin-top:10px;font-size:13px;text-align:center;color:var(--muted);min-height:16px}";
   css += ".muted{color:var(--muted);font-size:13px;text-align:center;padding:10px 0}";
   css += "table{width:100%;border-collapse:collapse;font-size:12px}";
-  css += "th{text-align:left;color:var(--muted);padding:6px 4px;border-bottom:2px solid var(--tab-bg)}";
-  css += "td{padding:8px 4px;border-bottom:1px solid var(--tab-bg)}";
+  css += "th{text-align:left;color:var(--muted);padding:6px 4px;border-bottom:2px solid var(--border)}";
+  css += "td{padding:8px 4px;border-bottom:1px solid var(--border)}";
   css += ".belirsiz-satir{background:rgba(255,152,0,.12)}";
   css += ".uyari-metni{color:var(--warn);font-weight:bold}";
   css += ".duzenle-form{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0}";
   css += ".duzenle-form select,.duzenle-form input{flex:1;min-width:90px;margin-top:0;padding:8px}";
   css += ".duzenle-form button{width:auto;margin-top:0;padding:8px 14px}";
   css += ".btn-sil{background:none;border:none;cursor:pointer;font-size:14px}";
+  // Ayarlar/Alarm sekmelerindeki kartlar <details> oldugundan (ESP32'deki
+  // acilir-kapanir Ayarlar deseniyle AYNI) - kenarlari daha belirgin.
+  css += "details.card{border:1.5px solid var(--border-strong);padding:0}";
+  css += "details.card>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;padding:16px;margin-bottom:0;font-size:15px;font-weight:700;color:var(--text);letter-spacing:.2px}";
+  css += "details.card>summary::-webkit-details-marker{display:none}";
+  css += "details.card>summary::before{content:'\\25B8';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}";
+  css += "details.card[open]>summary::before{transform:rotate(90deg)}";
+  css += "details.card>*:not(summary){margin-left:16px;margin-right:16px}";
+  css += "details.card>summary{margin-left:0;margin-right:0}";
+  css += "details.card>*:last-child{margin-bottom:16px}";
+  css += "details.card>h3:first-of-type,details.card>p:first-of-type{margin-top:16px}";
   server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   server.send(200, "text/css", css);
 }

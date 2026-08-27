@@ -2398,8 +2398,8 @@ void handleRoot() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Kalburum - Merkez Kontrol</title>
 <style>
-:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--shadow:0 1px 3px rgba(0,0,0,.1)}
-@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+:root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#94a8c9;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--shadow:0 1px 3px rgba(0,0,0,.1)}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#5b6b8c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);padding:12px;-webkit-tap-highlight-color:transparent}
 .container{max-width:1100px;margin:0 auto}
@@ -2415,12 +2415,14 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .card[open]>summary::before{transform:rotate(90deg)}
 .card.zone-sudepo{border-left:4px solid #3b82f6}
 .card.zone-konteyner{border-left:4px solid var(--warn)}
-.subdet{margin-top:16px;border-top:1px solid var(--border);padding-top:10px}
+details.card{border:1.5px solid var(--border-strong)}
+.subdet{margin-top:16px;border:1.5px solid var(--border-strong);border-radius:8px;padding:10px 12px}
 .subdet summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--text)}
 .subdet summary::-webkit-details-marker{display:none}
 .subdet summary::before{content:'▸';display:inline-block;font-size:11px;color:var(--muted);transition:transform .15s}
 .subdet[open]>summary::before{transform:rotate(90deg)}
-.kpi{font-size:28px;font-weight:700}
+.kpi{font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:26px;font-weight:700;letter-spacing:1px;display:inline-block;padding:4px 10px;border-radius:6px;background:#0a0f0a;color:#22ff66;text-shadow:0 0 2px rgba(34,255,102,.9),0 0 8px rgba(34,255,102,.55);border:1px solid #163d1e}
+.kpi.danger{color:#ff3b3b;text-shadow:0 0 2px rgba(255,59,59,.9),0 0 8px rgba(255,59,59,.55);border-color:#611515;animation:pulse 1.2s infinite}
 .kpi small{font-size:12px;color:var(--muted);font-weight:400}
 .bar{background:var(--border);height:18px;border-radius:999px;overflow:hidden;margin-top:8px}
 .bar>div{height:100%;background:linear-gradient(90deg,var(--primary),var(--accent));width:0%;transition:width .4s}
@@ -2436,8 +2438,11 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .dot.active{background:var(--accent)}
 .dot.warn{background:var(--warn)}
 .dot.alarm{background:var(--danger);animation:pulse 1.2s infinite}
+.led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;margin-right:3px;transition:background .15s,box-shadow .15s}
+.led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+.led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
-#alarm-banner{background:var(--danger-bg);color:var(--danger);border:2px solid var(--danger);padding:16px;border-radius:12px;margin-bottom:14px;font-weight:700;font-size:16px;text-align:center;animation:pulse 1.2s infinite}
+#alarm-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:var(--danger-bg-t);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);color:var(--danger);border:2px solid var(--danger);padding:20px 24px;border-radius:12px;font-weight:700;font-size:17px;text-align:center;animation:pulse 1.2s infinite;box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:90vw;width:420px}
 .table{width:100%;border-collapse:collapse;font-size:13px}
 .table th,.table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .table th{color:var(--muted);font-weight:600}
@@ -2450,7 +2455,8 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
 .sz-cbgrid input{width:auto}
 .section{display:none}
 .section.active{display:block}
-.nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100;padding:8px 0;background:rgba(246,248,250,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+@media(prefers-color-scheme:dark){.nav{background:rgba(11,18,32,.75)}}
 .nav button{padding:8px 12px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;cursor:pointer}
 .nav button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .alert{padding:10px;border-radius:8px;background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3);margin-bottom:10px}
@@ -2482,25 +2488,6 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
   </div>
 
   <div id="dashboard" class="section active">
-    <div class="grid">
-      <div class="card"><h3>Depo Doluluk</h3><div class="kpi" id="kpi-pct">--</div><div class="bar"><div id="bar-pct"></div></div></div>
-      <div class="card"><h3>Seviye</h3><div class="kpi" id="kpi-cm">--</div><small>cm</small></div>
-      <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div><small>Litre</small></div>
-      <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><small>°C</small><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
-      <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><small>Nem %</small><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
-      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small>Volt <span id="batarya-soc"></span></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
-      <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
-      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
-    </div>
-
-    <div class="card">
-      <h3>Alarmlar</h3>
-      <div id="alarm-box">
-        <span class="status"><span class="dot active" id="alarm-dot"></span><span id="alarm-text">Sistem Normal</span></span>
-      </div>
-      <div id="hata-box" style="margin-top:8px;color:var(--warn);font-size:13px"></div>
-    </div>
-
     <div class="card">
       <h3>RS485 Cihaz Durumu</h3>
       <div class="row">
@@ -2514,6 +2501,24 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
         <div><small>Lamba:</small> <b id="lm">-</b></div>
         <div><small>Nem Röle:</small> <b id="mr">-</b></div>
       </div>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>Depo Doluluk</h3><div class="kpi" id="kpi-pct">--</div><div class="bar"><div id="bar-pct"></div></div></div>
+      <div class="card"><h3>Seviye</h3><div class="kpi" id="kpi-cm">--</div></div>
+      <div class="card"><h3>Tahmini Hacim</h3><div class="kpi" id="kpi-litre">--</div></div>
+      <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
+      <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
+      <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
+      <div class="card"><h3>Yedek Akü</h3><div class="kpi" id="kpi-yedek-aku">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="yedek-aku-durum">-</div></div>
+      <div class="card"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Alarmlar</h3>
+      <div id="alarm-box">
+        <span class="status"><span class="dot active" id="alarm-dot"></span><span id="alarm-text">Sistem Normal</span></span>
+      </div>
+      <div id="hata-box" style="margin-top:8px;color:var(--warn);font-size:13px"></div>
     </div>
   </div>
 
@@ -2619,7 +2624,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </details>
 
     <details class="card">
-      <summary>Telegram Bildirimleri</summary>
+      <summary>Telegram Bildirimleri <small id="sum-telegram" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted)">Alarm YENİ başladığında (panik, kapı, PIR, kaçak vb. - Kalburum/Konteyner PIR'ı dahil) Telegram'a bildirim gönderir - sadece bu cihazın o an interneti varsa (örn. hotspot bağlıyken) çalışır.</p>
       <div class="row">
         <button class="btn" id="telegram-ac-kapa-btn" onclick="telegramAcKapa()">Yükleniyor...</button>
@@ -2696,15 +2701,15 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
       <summary>👁️ Konteyner Zonu - Konteyner Alarm Ayarları</summary>
 
       <p class="sz-label">Canlı Durum</p>
-      <div class="row" style="gap:16px">
-        <div>HC505-1 PIR: <b id="kz-pir">-</b></div>
-        <div>Swan PIR: <b id="kz-swan">-</b></div>
-        <div>Kapı: <b id="kz-kapi">-</b></div>
-        <div>Duman: <b id="kz-duman">-</b></div>
-        <div>Gaz (MQ6): <b id="kz-gaz">-</b></div>
-        <div>Yerel Uyarı (LED/Buzzer): <b id="kz-alarm">-</b></div>
-        <div>Siren: <b id="kz-siren">-</b></div>
-        <div>Lamba: <b id="kz-lamba">-</b></div>
+      <div class="row" style="gap:16px;align-items:center">
+        <div><span class="led" id="kz-pir"></span> HC505-1 PIR</div>
+        <div><span class="led" id="kz-swan"></span> Swan PIR</div>
+        <div><span class="led" id="kz-kapi"></span> Kapı</div>
+        <div><span class="led" id="kz-duman"></span> Duman</div>
+        <div><span class="led" id="kz-gaz"></span> Gaz (MQ6)</div>
+        <div><span class="led" id="kz-alarm"></span> Yerel Uyarı (LED/Buzzer) <small id="kz-alarm-txt" style="color:var(--muted)"></small></div>
+        <div><span class="led" id="kz-siren"></span> Siren</div>
+        <div><span class="led" id="kz-lamba"></span> Lamba</div>
       </div>
 
       <p class="sz-label" style="margin-top:12px">Sensör Aktif/Pasif</p>
@@ -2748,7 +2753,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </details>
 
     <details class="card">
-      <summary>🔋 Batarya (MPPT) Koruma Ayarları</summary>
+      <summary>🔋 Batarya (MPPT) Koruma Ayarları <small id="sum-batkoruma" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Akü voltajı, MPPT şarj kontrolcüsünden ayrı bir RS232/PI30 hattı üzerinden okunur. Koruma AÇIK olduğunda, voltaj "Kesme" eşiğinin altına inince sulama rölesi ve Konteyner lambası otomatik kapatılır (siren/alarm etkilenmez); voltaj "Geri Yükleme" eşiğine çıkınca otomatik serbest kalır.</p>
       <p style="font-size:12px;color:var(--warn);margin-bottom:8px"><b>Not:</b> Register/ölçek değerleri sahada doğrulanana kadar koruma varsayılan olarak KAPALI kalır - önce Genel sekmesindeki "Akü" kartından gelen voltajı bir multimetreyle karşılaştırıp doğrulayın, sonra korumayı açın.</p>
       <div class="row">
@@ -2773,7 +2778,7 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(-
     </details>
 
     <details class="card">
-      <summary>WiFi</summary>
+      <summary>WiFi <small id="sum-wifi" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
       <div class="row">
         <select class="input" id="staSSIDSel"><option value="">Ağları tara...</option></select>
@@ -3031,7 +3036,14 @@ function show(id){
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('nav-'+id).classList.add('active');
+  try{ localStorage.setItem('sonSekme', id); }catch(e){}
 }
+(function(){
+  try{
+    const sonSekme = localStorage.getItem('sonSekme');
+    if(sonSekme && document.getElementById(sonSekme)) show(sonSekme);
+  }catch(e){}
+})();
 
 function renderUI(d){
   const mo = d.moisture||{};
@@ -3042,6 +3054,10 @@ function renderUI(d){
   // bağlanti koptuktan cok sonra bile son gorulen (artik yanlis/eski) seviye
   // ekranda "canliymis gibi" kalirdi. FIX: baglanti yoksa "--" goster.
   const esp8266Baglı = d.esp8266_online !== false;
+  // 7-segment dijital gosterge: normalde yesil, tehlikede (dusuk seviye
+  // alarmi) kirmizi - bkz .kpi/.kpi.danger CSS.
+  const depoTehlike = !!(d.alarm && d.alarm.low_level);
+  ['kpi-pct','kpi-cm','kpi-litre'].forEach(id=>{ const el=$('#'+id); if(el) el.classList.toggle('danger', depoTehlike); });
   if(esp8266Baglı){
     $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
     $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
@@ -3169,6 +3185,7 @@ function renderUI(d){
       wdk.innerHTML='Ev WiFi tanımlı değil (AP: '+(d.ap_ip||'-')+')';
     }
   }
+  const sw=$('#sum-wifi'); if(sw) sw.textContent = d.wifi_baglibi&&d.wifi_ssid ? d.wifi_ssid : (d.wifi_ssid?'bağlanamadı':'tanımsız');
   // Cihaz durumları
   const esp8266Ok = d.esp8266_online !== false;
   const nanoOk    = d.nano_online !== false;
@@ -3189,20 +3206,21 @@ function renderUI(d){
     if(d.sensor_err) sorunlar.push('Mesafe sensörü (HC-SR04) hata veriyor');
     hb.innerHTML = sorunlar.length ? sorunlar.map(s=>'⚠️ '+s).join('<br>') : '';
   }
-  // Konteyner Zonu PIR - durum + ayar alanlari (odaklıyken üzerine yazma)
-  const kzp=$('#kz-pir'); if(kzp) kzp.textContent = kz.pir?'Var':'Yok';
-  const kzsw=$('#kz-swan'); if(kzsw) kzsw.textContent = kz.swan_pir?'Var':'Yok';
-  const kzk=$('#kz-kapi'); if(kzk) kzk.textContent = kz.kapi_acik?'Açık':'Kapalı';
-  const kzav=$('#kz-duman'); if(kzav){ kzav.textContent = kz.duman?'VAR':'Yok'; kzav.style.color = kz.duman?'var(--danger)':''; }
-  const kzgv=$('#kz-gaz'); if(kzgv){ kzgv.textContent = kz.gaz?'VAR':'Yok'; kzgv.style.color = kz.gaz?'var(--danger)':''; }
+  // Konteyner Zonu PIR - durum + ayar alanlari (odaklıyken üzerine yazma).
+  // Var/Yok metni yerine LED gostergesi: aktifken yanan (kirmizi glow), pasifken sonuk.
+  const kzp=$('#kz-pir'); if(kzp) kzp.classList.toggle('on', !!kz.pir);
+  const kzsw=$('#kz-swan'); if(kzsw) kzsw.classList.toggle('on', !!kz.swan_pir);
+  const kzk=$('#kz-kapi'); if(kzk) kzk.classList.toggle('on', !!kz.kapi_acik);
+  const kzav=$('#kz-duman'); if(kzav) kzav.classList.toggle('on', !!kz.duman);
+  const kzgv=$('#kz-gaz'); if(kzgv) kzgv.classList.toggle('on', !!kz.gaz);
   const kzsic=$('#kz-sicaklik'); if(kzsic) kzsic.textContent = kz.aht_ok ? (kz.sicaklik||0).toFixed(1)+' °C' : '--';
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
   const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
   const kzmqt=$('#kz_mq6Test'); if(kzmqt && document.activeElement!==kzmqt) kzmqt.checked = !!kz.mq6_test_modu;
   const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
-  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.textContent = kz.pending?'ONAY BEKLİYOR':(kzAktif?'AKTİF':'Pasif'); kza.style.color = kzAktif?'var(--danger)':''; }
-  const kzs=$('#kz-siren'); if(kzs){ kzs.textContent = kz.siren?'AKTİF':'Pasif'; kzs.style.color = kz.siren?'var(--danger)':''; }
-  const kzl=$('#kz-lamba'); if(kzl){ kzl.textContent = kz.lamba?'AKTİF':'Pasif'; kzl.style.color = kz.lamba?'var(--danger)':''; }
+  const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_pir)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.classList.toggle('on', !!kzAktif && !kz.pending); kza.classList.toggle('pending', !!kz.pending); const kzat=$('#kz-alarm-txt'); if(kzat) kzat.textContent = kz.pending?'ONAY BEKLİYOR':''; }
+  const kzs=$('#kz-siren'); if(kzs) kzs.classList.toggle('on', !!kz.siren);
+  const kzl=$('#kz-lamba'); if(kzl) kzl.classList.toggle('on', !!kz.lamba);
   const kzpe=$('#kz_pirEtkin'); if(kzpe && document.activeElement!==kzpe) kzpe.checked = kz.pir_en!==false;
   const kzke=$('#kz_kapiEtkin'); if(kzke && document.activeElement!==kzke) kzke.checked = kz.kapi_en!==false;
   const kzsue=$('#kz_swanEtkin'); if(kzsue && document.activeElement!==kzsue) kzsue.checked = kz.swan_en!==false;
@@ -3234,7 +3252,7 @@ function renderUI(d){
   { const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
   { const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   { const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
-  if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; }
+  if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; const st=$('#sum-telegram'); if(st) st.textContent=telegramAktifBilinen?'Açık':'Kapalı'; }
   // Nem verileri - ESP8266 uzerinden geliyor, ayni tazelik esigiyle korunur
   // (bkz. level/sicaklik icin yukarida yapilan esp8266Baglı fix'i - kullanici
   // ayni donmus-deger sorununun nem icin de var oldugunu bildirdi)
@@ -3252,7 +3270,7 @@ function renderUI(d){
   // MPPT UART2 hatti ESP8266 RS485'inden tamamen ayri bir bus)
   const bat = d.battery || {};
   const batOk = bat.online !== false;
-  const bkpi=$('#kpi-batarya'); if(bkpi) bkpi.textContent = batOk ? (bat.voltage||0).toFixed(1)+' V' : '--';
+  const bkpi=$('#kpi-batarya'); if(bkpi){ bkpi.textContent = batOk ? (bat.voltage||0).toFixed(1)+' V' : '--'; bkpi.classList.toggle('danger', !!(batOk && bat.kritik)); }
   const bsoc=$('#batarya-soc'); if(bsoc) bsoc.textContent = (batOk && bat.soc!=null && bat.soc>=0) ? ('('+bat.soc+'%)') : '';
   const bdur=$('#batarya-durum');
   if(bdur){
@@ -3268,7 +3286,7 @@ function renderUI(d){
     else if(bat.kalan_saat==null || bat.kalan_saat<0) bkalan.textContent = (bat.pv_watt>bat.load_watt) ? '🔆 Şarj oluyor' : '';
     else bkalan.textContent = '⏳ Bu tüketimle ~'+bat.kalan_saat.toFixed(1)+' saat kaldı';
   }
-  { const bkb=$('#batarya-koruma-btn'); if(bkb) bkb.textContent = bat.koruma_aktif ? 'Korumayı Kapat' : 'Korumayı Aç'; }
+  { const bkb=$('#batarya-koruma-btn'); if(bkb) bkb.textContent = bat.koruma_aktif ? 'Korumayı Kapat' : 'Korumayı Aç'; const sbk=$('#sum-batkoruma'); if(sbk) sbk.textContent = bat.koruma_aktif ? 'Açık' : 'Kapalı'; }
   // İnvertör sekmesi - tum QPIGS/QMOD/QPIWS/QPIRI detaylari
   {
     const inv = bat.inverter || {};
@@ -3309,7 +3327,7 @@ function renderUI(d){
   // Yedek Aku - pasif donanimsal failover, sadece bilgi amacli gosterge
   const yak = d.yedek_aku || {};
   const yakOk = yak.guncel !== false;
-  const yakKpi=$('#kpi-yedek-aku'); if(yakKpi) yakKpi.textContent = yakOk ? (yak.volt||0).toFixed(1)+' V' : '--';
+  const yakKpi=$('#kpi-yedek-aku'); if(yakKpi){ yakKpi.textContent = yakOk ? (yak.volt||0).toFixed(1)+' V' : '--'; yakKpi.classList.toggle('danger', !!(yakOk && yak.durum==='zayif')); }
   const yakDurum=$('#yedek-aku-durum');
   if(yakDurum){
     const etiket = {dolu:'✅ Dolu/boşta (devrede değil)', devrede:'🔋 Devrede', zayif:'⚠️ Zayıf - şarj/değişim gerekir', bilinmiyor:'-'};
@@ -3319,7 +3337,7 @@ function renderUI(d){
   // Ana Guc (ADS1115) - 3 kademeli bildirim + Acil Durum Lambasi
   const ag = d.ana_guc || {};
   const agOk = ag.ok !== false;
-  const agKpi=$('#kpi-ana-guc'); if(agKpi) agKpi.textContent = agOk ? (ag.volt||0).toFixed(1)+' V' : '--';
+  const agKpi=$('#kpi-ana-guc'); if(agKpi){ agKpi.textContent = agOk ? (ag.volt||0).toFixed(1)+' V' : '--'; agKpi.classList.toggle('danger', !!(agOk && ag.kademe>=2)); }
   const agDurum=$('#ana-guc-durum');
   if(agDurum){
     const kademeEtiket = {0:'✅ Normal', 1:'⚠️ Düşük', 2:'🔶 Kritik', 3:'🔴 Acil'};
