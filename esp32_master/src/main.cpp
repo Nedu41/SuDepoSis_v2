@@ -331,6 +331,14 @@ struct NanoIOStatus {
   bool lamp_on = false;
   String status = "OK";
   unsigned long last_update_ms = 0;
+  // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
+  // RS485 mesajinin son alinma zamanina bakiyordu - ama K1/K2/R/LAMBA alanlari
+  // ESP8266'nin en son BILDIGI (nanoBaglantiVar false olsa bile) degerlerdi,
+  // ESP8266 Nano ile konusamasa da RS485 uzerinden Kalburum'a "hersey normal"
+  // gonderiyordu (Nano jumper'i sokulunce Sudepo sayfasi dogru kirmizi
+  // gosterirken Kalburum yanlislikla "Nano: OK" gosterdi). Artik ESP8266
+  // kendi nanoBaglantiVar'ini de ayri bir alan (NANO=) olarak gonderiyor.
+  bool esp8266_gorunen_baglanti = true;
 };
 
 struct AlarmStatus {
@@ -1662,6 +1670,8 @@ void parse_esp8266_data(String payload) {
       nanoStatus.relay_active = (value == "1");
     } else if (key == "LAMBA") {
       nanoStatus.lamp_on = (value == "1");
+    } else if (key == "NANO") {
+      nanoStatus.esp8266_gorunen_baglanti = (value == "1");
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -4300,7 +4310,12 @@ String durumJson() {
   doc["alarmYuzde"] = ALARM_LEVEL_PERCENT;
   
   doc["esp8266_online"] = (millis() - sensorData.last_update_ms) < 10000;
-  doc["nano_online"] = (millis() - nanoStatus.last_update_ms) < 10000;
+  // FIX: RS485 mesaji tazeligi TEK BASINA yetmiyordu - ESP8266 Nano'yla
+  // konusamasa bile (orn. UART jumper sokulmus) RS485 mesajini normal
+  // gonderiyor, mesajin ICINDEKI K1/K2/R/LAMBA degerleri ESP8266'nin en son
+  // BILDIGI (bayat) degerlerdi. Simdi ESP8266'nin kendi bildirdigi NANO=
+  // alani (esp8266_gorunen_baglanti) da sart kosuluyor.
+  doc["nano_online"] = ((millis() - nanoStatus.last_update_ms) < 10000) && nanoStatus.esp8266_gorunen_baglanti;
   doc["esp8266_last_sec"] = (millis() - sensorData.last_update_ms) / 1000;
   doc["uptime_sec"] = millis() / 1000;
   doc["build_date"] = String(__DATE__) + " " + String(__TIME__);
