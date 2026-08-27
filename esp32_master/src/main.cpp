@@ -2735,6 +2735,14 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
 .led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
+/* Buyuk/"canli" LED varyanti (kullanici talebi, 2026-08-27: "gercek ledmis
+   gibi") - Konteyner Sensorleri karti icin. .led ile AYNI .on/.ok/.pending
+   sinif adlarini kullanir, sadece boyut+parlaklik/govde stilini degistirir -
+   kaynak sirasi .led kurallarindan SONRA oldugundan (esit ozgullukte) kazanir. */
+.led-big{width:17px;height:17px;box-shadow:inset 0 -2px 3px rgba(0,0,0,.35),0 1px 1px rgba(255,255,255,.2);background:radial-gradient(circle at 35% 30%,#7b8494,#374151 75%)}
+.led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}
+.led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}
+.led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
 /* Etiket:deger listeleri (Sudepo/ESP8266'daki .info p ile AYNI desen, tum
    projelerde tutarli olsun diye buraya da eklendi - kullanici talebi,
@@ -2826,16 +2834,20 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div class="bar"><div id="bar-pct"></div></div>
       </div>
-      <div class="card"><h3>Konteyner Sensörleri</h3>
-        <div class="row" style="gap:12px;margin-top:0;align-items:center">
-          <div><span class="led" id="db-pir"></span> PIR</div>
-          <div><span class="led" id="db-swan"></span> Swan PIR</div>
-          <div><span class="led" id="db-kapi"></span> Kapı</div>
-          <div><span class="led" id="db-duman"></span> Duman</div>
-          <div><span class="led" id="db-gaz"></span> Gaz</div>
+      <div class="card" style="grid-column:span 2"><h3>Konteyner Sensörleri</h3>
+        <div class="row" style="gap:16px;margin-top:0;align-items:center;flex-wrap:wrap">
+          <div><span class="led led-big" id="db-pir"></span> PIR</div>
+          <div><span class="led led-big" id="db-swan"></span> Swan PIR</div>
+          <div><span class="led led-big" id="db-kapi"></span> Kapı</div>
+          <div><span class="led led-big" id="db-duman"></span> Duman</div>
+          <div><span class="led led-big" id="db-gaz"></span> Gaz</div>
+          <div><span class="led led-big" id="db-siren"></span> Siren</div>
+          <div><span class="led led-big" id="db-acillamba"></span> Acil Lamba</div>
         </div>
-        <div style="margin-top:10px;font-size:12px;color:var(--muted)">Gaz (MQ6): <b id="db-mq6">-</b></div>
-        <div style="font-size:12px;color:var(--muted)">Duman (GP2Y10): <b id="db-gp2y10">-</b></div>
+        <div class="row" style="margin-top:10px;gap:24px;font-size:12px;color:var(--muted)">
+          <div>Gaz (MQ6): <b id="db-mq6">-</b></div>
+          <div>Duman (GP2Y10): <b id="db-gp2y10">-</b></div>
+        </div>
       </div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Toprak Nem</h3><div class="kpi" id="kpi-moisture">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)">Ham: <b id="moisture-raw">-</b></div><div style="font-size:12px;color:var(--muted)">Çıkış: <b id="moisture-output">-</b> | Mod: <b id="moisture-mode">-</b></div></div>
@@ -3623,6 +3635,8 @@ function renderUI(d){
   const dbk=$('#db-kapi'); if(dbk) dbk.classList.toggle('on', !!kz.kapi_acik);
   const dbav=$('#db-duman'); if(dbav) dbav.classList.toggle('on', !!kz.duman);
   const dbgv=$('#db-gaz'); if(dbgv) dbgv.classList.toggle('on', !!kz.gaz);
+  const dbsi=$('#db-siren'); if(dbsi) dbsi.classList.toggle('on', !!kz.siren);
+  const dbal=$('#db-acillamba'); if(dbal) dbal.classList.toggle('on', !!(d.ana_guc && d.ana_guc.acil_lamba));
   const dbmq=$('#db-mq6'); if(dbmq) dbmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI]') : '--';
   const dbgp=$('#db-gp2y10'); if(dbgp) dbgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
   const kza=$('#kz-alarm'); if(kza){ const kzAktif=kz.pir_alarm||(kz.kapi_en!==false&&kz.kapi_acik)||(kz.swan_en!==false&&kz.swan_alarm)||(kz.duman_en!==false&&kz.duman)||(kz.gaz_en!==false&&kz.gaz); kza.classList.toggle('on', !!kzAktif && !kz.pending); kza.classList.toggle('pending', !!kz.pending); const kzat=$('#kz-alarm-txt'); if(kzat) kzat.textContent = kz.pending?'ONAY BEKLİYOR':''; }
