@@ -16,10 +16,10 @@
 <div id=alarmKutu class=alarm-kutu style=display:none>SU DUSUK!</div>
 <div id=kacakKutu class=alarm-kutu style=display:none>KACAK! <span id=kacakDakikaText>0</span> dk.</div>
 <div class=depo-container><div class=depo><div class=su id=suBar style=height:0%;></div><div class=su-dalga></div><div class=seviye-text id=yuzdeText>0%</div></div></div>
-<div class=info id=infoKutu><p>Seviye: <b>- cm</b></p><p>Doluluk: <b>-%</b></p><p>Hacim: <b>- L</b> / - L</p><hr><p>Nem: <b id=anaNemText>-%</b></p></div>
+<div class=info id=infoKutu><p><span class=info-label>Seviye</span><b>- cm</b></p><p><span class=info-label>Doluluk</span><b>-%</b></p><p><span class=info-label>Hacim</span><b>- L</b> / - L</p><hr><p><span class=info-label>Nem</span><b id=anaNemText>-%</b></p></div>
 <div class=btn-satir><button onclick=olc() class='btn btn-yesil'>Olc</button><button onclick=zamanGoster() class='btn btn-turuncu'>Zaman</button><button onclick=canliIzleToggle() id=canliIzleBtn class='btn btn-mavi'>Canli Izle (Dolum)</button></div><div id=sonuc class=sonuc-metni></div></div>
 
-<div class=card><h3>Tuketim</h3><div class=info><p>Bugun: <b id=gunlukTuketimText>- L</b></p><p>Bu ay: <b id=aylikTuketimText>- L</b></p></div></div>
+<div class=card><h3>Tuketim</h3><div class=info><p><span class=info-label>Bugun</span><b id=gunlukTuketimText>- L</b></p><p><span class=info-label>Bu ay</span><b id=aylikTuketimText>- L</b></p></div></div>
 
 <div class=card><h3>Durum</h3><div class=info><p><span class=info-label>Sol Kapi</span><span class=led id=kapi1Text></span></p><p><span class=info-label>Sag Kapi</span><span class=led id=kapi2Text></span></p><p><span class=info-label>Nano</span><span class=led id=nanoBagliText></span></p><p><span class=info-label>Alarm</span><b id=roleTetikliText>-</b></p><p><span class=info-label>PIR</span><b id=pirDurumText>-</b></p><p><span class=info-label>Lamba</span><span class=led id=lambaText></span></p><p><span class=info-label>Nem</span><b id=moistureText>-</b></p><p><span class=info-label>Nem Mod</span><b id=moistureAutoText>-</b></p><p><span class=info-label>Nem Role</span><span class=led id=moistureOutputText></span></p></div>
 <div class=btn-satir><button onclick=roleToggle() class='btn btn-turuncu' id=roleToggleBtn>Alarmi Ac</button><button onclick=panicToggle() class='btn btn-kirmizi' id=panicBtn>Panik</button><button onclick=lambaToggle() class='btn btn-mavi' id=lambaToggleBtn>Lamba</button></div>
