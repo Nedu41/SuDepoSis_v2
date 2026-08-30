@@ -78,15 +78,38 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 </div>
 
 <div class="section">
-<h2>Pertinax Kartı Konnektörleri (CN1–CN5)</h2>
+<h2>Pertinax Kartı Konnektörleri (CN1–CN6)</h2>
 <table>
 <tr><th>Konnektör</th><th>Bağlı Modül</th><th>ESP32 GPIO</th></tr>
-<tr><td>CN1</td><td>GP2Y1014AU0F (duman/toz sensörü)</td><td>6, 18</td></tr>
-<tr><td>CN2</td><td>AHT10 (sıcaklık/nem, I2C)</td><td>36, 42</td></tr>
+<tr><td>CN1</td><td>GP2Y1014AU0F (duman/toz sensörü) + Acil Durum Butonu sinyali (fiziksel routing paylaşımı, elektriksel ilgisi yok)</td><td>6, 15, 18</td></tr>
+<tr><td>CN2</td><td>AHT10 (sıcaklık/nem, I2C) + MQ6 AOUT sinyali (fiziksel routing paylaşımı, elektriksel ilgisi yok)</td><td>10, 36, 42</td></tr>
 <tr><td>CN3</td><td>MAX3232 (MPPT RS232)</td><td>40, 41</td></tr>
 <tr><td>CN4</td><td>Dreambox Ön Panel (IR Alıcı, Kırmızı LED+Buzzer, Yeşil Power LED, Reset Buton)</td><td>4, 5, — (Power LED beslemeye doğrudan), — (Reset ESP32 EN pinine)</td></tr>
 <tr><td>CN5</td><td>13'lü iç konnektör (RCA/SCART/RS485/güç toplu çıkış)</td><td>7, 8, 9, 12, 13, 17</td></tr>
+<tr><td>CN6</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET SIG ucu) — Sarı tel SCART Pin 20'ye gidiyor. Kırmızı/Siyah tel boşta/yedek (2026-08-28)</td><td>16</td></tr>
 </table>
+</div>
+
+<div class="section">
+<h2>Klemens Tablosu (SCART → Dış Bağlantı)</h2>
+<p>SCART çıkış kabloları (~20cm) kutu içindeki 80x20mm pertinax üzerindeki vidalı klemens tablosuna giriyor — 2 sütun (sol=12V taraf, sağ=5V taraf), her sütun 13 terminal. Kart dikey duruyor: SCART kablosu en alttan girer, en üstte besleme (12V+/5V+, büyük/geniş klemensler) terminalleri var. MQ6/AHT10/GP2Y10/Swan PIR beslemesi buradan alınır, SCART'tan değil.</p>
+<table>
+<tr><th>#</th><th>Sol (12V taraf)</th><th>Sağ (5V taraf)</th></tr>
+<tr><td>1</td><td>12V+</td><td>5V+</td></tr>
+<tr><td>2</td><td>12V+</td><td>5V+</td></tr>
+<tr><td>3</td><td>12V+</td><td>5V+</td></tr>
+<tr><td>4</td><td>GND</td><td>GND</td></tr>
+<tr><td>5</td><td>Pin2 (Lamba)</td><td>Pin1 (MQ6 AOUT)</td></tr>
+<tr><td>6</td><td>Pin6 (Siren)</td><td>Pin17 (Acil Buton)</td></tr>
+<tr><td>7</td><td>GND</td><td>GND</td></tr>
+<tr><td>8</td><td>Pin3 (AHT10 SDA)</td><td>Pin11 (GP2Y10 Vo)</td></tr>
+<tr><td>9</td><td>Pin7 (AHT10 SCL)</td><td>Pin16 (GP2Y10 LED)</td></tr>
+<tr><td>10</td><td>GND</td><td>GND</td></tr>
+<tr><td>11</td><td>Pin8 (Swan PIR)</td><td>Pin19 (GND)</td></tr>
+<tr><td>12</td><td>Pin20 (MQ6 MOSFET SIG)</td><td>— (boş)</td></tr>
+<tr><td>13</td><td>GND</td><td>GND</td></tr>
+</table>
+<p style="font-size:13px;color:var(--muted)">Ayrıntılı fotoğraf/kaynak: <a href="kutu-arka-panel.html">kutu-arka-panel.html</a> madde 7.</p>
 </div>
 
 <div class="section">
@@ -105,10 +128,10 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>Konteyner Siren (fiziksel siren/korna)</td><td>12V (tipik)</td><td>~200-500mA (DOĞRULA)</td><td>Yedek akü → 12V hattı</td><td>MOSFET gate GPIO ile tetiklenir, drain/source 12V taşır</td></tr>
 <tr><td>Konteyner Lamba (uyarı lambası/flaşör)</td><td>12V (tipik)</td><td>~100-300mA (DOĞRULA)</td><td>Yedek akü → 12V hattı</td><td>MOSFET gate GPIO ile tetiklenir, drain/source 12V taşır</td></tr>
 <tr><td>Swan Quad PET PIR</td><td>12V</td><td>~20-30mA</td><td>Yedek akü → 12V hattı (Siren/Lamba ile ortak bara)</td><td>NC/COM sinyali beslemesiz, sadece kontak</td></tr>
-<tr><td>Acil Durum Lambası (GPIO21 MOSFET çıkışı)</td><td>12V</td><td>~100-300mA (DOĞRULA)</td><td>Yedek akü → 12V hattı</td><td>MOSFET ESP32'nin yanında/Dreambox içinde kalan TEK istisna, bkz [[project_yedek_aku_sistemi]]</td></tr>
+<tr><td>Acil Durum Lambası (GPIO12 MOSFET çıkışı)</td><td>12V</td><td>~100-300mA (DOĞRULA)</td><td>Yedek akü → 12V hattı</td><td>400W/15A MOSFET modülü (2026-08-28). Sarı RCA üzerinden dışarı çıkar (2026-08-28: eskiden GPIO21'di, kutudan dışarı çıkışı hiç yoktu)</td></tr>
 <tr><td>AHT10 (sıcaklık/nem) — CN2</td><td>3.3V</td><td>~0.3mA (ort.), ~1mA (ölçüm anı)</td><td>5V hattı → yerel AMS1117-3.3 (sensörün hemen yanına monte edilecek)</td><td>I2C hattı 3.3V, 2.2kΩ pull-up eklendi. Saha genelinde AYRI bir 3.3V hattı YOK — tek 3.3V ihtiyacı AHT10, yerel regüle edilir</td></tr>
 <tr><td>ADS1115 (ana güç ADC)</td><td>3.3V</td><td>~0.15mA</td><td>ESP32 3V3</td><td>Bilinçli tercih — 5V verilirse 3.3V I2C hattına pull-up riski</td></tr>
-<tr><td>MQ6 (gaz sensörü)</td><td>5V (tipik, ısıtıcı elemanı için)</td><td>~150mA (ısıtıcı açık), ~5mA (kapalı)</td><td>Yedek akü → 5V hattı, GPIO16 MOSFET ile anahtarlanır</td><td>DOĞRULA — modülün üzerindeki etikete bak</td></tr>
+<tr><td>MQ6 (gaz sensörü)</td><td>5V (tipik, ısıtıcı elemanı için)</td><td>~150mA (ısıtıcı açık), ~5mA (kapalı)</td><td>Yedek akü → 5V hattı, GPIO16 → IRF520 MOSFET modülü ile anahtarlanır</td><td>DOĞRULA — modülün üzerindeki etikete bak</td></tr>
 <tr><td>GP2Y10 (duman/toz sensörü) — CN1</td><td>5V (Sharp datasheet)</td><td>~20mA (LED darbe tepe), &lt;1mA (ort.)</td><td>Yedek akü → 5V hattı, LED kontrol pini (Pin3) GPIO18'e doğrudan bağlı (MOSFET yok)</td><td>~320µs darbe/2sn periyot, düşük duty-cycle</td></tr>
 <tr><td>Yedek Akü ADC gerilim bölücü</td><td>Ölçtüğü hat: ~12V (akü bankası)</td><td>~0.1mA (bölücü sızıntısı)</td><td>—</td><td>Bölücü çıkışı ESP32 GPIO2/ADC1'e 3.3V altında kalacak şekilde ölçeklenir</td></tr>
 <tr><td>Ana 24V hat (solar/MPPT akü bankası)</td><td>24V (2x12V seri)</td><td>Pompaya bağlı, ayrı sistem</td><td>Güneş paneli + MPPT</td><td>Artık güvenlik cihazlarını BESLEMİYOR — sadece sulama pompası ve MPPT/şarj devresi bu hatta</td></tr>
@@ -149,17 +172,17 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>MOSFET çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
 <tr><td>9</td><td>Konteyner Lambası</td><td>MOSFET çıkışı (uyarı lambası/flaşör)</td><td>Varsayılan HIGH=aktif; siren ile birlikte VEYA tek başına (Onaylı mod "Sessiz (Lamba)" onayı, ya da Kontrol sekmesinden elle) aktif olabilir</td></tr>
-<tr><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT → ESP32 RX</td><td>UART2, RS232/PI30 — ESP8266 hattından (UART1) tamamen ayrı. MPPT portu RS485 DEĞİL, RS232 — MAX485 değil MAX3232 kullanılır. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı. <b>Not:</b> modülün silkscreen'indeki "TX/RX" etiketi üreticiye göre değişir — R1OUT/T1IN cip pin adları kesindir, işleve göre bağlayın.</td></tr>
-<tr><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ← ESP32 TX</td><td>UART2, RS232/PI30</td></tr>
+<tr><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT → ESP32 RX</td><td>UART2, RS232/PI30 — ESP8266 hattından (UART1) tamamen ayrı. MPPT portu RS485 DEĞİL, RS232 — MAX485 değil MAX3232 kullanılır. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı. <b>Not:</b> modülün silkscreen'indeki "TX/RX" etiketi üreticiye göre değişir — R1OUT/T1IN cip pin adları kesindir, işleve göre bağlayın.</td></tr>
+<tr><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ← ESP32 TX</td><td>UART2, RS232/PI30</td></tr>
 <tr><td>2</td><td>Yedek Akü (ADC)</td><td>Gerilim bölücü çıkışı → ADC1</td><td>3x 12V 20Ah yedek akü PARALEL bankasının (~12V, ~60Ah, sadece alarm elektroniğine diyot-OR ile yedek) voltajını izler — salt-okunur gösterge, hiçbir röleyi tetiklemez. Kalibrasyon: <code>config.h</code> → <code>YEDEK_AKU_ADC_OLCEK</code></td></tr>
-<tr><td>21</td><td>Acil Durum Lambası (MOSFET)</td><td>Çıkış — acil durum lambasını anahtarlar</td><td>2026-08-24: eski "Yedek Akü Şarj Rölesi" mantığı tamamen kaldırıldı (Schulzz PWM solar şarj kontrolcü şarjı artık donanımsal yapıyor) — aynı GPIO21 + aynı fiziksel MOSFET modülü "Acil Durum Lambası" için yeniden kullanıldı. Web'den manuel (<code>/api/acil-lamba</code>) açılabilir; panik/Konteyner alarm durumunda otomatik/anında yanar. Ana güç düşük kademelerinde (aşağıya bkz ADS1115) SADECE bildirim gönderilir, bu pin otomatik tetiklenmez.</td></tr>
-<tr><td>12</td><td>Sarı RCA</td><td>Ayrıldı, amacı henüz belirlenmedi</td><td>12V güç hattı olma fikrinden vazgeçildi — pin bağlandı, kullanım amacı ve yönü (input/output) kararlaştırılınca kodlanacak. 13'lü iç konnektörün pin4'üne bağlı.</td></tr>
+<tr><td>21</td><td>Serbest (kullanılmıyor)</td><td>—</td><td>2026-08-24: eski "Yedek Akü Şarj Rölesi" mantığı tamamen kaldırıldı (Schulzz PWM solar şarj kontrolcü şarjı artık donanımsal yapıyor). 2026-08-28: Acil Durum Lambası da buradan GPIO12'ye taşındı (dışarı çıkışı olmadığı için) — GPIO21 tamamen boşta.</td></tr>
+<tr><td>12</td><td>Acil Durum Lambası (MOSFET), eski adı "Sarı RCA"</td><td>Çıkış — acil durum lambasını anahtarlar</td><td>2026-08-28: 13'lü iç konnektörün pin4'üne (Sarı RCA) bağlı, dışarı çıkışı buradan. Web'den manuel (<code>/api/acil-lamba</code>) açılabilir; panik/Konteyner alarm durumunda otomatik/anında yanar. Ana güç düşük kademelerinde (aşağıya bkz ADS1115) SADECE bildirim gönderilir, bu pin otomatik tetiklenmez.</td></tr>
 <tr><td>13</td><td>Swan Quad PET PIR</td><td>NC/COM kontağı (INPUT_PULLUP)</td><td>2026-08-25: GPIO15'ten buraya taşındı, SCART Pin 8 (13'lü konnektör pin9) üzerinden dışarı çıkarılıyor. Ticari alarm dedektörü, reed switch ile aynı mantık: kontak kapalıyken (hareket yok) LOW, açılınca (hareket VEYA kablo kesilirse/güç giderse — NC fail-safe) HIGH. 12V besleme siren/lamba ile aynı harici hattan verilir.</td></tr>
 <tr><td>I2C (SDA=36, SCL=42)</td><td>ADS1115 (harici ADC, adres 0x48)</td><td>Ana güç (24V hat) izleme, AIN0 kanalı</td><td>2026-08-24: ADC1 (GPIO2/6/10) dolu olduğundan ana akü için ayrı I2C ADC modülü eklendi — AHT10 (0x38) ile aynı hatta, farklı adres, çakışma yok. VCC/GND besleme + ADDR pini GND'ye (adres 0x48 sabitler) — ALRT kullanılmıyor. 3 kademeli (Düşük/Kritik/Acil) ayarlanabilir eşik (varsayılan 23.5/22/21V), sadece Telegram bildirimi gönderir, hiçbir röle otomatik tetiklenmez. Bölücü oranı (<code>ANA_GUC_BOLUCU_ORAN</code>) sahada DOĞRULA.</td></tr>
 <tr><td>36</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SDA</td><td>Konteyner'e özel sıcaklık/nem sensörü — ESP8266'nın hep 0.0 gönderdiği eski "Sıcaklık" placeholder'ından ayrı, yeni alanlar (<code>konteyner.sicaklik/nem</code>). Kütüphane kullanılmadan elle I2C protokolüyle okunur (bkz <code>main.cpp</code> <code>ahtOku()</code>).</td></tr>
 <tr><td>42</td><td>AHT10 (sıcaklık/nem)</td><td>I2C SCL</td><td>—</td></tr>
 <tr><td>10</td><td>MQ6 (gaz sensörü)</td><td>Analog giriş → ADC1</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler — güç dongusu için bkz GPIO16. 2026-08-20: MQ3'ten MQ6'ya geçildi (tüp gaz/LPG için daha uygun sensör), pin/mantık aynı kaldı</td></tr>
-<tr><td>16</td><td>MQ6 Güç Kontrolü (MOSFET/transistör modül)</td><td>Dijital çıkış (OUTPUT)</td><td>2026-08-26: Adaptif döngü — gündüz ana güç (solar) ≥26V'da ısıtıcı SÜREKLİ açık (gecikme sıfır); gece/düşük güçte yedek akü doluluğuna göre 3dk (dolu) / 6dk (orta) / 10dk (zayıf) periyotta 60sn açılıp kapanır (bkz main.cpp mq6EtkinCycleMs()) — modülün sinyal ucu bu pine, MQ6 VCC'si modül üzerinden anahtarlanır. İlk kurulumda 24-48 saat kesintisiz ısıtılıp stabilize edilmeli.</td></tr>
+<tr><td>16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü)</td><td>Dijital çıkış (OUTPUT)</td><td>2026-08-26: Adaptif döngü — gündüz ana güç (solar) ≥26V'da ısıtıcı SÜREKLİ açık (gecikme sıfır); gece/düşük güçte yedek akü doluluğuna göre 3dk (dolu) / 6dk (orta) / 10dk (zayıf) periyotta 60sn açılıp kapanır (bkz main.cpp mq6EtkinCycleMs()) — IRF520 modülünün SIG ucu bu pine, MQ6 VCC'si modül üzerinden anahtarlanır. İlk kurulumda 24-48 saat kesintisiz ısıtılıp stabilize edilmeli. 2026-08-28: MQ6 dışarı taşındığından bu pin de SCART Pin 20'ye (Mavi/Beyaz) çıkarıldı.</td></tr>
 <tr><td>6</td><td>GP2Y10 (duman/toz sensörü, Sharp GP2Y1014AU0F/GP2Y1010AU0F)</td><td>Analog giriş (Vo) → ADC1</td><td>2026-08-20: EFS-903R (kuru kontak röleli dedektör, sahada arızalı çıktı) yerine geçti. Isıtıcı yok, ~320us LED darbesiyle her 2sn'de bir ölçüm alınır (bkz GPIO18). Eşik aşılınca panik gibi anında Konteyner alarmını tetikler.</td></tr>
 <tr><td>18</td><td>GP2Y10 LED Kontrol (doğrudan Pin3'e, MOSFET YOK)</td><td>Dijital çıkış (OUTPUT)</td><td>2026-08-25: MOSFET hiç bağlanmamıştı, doğrudan sensörün Pin3'üne bağlanacak (Sharp: 20mA, harici transistöre gerek yok). LOW=LED açık, HIGH=LED kapalı (Sharp'ın resmi pin fonksiyonu). ~320us'lik darbe içinde GPIO6'dan örnekleme alınır.</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
@@ -167,9 +190,9 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>26-37</td><td>—</td><td>KULLANILMAZ (Quad Flash + Octal PSRAM)</td><td>Bu kart N16R8 (16MB flash + 8MB PSRAM) — GPIO26-32 flash/PSRAM ortak hat, GPIO33-37 Octal PSRAM'a özel (SPIIO4-7/SPIDQS). GPIO33/34 zaten bu kartta header'a hiç çıkmıyor. NOT: 16MB/PSRAM firmware olarak etkinleştirilmeye çalışıldı, sahada boot loop verdi — proje hâlâ 8MB/DIO/PSRAM'sız çalışıyor, bkz sudepo/04 Sorun-Cozum.</td></tr>
 <tr><td>15</td><td>Fiziksel Acil Durum Butonu</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Basışta web'deki Panik butonuyla aynı işlevi tetikler. Dış çıkışı SCART Pin 17 (Yeşil), GND dönüşü herhangi bir GND pininden.</td></tr>
 <tr><td>11, 19, 20</td><td>—</td><td>Serbest (gelecekteki eklentiler) — DİKKAT</td><td>GPIO11 TOUCH11 kanalı, GPIO19/20 native USB-JTAG için ayrılabilir (bu kart onu kullanmıyorsa serbest, doğrulanmadı) — yeni bir buton/anahtar için GPIO11'den kaçının.</td></tr>
-<tr><td>35, 43, 44, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>Dokunma/ADC özelliği yok, güvenli adaylar. GPIO40/41 artık MPPT/MAX3232'de, GPIO16/17/18 artık MQ6/PIR2/GP2Y10'da, GPIO36/42 artık AHT10/ADS1115 I2C'de, GPIO12 Sarı RCA'da, GPIO13 artık Swan PIR'da kullanılıyor. İleride ekran eklenirse: I2C ekran (SSD1306 gibi) yeni pin istemez, mevcut GPIO36/42 hattına adres ile bindirilir; SPI ekran (CS/DC/RST/SCK/MOSI, 5 sinyal) için bu serbest pinler yeterli.</td></tr>
+<tr><td>21, 35, 43, 44, 47, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>Dokunma/ADC özelliği yok, güvenli adaylar. GPIO40/41 artık MPPT/MAX3232'de, GPIO16/17/18 artık MQ6/PIR2/GP2Y10'da, GPIO36/42 artık AHT10/ADS1115 I2C'de, GPIO12 artık Acil Durum Lambası'nda (Sarı RCA), GPIO13 artık Swan PIR'da kullanılıyor. İleride ekran eklenirse: I2C ekran (SSD1306 gibi) yeni pin istemez, mevcut GPIO36/42 hattına adres ile bindirilir; SPI ekran (CS/DC/RST/SCK/MOSI, 5 sinyal) için bu serbest pinler yeterli.</td></tr>
 </table>
-<p style="margin-top:8px">Yedek akü (GPIO2/GPIO21) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a></p>
+<p style="margin-top:8px">Yedek akü (GPIO2) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a> — <b>DİKKAT:</b> bu kılavuz GPIO21'in eski (2026-08-24'te kaldırılan) şarj rölesi işlevini anlatıyor, güncel değil, sadece GPIO2 (akü voltaj izleme) kısmı hâlâ geçerli.</p>
 </div>
 
 <div class="section">
@@ -184,8 +207,8 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 "730-90002-00" WiFi modülünün takıldığı port.</p>
 <table>
 <tr><th>MAX3232 Pin (cip adı)</th><th>ESP32 GPIO</th><th>Açıklama</th></tr>
-<tr><td>R1OUT</td><td>40 (RX)</td><td>MPPT → ESP32 (alınan veri çıkışı). Modül silkscreen'i "TX" yazsa da yazmasa da, ESP32 RX'ine bağlanacak pin budur — datasheet'teki R1OUT işlevine göre bağlayın, baskı etikete değil.</td></tr>
-<tr><td>T1IN</td><td>41 (TX)</td><td>ESP32 → MPPT (gönderilecek veri girişi)</td></tr>
+<tr><td>R1OUT</td><td>41 (RX)</td><td>MPPT → ESP32 (alınan veri çıkışı). Modül silkscreen'i "TX" yazsa da yazmasa da, ESP32 RX'ine bağlanacak pin budur — datasheet'teki R1OUT işlevine göre bağlayın, baskı etikete değil.</td></tr>
+<tr><td>T1IN</td><td>40 (TX)</td><td>ESP32 → MPPT (gönderilecek veri girişi)</td></tr>
 <tr><td>VCC</td><td>3V3</td><td style="color:#c0392b">SADECE 3.3V — 5V verilirse MAX3232'nin TTL çıkışı (R1OUT) ESP32 GPIO'suna ~5V basar, kalıcı hasar riski</td></tr>
 <tr><td>GND</td><td>GND</td><td>Ortak toprak</td></tr>
 </table>
@@ -251,7 +274,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>Siren MOSFET</td><td>8</td><td>Gerçek fiziksel siren/alarm çıkışı — Sesli modda hemen, Onaylı modda onaydan sonra aktif</td></tr>
 <tr><td>Lamba MOSFET</td><td>9</td><td>Uyarı lambası/flaşör — siren ile birlikte VEYA Onaylı+"Sessiz (Lamba)" onayında VEYA Kontrol sekmesinden elle tek başına aktif olabilir</td></tr>
 </table>
-<p><strong>Not (2026-08-26):</strong> Siren ve Lamba anahtarlaması artık röle değil, MOSFET ile yapılacak (Acil Durum Lambası'ndaki GPIO21 MOSFET ile aynı yaklaşım). Kablolama aktif-LOW çıkarsa, <code>main.cpp</code> içindeki
+<p><strong>Not (2026-08-26):</strong> Siren ve Lamba anahtarlaması artık röle değil, MOSFET ile yapılacak (Acil Durum Lambası'ndaki GPIO12 MOSFET ile aynı yaklaşım). Kablolama aktif-LOW çıkarsa, <code>main.cpp</code> içindeki
 <code>alarmLedGuncelle()</code> fonksiyonundaki ilgili <code>digitalWrite(...)</code> satırlarını ters
 çevirmek yeterli — reflash gerektirir ama donanım değişikliği gerektirmez.</p>
 </div>
@@ -276,7 +299,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><th>RCA</th><th>Bağlı Olduğu</th><th>ESP32 GPIO</th></tr>
 <tr><td>Kırmızı</td><td>HC-SR505 (PIR2, Konteyner hareket sensörü)</td><td>GPIO17</td></tr>
 <tr><td>Beyaz</td><td>Kapı reed switch</td><td>GPIO7</td></tr>
-<tr><td>Sarı</td><td>Amacı henüz belirlenmedi (12V giriş fikrinden vazgeçildi) — pin ayrıldı, hazır bekliyor. 13'lü konnektör pin4'e bağlı.</td><td>GPIO12</td></tr>
+<tr><td>Sarı</td><td>Acil Durum Lambası (MOSFET tetikleme çıkışı)</td><td>GPIO12</td></tr>
 </table>
 
 <h3>Swan PIR Saha Kablosu (7m CAT5, 2026-08-25)</h3>
@@ -291,28 +314,29 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <h3>SCART Soketi (21 pin)</h3>
 <table>
 <tr><th>Pin / Kablo Rengi</th><th>CN5 Pini</th><th>ESP32 GPIO</th><th>Fonksiyon</th></tr>
-<tr><td>1 &nbsp;<span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>—</td><td>GPIO10</td><td>MQ6 AOUT (analog data)</td></tr>
+<tr><td>1 &nbsp;<span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>—</td><td>GPIO10</td><td>MQ6 AOUT (analog data) - CN2 Siyah kablo</td></tr>
 <tr><td>2 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#6d4c33 50%,#ffffff 50%)"></span>Kahve/Beyaz</td><td>7</td><td>GPIO9</td><td>Konteyner Lamba çıkışı</td></tr>
-<tr><td>3 &nbsp;<span class="swatch" style="background:#222"></span>Siyah</td><td>—</td><td>GPIO36</td><td>AHT10 SDA</td></tr>
+<tr><td>3 &nbsp;<span class="swatch" style="background:#222"></span>Siyah</td><td>—</td><td>GPIO36</td><td>AHT10 SDA - CN2 Sarı kablo</td></tr>
 <tr><td>4 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#43a047 50%,#ffffff 50%)"></span>Yeşil/Beyaz</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>5 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>6 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#fdd835 50%,#ffffff 50%)"></span>Sarı/Beyaz</td><td>8</td><td>GPIO8</td><td>Konteyner Siren çıkışı</td></tr>
-<tr><td>7 &nbsp;<span class="swatch" style="background:#1e88e5"></span>Mavi</td><td>—</td><td>GPIO42</td><td>AHT10 SCL</td></tr>
+<tr><td>7 &nbsp;<span class="swatch" style="background:#1e88e5"></span>Mavi</td><td>—</td><td>GPIO42</td><td>AHT10 SCL - CN2 Kırmızı kablo</td></tr>
 <tr><td>8 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#fb8c00 50%,#ffffff 50%)"></span>Turuncu/Beyaz</td><td>9</td><td>GPIO13</td><td>Swan Quad PET PIR (NC/COM)</td></tr>
 <tr><td>9 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>10 &nbsp;— (kablosuz)</td><td>—</td><td>—</td><td>Kablosuz</td></tr>
-<tr><td>11 &nbsp;<span class="swatch" style="background:#fb8c00"></span>Turuncu</td><td>—</td><td>GPIO6</td><td>GP2Y10 Vo (analog)</td></tr>
+<tr><td>11 &nbsp;<span class="swatch" style="background:#fb8c00"></span>Turuncu</td><td>—</td><td>GPIO6</td><td>GP2Y10 Vo (analog) - CN1 Sarı kablo</td></tr>
 <tr><td>12 &nbsp;— (kablosuz)</td><td>—</td><td>—</td><td>Kablosuz</td></tr>
 <tr><td>13 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>14 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>15 &nbsp;<span class="swatch" style="background:#6d4c33"></span>Kahverengi</td><td>—</td><td>—</td><td>GND</td></tr>
-<tr><td>16 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#222 50%,#ffffff 50%)"></span>Siyah/Beyaz</td><td>—</td><td>GPIO18</td><td>GP2Y10 LED sürücü</td></tr>
-<tr><td>17 &nbsp;<span class="swatch" style="background:#43a047"></span>Yeşil</td><td>—</td><td>GPIO15</td><td>Fiziksel Acil Durum Butonu</td></tr>
+<tr><td>16 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#222 50%,#ffffff 50%)"></span>Siyah/Beyaz</td><td>—</td><td>GPIO18</td><td>GP2Y10 LED sürücü - CN1 Siyah kablo</td></tr>
+<tr><td>17 &nbsp;<span class="swatch" style="background:#43a047"></span>Yeşil</td><td>—</td><td>GPIO15</td><td>Fiziksel Acil Durum Butonu - CN1 Kırmızı kablo</td></tr>
 <tr><td>18 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#e53935 50%,#ffffff 50%)"></span>Kırmızı/Beyaz</td><td>—</td><td>—</td><td>GND</td></tr>
 <tr><td>19 &nbsp;<span class="swatch" style="background:#fdd835"></span>Sarı</td><td>—</td><td>—</td><td>GND</td></tr>
-<tr><td>20 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#1e88e5 50%,#ffffff 50%)"></span>Mavi/Beyaz</td><td>—</td><td>—</td><td>Yedek (kablolu)</td></tr>
-<tr><td>21 &nbsp;—</td><td>—</td><td>—</td><td>Boşta</td></tr>
+<tr><td>20 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#1e88e5 50%,#ffffff 50%)"></span>Mavi/Beyaz</td><td>—</td><td>GPIO16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü SIG ucu) - CN6 Sarı kablo</td></tr>
+<tr><td>21 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 </table>
+<p style="margin-top:8px;font-size:13px;color:var(--muted)">Tüm 21 pin dolu (20'si atanmış sinyal/GND, 10 ve 12 kablosuz) — yeni bir sinyale ihtiyaç olursa GND pinlerinden biri (4, 5, 9, 13, 14, 15, 18, 19, 21) kesilip izole edilerek açığa çıkarılabilir, GND için yeterince yedek pin var.</p>
 <h3>CN5</h3>
 <table>
 <tr><th>Pin</th><th>Atama</th><th>ESP32 GPIO</th></tr>
