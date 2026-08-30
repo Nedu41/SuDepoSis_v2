@@ -828,26 +828,31 @@ void alarmLedGuncelle() {
   static bool onBipAktif = false;
   static unsigned long onBipBaslangicMs = 0;
 
-  // Panik (elle acilan) VE gaz alarmi (MQ6 esigi asildi) - ikisi de enabled/
-  // mod'dan BAGIMSIZ, aninda hedeflenir (MOD gecidi atlanir). FIX:
+  // Panik (elle acilan), gaz alarmi (MQ6 esigi asildi) VE duman alarmi
+  // (GP2Y10 esigi asildi) - ucu de enabled(konteynerAlarmEtkin)/mod'dan
+  // BAGIMSIZ, aninda hedeflenir (MOD gecidi atlanir). Gaz icin FIX:
   // konteynerGazEtkin burada da (mq6Poll()'daki gibi) kontrol edilir - MQ6 guc
   // dongusunde CoGU zaman kapali oldugundan (10dk'da 60sn acik) konteynerGazVar
   // sadece o kisa pencerede yeniden hesaplaniyor; kullanici sensoru pasif
   // yaparsa bu degisikligin sonraki guc dongusune kadar (10dk'ya kadar) gec
   // yansimasi yerine BURADA aninda etkili olmasi saglanir.
+  // Duman GAZ ILE AYNI GEREKCEYLE bagimsiz yapildi (kullanici talebi,
+  // 2026-08-30): yangin riski de zon kapatilinca sessiz kalmamali - onceden
+  // duman konteynerAlarmEtkin'e bagliydi, zon kapaliyken sensor esigi
+  // asilsa bile hicbir alarm/banner cikmiyordu (sahada test edilip bulundu).
   bool konteynerGazAlarmVar = konteynerGazEtkin && konteynerGazVar;
-  bool konteynerAcilDurum = alarmStatus.panic_mode || konteynerGazAlarmVar;
+  bool konteynerDumanAlarmVar = konteynerDumanEtkin && konteynerDumanVar;
+  bool konteynerAcilDurum = alarmStatus.panic_mode || konteynerGazAlarmVar || konteynerDumanAlarmVar;
   acilLambaGuncelle(konteynerAcilDurum);
-  // Mod'a gore GIRDI maskesi (bit0=PIR,1=Swan PIR,2=Kapi,3=Duman) - GAZ
-  // HARIC (o zaten yukarida konteynerAcilDurum'a dahil, mod'dan bagimsiz
+  // Mod'a gore GIRDI maskesi (bit0=PIR,1=Swan PIR,2=Kapi) - GAZ ve DUMAN
+  // HARIC (ikisi de yukarida konteynerAcilDurum'a dahil, mod'dan bagimsiz
   // kalmaya devam eder). Sudepo'daki alarmMaskSesli/Sessiz/Onayli ile ayni
   // mantik (kullanici talebi, 2026-08-27).
   uint8_t konteynerModGirdiMask = (alarmStatus.mode == 2) ? konteynerMaskSessiz : (alarmStatus.mode == 3) ? konteynerMaskOnayli : konteynerMaskSesli;
   bool konteynerEskaleVar = konteynerAcilDurum || (konteynerAlarmEtkin && (
     (konteynerPirEtkin && (konteynerModGirdiMask & 1) && konteynerPirEskalasyonOldu) ||
     (konteynerSwanEtkin && (konteynerModGirdiMask & 2) && konteynerSwanEskalasyonOldu) ||
-    (konteynerKapiEtkin && (konteynerModGirdiMask & 4) && kapi2Acik) ||
-    (konteynerDumanEtkin && (konteynerModGirdiMask & 8) && konteynerDumanVar)
+    (konteynerKapiEtkin && (konteynerModGirdiMask & 4) && kapi2Acik)
   ));
   // Cikis (Siren/Lamba) HEDEFI - mod'a gore AYRI AYRI (Sudepo'daki
   // alarmOutputSesli/Sessiz ile ayni mantik, kullanici talebi 2026-08-27).
@@ -1369,9 +1374,10 @@ void telegramAlarmKontrolEt() {
   bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
   bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && konteynerSwanEskalasyonOldu;
-  bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
-  // Gaz (MQ6), panik gibi konteynerAlarmEtkin'den BAGIMSIZ (bkz alarmLedGuncelle
-  // konteynerAcilDurum) - burada da ayni sekilde zon ac/kapa anahtarina bakmaz.
+  // Gaz (MQ6) ve Duman (GP2Y10), panik gibi konteynerAlarmEtkin'den BAGIMSIZ
+  // (bkz alarmLedGuncelle konteynerAcilDurum) - burada da ayni sekilde zon
+  // ac/kapa anahtarina bakmazlar.
+  bool konteynerDumanTetik = konteynerDumanEtkin && konteynerDumanVar;
   bool konteynerGazTetik = konteynerGazEtkin && konteynerGazVar;
   bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanTetik || konteynerGazTetik;
   bool alarmVar = anyAlarm || alarmStatus.pending;
@@ -1467,7 +1473,8 @@ void alarmLoguKontrolEt() {
   bool konteynerPirVar = konteynerAlarmEtkin && konteynerPirEtkin && konteynerPirEskalasyonOldu;
   bool konteynerKapiVar = konteynerAlarmEtkin && konteynerKapiEtkin && kapi2Acik;
   bool konteynerSwanVar = konteynerAlarmEtkin && konteynerSwanEtkin && konteynerSwanEskalasyonOldu;
-  bool konteynerDumanTetik = konteynerAlarmEtkin && konteynerDumanEtkin && konteynerDumanVar;
+  // Gaz ve Duman konteynerAlarmEtkin'den BAGIMSIZ (bkz telegramAlarmKontrolEt).
+  bool konteynerDumanTetik = konteynerDumanEtkin && konteynerDumanVar;
   bool konteynerGazTetik = konteynerGazEtkin && konteynerGazVar;
   bool anyAlarm = (alarmStatus.enabled && mask != 0) || alarmStatus.panic_mode || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanTetik || konteynerGazTetik;
   bool alarmVar = anyAlarm || alarmStatus.pending;
@@ -2284,6 +2291,11 @@ void mq6Poll() {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
   }
+  // "Gaz Alarmi Aktif" checkbox'i kapatilinca alarm ANINDA sussun - guc
+  // dongusu kapaliyken (gunun cogu, bkz MQ6_CYCLE_MS_*) asagidaki return
+  // konteynerGazVar'i donuk birakirdi, checkbox etkisi bir sonraki guclu
+  // olcume kadar (gece zayif akude ~10dk) gecikirdi.
+  if (!konteynerGazEtkin) konteynerGazVar = false;
   if (!mq6Data.powered) return; // kapaliyken okuma alinmaz, son deger korunur
 
   static unsigned long lastPoll = 0;
