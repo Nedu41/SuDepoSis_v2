@@ -2253,6 +2253,14 @@ Mq6Data mq6Data;
 // kapatilmasi UNUTULURSA bile pil tuketimi reset ile kendiliginden biter.
 bool konteynerMq6TestModu = false;
 
+// Manuel Pim Kontrolu (2026-08-30, kullanici talebi): MOSFET modulunu
+// (IRF520) MQ6 baglı olsun olmasin banko uzerinde test edebilmek icin
+// GPIO16'yi dogrudan HIGH/LOW komutlayan override. Test Modu'nun aksine
+// (o hep HIGH zorlar) burada LOW da secilebilir. Kalici DEGIL (NVS'e
+// yazilmaz, reset sonrasi false'a doner - Test Modu ile ayni gerekce).
+bool konteynerMq6ManuelAktif = false; // true iken otomatik dongu tamamen devre disi
+bool konteynerMq6ManuelDurum = false; // true=HIGH, false=LOW
+
 // Guc dongusu: MQ6_POWER_PIN uzerinden MQ6'e MQ6_POWER_ON_MS kadar guc
 // verilir (isinma+olcum penceresi), o pencere icinde MQ6_POLL_INTERVAL_MS'de
 // bir analogRead alinir, pencere bitince guc kesilir. Kapali kaldigi surece
@@ -2286,7 +2294,8 @@ void mq6Poll() {
     cycleStart = now;
     gecenDongu = 0;
   }
-  bool acikOlmali = konteynerMq6TestModu || gunduzSurekli || (gecenDongu < MQ6_POWER_ON_MS);
+  bool acikOlmali = konteynerMq6ManuelAktif ? konteynerMq6ManuelDurum
+                     : (konteynerMq6TestModu || gunduzSurekli || (gecenDongu < MQ6_POWER_ON_MS));
   if (acikOlmali != mq6Data.powered) {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
@@ -2734,6 +2743,8 @@ String durumJson() {
   doc["konteyner"]["mq6_volt"] = mq6Data.volt;
   doc["konteyner"]["mq6_powered"] = mq6Data.powered; // false ise deger eski (guc dongusunun kapali fazinda), bkz mq6Poll()
   doc["konteyner"]["mq6_test_modu"] = konteynerMq6TestModu;
+  doc["konteyner"]["mq6_manuel_aktif"] = konteynerMq6ManuelAktif;
+  doc["konteyner"]["mq6_manuel_durum"] = konteynerMq6ManuelDurum;
   doc["konteyner"]["gp2y10_raw"] = gp2y10Data.raw;
   doc["konteyner"]["gp2y10_volt"] = gp2y10Data.volt;
   doc["konteyner"]["pir_alarm"] = konteynerPirEskalasyonOldu; // eskale olmus (GERCEK) alarm
@@ -3336,6 +3347,15 @@ void handleAPI_KonteynerSensorAktif() {
 void handleAPI_KonteynerMq6Test() {
   if (server.hasArg("durum")) konteynerMq6TestModu = server.arg("durum").toInt() != 0;
   server.send(200, "application/json", "{\"basarili\":true,\"test_modu\":" + String(konteynerMq6TestModu ? "true" : "false") + "}");
+}
+
+// MOSFET (IRF520) modulunu banko uzerinde test etmek icin dogrudan
+// HIGH/LOW komutu - bkz konteynerMq6ManuelAktif/Durum yorumu.
+void handleAPI_KonteynerMq6Manuel() {
+  if (server.hasArg("aktif")) konteynerMq6ManuelAktif = server.arg("aktif").toInt() != 0;
+  if (server.hasArg("durum")) konteynerMq6ManuelDurum = server.arg("durum").toInt() != 0;
+  server.send(200, "application/json", "{\"basarili\":true,\"manuel_aktif\":" + String(konteynerMq6ManuelAktif ? "true" : "false") +
+              ",\"manuel_durum\":" + String(konteynerMq6ManuelDurum ? "true" : "false") + "}");
 }
 
 void handleAPI_KonteynerGazAyar() {
@@ -4211,6 +4231,7 @@ void setupWebServer() {
   server.on("/api/alarm/log/tam", handleAPI_AlarmLogTam);
   server.on("/api/konteyner/sensor_aktif", handleAPI_KonteynerSensorAktif);
   server.on("/api/konteyner/mq6_test", handleAPI_KonteynerMq6Test);
+  server.on("/api/konteyner/mq6_manuel", handleAPI_KonteynerMq6Manuel);
   server.on("/api/konteyner/gaz_ayar", handleAPI_KonteynerGazAyar);
   server.on("/api/konteyner/duman_ayar", handleAPI_KonteynerDumanAyar);
   server.on("/api/konteyner/siren_ayar", handleAPI_KonteynerSirenAyarDurum);

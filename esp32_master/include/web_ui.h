@@ -425,6 +425,13 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <label style="display:block;margin-top:8px"><input type="checkbox" id="kz_mq6Test" onchange="konteynerMq6TestKaydet()"> MQ6 Test Modu (ısıtıcıyı sürekli açık tutar)</label>
         <p style="font-size:11px;color:var(--warn);margin-top:2px">Test Modu AÇIKKEN MQ6 değeri her zaman canlıdır (10dk/60sn döngüsü atlanır) - gaz/çakmak testi için kullanın, test bitince KAPATIN (sürekli ısıtıcı pil tüketir). Reset sonrası otomatik kapanır.</p>
+        <div style="margin-top:10px">
+          <button class="btn" onclick="konteynerMq6Manuel(1,1)">GPIO16 → HIGH (aç)</button>
+          <button class="btn" onclick="konteynerMq6Manuel(1,0)">GPIO16 → LOW (kapat)</button>
+          <button class="btn" onclick="konteynerMq6Manuel(0,0)">Otomatik moda dön</button>
+          <div id="kz-mq6-manuel-durum" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+        </div>
+        <p style="font-size:11px;color:var(--warn);margin-top:2px">MOSFET modülünü (IRF520) MQ6 bağlı olsun olmasın banko üzerinde test etmek için: HIGH/LOW butonları otomatik döngüyü tamamen durdurup pini istenen durumda sabit tutar. Test bitince "Otomatik moda dön"e bas (reset sonrası zaten otomatiğe döner).</p>
         <div class="sz-grid" style="margin-top:8px">
           <div><label class="sz-label">Gaz Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_gazEsik" onchange="konteynerGazAyarKaydet()"></div>
           <div><label class="sz-label">Duman Alarm Eşiği (Volt)</label><input class="input" type="number" step="0.1" min="0.1" max="3.3" id="kz_dumanEsik" onchange="konteynerDumanAyarKaydet()"></div>
@@ -1028,6 +1035,7 @@ function renderUI(d){
   const kznem=$('#kz-nem'); if(kznem) kznem.textContent = kz.aht_ok ? (kz.nem||0).toFixed(1)+' %' : '--';
   const kzmq=$('#kz-mq6'); if(kzmq) kzmq.textContent = (kz.mq6_volt!=null) ? kz.mq6_volt.toFixed(2)+'V ('+kz.mq6_raw+') '+(kz.mq6_powered?'[CANLI]':'[ISITICI KAPALI - ESKI DEGER]') : '--';
   const kzmqt=$('#kz_mq6Test'); if(kzmqt && document.activeElement!==kzmqt) kzmqt.checked = !!kz.mq6_test_modu;
+  const kzmmd=$('#kz-mq6-manuel-durum'); if(kzmmd) kzmmd.textContent = kz.mq6_manuel_aktif ? ('Manuel: '+(kz.mq6_manuel_durum?'HIGH':'LOW')) : '';
   const kzgp=$('#kz-gp2y10'); if(kzgp) kzgp.textContent = (kz.gp2y10_volt!=null) ? kz.gp2y10_volt.toFixed(2)+'V ('+kz.gp2y10_raw+')' : '--';
   // Genel/Dashboard sayfasindaki ayni LED'lerin+degerlerin kopyasi (kullanici
   // talebi, 2026-08-27) - Ayarlar sekmesine gitmeden tek bakista gorunsun.
@@ -1441,6 +1449,12 @@ function konteynerSensorAktifKaydet(){
 function konteynerMq6TestKaydet(){
   const durum = $('#kz_mq6Test').checked?1:0;
   api('/api/konteyner/mq6_test?durum='+durum).then(()=>{
+    $('#kz-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
+}
+
+function konteynerMq6Manuel(aktif,durum){
+  api('/api/konteyner/mq6_manuel?aktif='+aktif+'&durum='+durum).then(()=>{
     $('#kz-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#kz-sonuc').textContent='Hata oluştu'; });
 }
