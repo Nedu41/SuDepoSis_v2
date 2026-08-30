@@ -168,11 +168,13 @@
 // GPIO21 ESKIDEN yedek aku sarj rolesi/MOSFET tetiklemesiydi (bkz git
 // gecmisi) - Schulzz marka PWM solar sarj kontrolcusu bu isi artik kendi
 // basina (donanimsal) yaptigindan bu mantik TAMAMEN KALDIRILDI (2026-08-24).
-// Ayni GPIO21 + ayni fiziksel MOSFET modulu simdi "Acil Durum Lambasi"
-// icin yeniden kullaniliyor (bkz asagidaki ACIL_LAMBA_PIN) - MOSFET'in yuk
-// tarafina artik sari RCA uzerinden 12V veriliyor, cikisi acil durum
-// lambasina gidiyor.
-#define ACIL_LAMBA_PIN 21           // GPIO21 - Acil Durum Lambasi MOSFET tetikleme cikisi (eski sarj rolesi pini)
+// Ayni GPIO21 + ayni fiziksel MOSFET modulu bir sure "Acil Durum Lambasi"
+// icin kullanildi, ama GPIO21'in kutudan disari fiziksel cikisi hic
+// verilmemisti. 2026-08-28: ACIL_LAMBA_PIN, disari zaten cikan Sari RCA'ya
+// (eskiden SARI_RCA_PIN, fonksiyonu belirsizdi) tasindi - GPIO21 artik
+// tamamen bosta. (Eski "MOSFET yuk tarafina sari RCA'dan 12V veriliyor"
+// notu hic uygulanmamis eski bir plandi, gecersiz.)
+#define ACIL_LAMBA_PIN 12           // GPIO12 - Acil Durum Lambasi MOSFET tetikleme cikisi (Sari RCA uzerinden disari cikar)
 
 // ===== Ana Guc (24V ana hat) Izleme - ADS1115 (I2C, harici ADC) =====
 // ADC1 (GPIO1-10) tamamen dolu (GPIO2/6/10 - bkz Konteyner Ek Sensorler),
@@ -301,7 +303,7 @@
 //                    kapasitif etkiyle yanlis tetiklenmeye asiri acikti, guvenlik-
 //                    kritik bir buton icin uygunsuzdu - GPIO15 dokunma/ADC ozelligi
 //                    OLMAYAN duz bir GPIO)
-//                  GPIO12 (asagida - Sari RCA, amaci henuz belirlenmedi ama pin ayrildi)
+//                  GPIO12 (asagida - Acil Durum Lambasi MOSFET cikisi, Sari RCA'dan disari cikar)
 //   ASLA KULLANMA: GPIO0, GPIO3, GPIO45, GPIO46 (strapping/boot pinleri)
 //                  GPIO26-37 (N16R8'de Quad Flash + Octal PSRAM icin ayrilmis -
 //                    GPIO26-32 flash/PSRAM ortak hat, GPIO33-37 Octal PSRAM'a ozel
@@ -362,10 +364,6 @@
 // NOT: siren gecikme/atis/aralik/max-sure artik SABIT DEGIL - kullanici
 // talebiyle (2026-08-27) NVS'de kalici, web'den ayarlanabilir hale getirildi
 // (bkz main.cpp konteynerSirenGecikmeSaniye/AtisMs/AralikSaniye/MaxDakika).
-
-// Sari RCA (arka panel, 13'lu ic konnektor pin 4) - amaci henuz belirlenmedi,
-// pinMode input/output yonu belirlenince eklenecek.
-#define SARI_RCA_PIN 12   // GPIO12 - amaci henuz belirlenmedi
 
 // NOT: ESP8266 status satiri (alarm mod/mute/pending alanlari eklendikten
 // sonra) ~270 karaktere ulasti. 9600 baud'da bu ~280ms surer - eski
