@@ -892,10 +892,11 @@ function renderUI(d){
   const konteynerPirVar = konteynerEnabledMi && kz.pir_en!==false && !!kz.pir_alarm;
   const konteynerKapiVar = konteynerEnabledMi && kz.kapi_en!==false && !!kz.kapi_acik;
   const konteynerSwanVar = konteynerEnabledMi && kz.swan_en!==false && !!kz.swan_alarm;
-  const konteynerDumanVar = konteynerEnabledMi && kz.duman_en!==false && !!kz.duman;
-  // Gaz (MQ6) panik gibi davranir - backend'de konteynerAlarmEtkin'den de
-  // BAGIMSIZ (bkz alarmLedGuncelle konteynerAcilDurum), bu yuzden burada da
-  // konteynerEnabledMi ile gate'lenmez, sadece kendi Etkin anahtarina bakar.
+  // Gaz (MQ6) ve Duman (GP2Y10) panik gibi davranir - backend'de
+  // konteynerAlarmEtkin'den de BAGIMSIZ (bkz alarmLedGuncelle
+  // konteynerAcilDurum), bu yuzden burada da konteynerEnabledMi ile
+  // gate'lenmez, sadece kendi Etkin anahtarina bakarlar.
+  const konteynerDumanVar = kz.duman_en!==false && !!kz.duman;
   const konteynerGazVar = kz.gaz_en!==false && !!kz.gaz;
   // Panik, alarm sistemi kapali (enabled===false) olsa bile ESP8266 tarafinda
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
@@ -1553,9 +1554,11 @@ szAyarlarYukle();
 // === KONTEYNER ZONU - Siren Zamanlama + Mod Senaryolari (kullanici talebi,
 // 2026-08-27: "Sudepo'daki gibi mod senaryolari, siren zamanlama ayarlari
 // Kalburum'da da olsun") - Sudepo Zonu'ndaki sz* fonksiyonlarinin AYNISI,
-// sadece Konteyner'in kendi 4 sensorune (PIR/Swan/Kapi/Duman, gaz haric)
-// gore. Yerel (RS485 kopru yok) - dogrudan /api/konteyner/* kullanir.
-const kzTetikleyiciler=[['pir','HC505-1 PIR'],['swan','Swan PIR'],['kapi','Kapı'],['duman','Duman']];
+// sadece Konteyner'in kendi 3 sensorune (PIR/Swan/Kapi) gore - Gaz VE Duman
+// HARIC (2026-08-30: duman da gaz gibi mod'dan/zon anahtarindan BAGIMSIZ
+// yapildi, artik burada secilebilir bir tetikleyici degil, bkz main.cpp
+// konteynerAcilDurum).
+const kzTetikleyiciler=[['pir','HC505-1 PIR'],['swan','Swan PIR'],['kapi','Kapı']];
 function kzGridHtml(prefix){
   return kzTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'" onchange="konteynerModSenaryoKaydet()">'+t[1]+'</label>').join('');
 }
