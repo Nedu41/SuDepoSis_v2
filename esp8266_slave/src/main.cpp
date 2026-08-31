@@ -1338,10 +1338,13 @@ void handleCSS() {
   // arayuzu gorsel olarak tutarli olsun. Koyu/acik tema burada ESP32'deki
   // gibi prefers-color-scheme DEGIL, mevcut elle-secilen .dark class'iyla
   // calismaya devam ediyor (bu sayfanin zaten calisan tema butonu var).
-  String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1)}";
-  css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4)}";
+  String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1);--grid-dot:rgba(79,127,224,.12)}";
+  css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4);--grid-dot:rgba(96,165,250,.16)}";
   css += "*{margin:0;padding:0;box-sizing:border-box}";
-  css += "body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);min-height:100vh;padding:12px;color:var(--text);max-width:1100px;margin:0 auto;transition:background .3s,color .3s;-webkit-tap-highlight-color:transparent}";
+  // Simulasyon panosu hissi - ESP32 Merkez Kontrol panelindeki AYNI soluk
+  // nokta izgarasi (kullanici talebi, 2026-08-28: "aynı temaları sudepo
+  // içinde yap" - iki arayuz gorsel olarak tutarli olsun).
+  css += "body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background-color:var(--bg);background-image:radial-gradient(var(--grid-dot) 1.2px,transparent 1.2px);background-size:20px 20px;min-height:100vh;padding:12px;color:var(--text);max-width:1100px;margin:0 auto;transition:background .3s,color .3s;-webkit-tap-highlight-color:transparent}";
   css += ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}";
   css += ".topbar h1{font-size:20px;color:var(--text)}";
   css += ".tema-btn{background:var(--card);border:1px solid var(--border);border-radius:50%;width:38px;height:38px;font-size:14px;cursor:pointer;box-shadow:var(--shadow);color:var(--text)}";
@@ -1375,10 +1378,19 @@ void handleCSS() {
   css += ".info p{margin:6px 0;font-size:14px;display:flex;align-items:center;gap:6px}";
   css += ".info-label{min-width:78px;color:var(--muted)}";
   css += ".info strong{color:var(--primary)}";
+  // Dijital 7-segment gostergesi - ESP32 Merkez Kontrol panelindeki .kpi ile
+  // AYNI (kullanici talebi, 2026-08-28: "sudepodaki degerlerde dijital yap,
+  // kalburumla aynı olsun, tarzımız hep aynı olsun").
+  css += ".kpi{font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:21px;font-weight:700;letter-spacing:1px;display:inline-block;padding:4px 12px;border-radius:6px;background:#0a0f0a;color:#22ff66;text-shadow:0 0 2px rgba(34,255,102,.9),0 0 8px rgba(34,255,102,.55);border:1px solid #163d1e}";
+  css += ".kpi.danger{color:#ff3b3b;text-shadow:0 0 2px rgba(255,59,59,.9),0 0 8px rgba(255,59,59,.55);border-color:#611515;animation:pulse 1.2s infinite}";
   css += ".btn-satir{display:flex;gap:8px;margin:16px 0 6px;flex-wrap:wrap}";
-  css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:8px;border:none;font-size:14px;cursor:pointer;font-weight:600;min-width:120px}";
-  css += ".btn:active{transform:scale(.97)}";
-  css += ".btn-yesil{background:var(--accent)}.btn-turuncu{background:var(--warn)}.btn-mavi{background:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background:var(--danger);width:100%;margin-top:10px}";
+  // Fiziksel panel butonu hissi - ESP32 Merkez Kontrol panelindeki AYNI
+  // gloss/kabartma deseni (kullanici talebi, 2026-08-28: "tum projelerde
+  // butonlarda daha canli ve gercekci olsun"). Renk siniflari background-color
+  // kullanir (background shorthand DEGIL) ki ustteki parlaklik katmani kalsin.
+  css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:9px;border:1px solid rgba(0,0,0,.18);font-size:14px;cursor:pointer;font-weight:600;min-width:120px;background-image:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 45%,rgba(0,0,0,.10) 100%);box-shadow:0 2px 0 rgba(0,0,0,.22),0 5px 10px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease}";
+  css += ".btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.35);filter:brightness(.93)}";
+  css += ".btn-yesil{background-color:var(--accent)}.btn-turuncu{background-color:var(--warn)}.btn-mavi{background-color:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background-color:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
   css += "label{display:block;font-size:12px;color:var(--muted);margin-top:10px}";
   // LED gostergesi - "var/yok" metni yerine kullanilir, ESP32 Merkez Kontrol
@@ -1395,6 +1407,15 @@ void handleCSS() {
   css += ".led{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--border);vertical-align:middle;transition:background .15s,box-shadow .15s}";
   css += ".led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}";
   css += ".led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}";
+  css += ".led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}";
+  // Buyuk panel-LED gostergesi - ESP32 Merkez Kontrol panelindeki .led-big
+  // ile AYNI (kullanici talebi, 2026-08-28: "sudepo durum kismindaki
+  // sensorlerde kalburum gibi buyuk ledler olsun"). .led ile ayni .on/.ok/
+  // .pending kurallarini kullanir, kaynak sirasi .led'den SONRA oldugundan kazanir.
+  css += ".led-big{width:17px;height:17px;box-shadow:inset 0 -2px 3px rgba(0,0,0,.35),0 1px 1px rgba(255,255,255,.2);background:radial-gradient(circle at 35% 30%,#7b8494,#374151 75%)}";
+  css += ".led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}";
+  css += ".led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}";
+  css += ".led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}";
   // Sistem durumu 3 kademeli isik - ESP32 Merkez Kontrol panelindeki .sysdot
   // ile AYNI (normal=yesil, kritik=sari, tehlike=kirmizi soft yanip soner).
   css += ".sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}";
@@ -1603,7 +1624,17 @@ void handleRoleAyarla() {
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(ayar.alarmRoleAktif?"Aktif":"Pasif") + "\"}");
 }
 void handleRolePanic() {
-  panicRoleAktif = !panicRoleAktif;  // Toggle - panik butonu her basış toggle yapar
+  // FIX (kullanici sikayeti, 2026-08-31 - "kapata basiyorum ama kapanmiyor,
+  // 3-4 denemede kapandi"): eskiden KOSULSUZ TOGGLE'di - istek network
+  // gecikmesi/kaybi yuzunden sessizce basarisiz olursa (kullanici fark etmez,
+  // tekrar tiklar) cift sayida gercek varis YANLIS yone donduruyordu. ESP32
+  // tarafinda panikTetikleHedef()/alarmSustur() icin AYNI bug daha once
+  // duzeltilmisti (bkz o dosyalardaki yorumlar) - burada da HEDEF acikca
+  // "aktif" parametresiyle alinir, kac kere tekrar gonderilirse gonderilsin
+  // sonuc ayni (idempotent). Parametre verilmezse (eski istemci) toggle'a
+  // geri duser.
+  bool hedef = server.hasArg("aktif") ? (server.arg("aktif").toInt() != 0) : !panicRoleAktif;
+  panicRoleAktif = hedef;
   bool ok = nanoRoleKontrol(panicRoleAktif);
   // FIX (kullanici sikayeti, 2026-08-27 - "banner butonlarda gecikme var"):
   // eskiden burada ssePush() cagrilmiyordu, degisiklik ancak periyodik 4sn'lik
