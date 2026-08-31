@@ -2272,11 +2272,16 @@ bool konteynerMq6ManuelDurum = false; // true=HIGH, false=LOW
 // sensorlerindeki "son bilinen deger" deseniyle tutarli).
 // 2026-08-26 (kullanici talebi): dongu periyodu ADAPTIF - gaz alarmi icin
 // algilama gecikmesi (dongu KAPALI kaldigi sure) gunduz/bol-enerji saatlerinde
-// risklidir, gece/dusuk akude ise pil tasarrufu onceliklidir:
-//   - Ana guc (solar, anaGucData) >= MQ6_GUNDUZ_ANA_GUC_ESIK_V: isitici SUREKLI
-//     acik (dongu YOK, gunduz enerji bol, gecikme sifir)
-//   - Aksi halde yedek aku voltajina (yedekAkuData) gore 3 kademe: DOLU->3dk,
-//     ORTA->6dk, ZAYIF->10dk (eski sabit davranis, aku dusukken en konservatif)
+// risklidir, gece/dusuk akude ise pil tasarrufu onceliklidir. 2026-08-31'de
+// ana guc (24V solar) hattinin ESP32/sensor beslemesiyle hicbir baglantisi
+// kalmadigi netlesti (2026-08-25 karariyla her sey yedek akuden besleniyor,
+// anaGucData SADECE bildirim amacli izleniyor) - "gunduz sureklilik" kararini
+// artik ana guce degil dogrudan yedek aku seviyesine baglamak dogru: gunesli/
+// gunduz saatlerde solar sarj kontrolcusu zaten akuyu DOLU'da tutar, bu yuzden
+// DOLU kendisi gunduz/bol-enerji gostergesi:
+//   - Yedek aku DOLU (>=YEDEK_AKU_DOLU_V): isitici SUREKLI acik (dongu YOK)
+//   - ORTA (ZAYIF ile DOLU arasi): 6dk'da bir 60sn
+//   - ZAYIF (<=YEDEK_AKU_ZAYIF_V): 10dk'da bir 60sn (en konservatif)
 // konteynerMq6TestModu acikken de isitici surekli acik kalir (oncelikli).
 unsigned long mq6EtkinCycleMs() {
   if (yedekAkuData.read_ok) {
@@ -2289,7 +2294,7 @@ unsigned long mq6EtkinCycleMs() {
 
 void mq6Poll() {
   unsigned long now = millis();
-  bool gunduzSurekli = anaGucData.read_ok && (anaGucData.voltaj >= MQ6_GUNDUZ_ANA_GUC_ESIK_V);
+  bool akuDolu = yedekAkuData.read_ok && (yedekAkuData.voltaj >= YEDEK_AKU_DOLU_V);
 
   static unsigned long cycleStart = 0;
   unsigned long etkinCycleMs = mq6EtkinCycleMs();
@@ -2299,7 +2304,7 @@ void mq6Poll() {
     gecenDongu = 0;
   }
   bool acikOlmali = konteynerMq6ManuelAktif ? konteynerMq6ManuelDurum
-                     : (konteynerMq6TestModu || gunduzSurekli || (gecenDongu < MQ6_POWER_ON_MS));
+                     : (konteynerMq6TestModu || akuDolu || (gecenDongu < MQ6_POWER_ON_MS));
   if (acikOlmali != mq6Data.powered) {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
