@@ -774,7 +774,11 @@ void konteynerDonanimiInit() {
   // - o sensorun gercek duman sinyali cok kucuk olabilir, DIKKAT: PIR2_PIN'de
   // (asagida) de ayni fikir denenip geri alinmisti, zayif surusluler icin bu
   // pull-down riskli bir desen.
-  pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
+  // Baslangicta MQ6 kapali (yukaridaki digitalWrite LOW) - GPIO10'u aktif
+  // OUTPUT LOW ile baslat (bkz mq6Poll() guc gecisi, 2026-08-31), pasif
+  // pull-down MQ6'nin sizinti ciktisini bastiramiyordu.
+  pinMode(MQ6_ADC_PIN, OUTPUT);
+  digitalWrite(MQ6_ADC_PIN, LOW);
   // INPUT_PULLDOWN denendi (float pin teorisiyle) ama kablo saglam oldugu
   // halde gercek hareketi de algilamaz hale getirdi (muhtemelen sensorun
   // zayif suruculu ciktisiyla dahili pull-down'in gerilim bolucu gibi
@@ -2299,6 +2303,18 @@ void mq6Poll() {
   if (acikOlmali != mq6Data.powered) {
     mq6Data.powered = acikOlmali;
     digitalWrite(MQ6_POWER_PIN, mq6Data.powered ? HIGH : LOW);
+    if (mq6Data.powered) {
+      pinMode(MQ6_ADC_PIN, INPUT_PULLDOWN);
+    } else {
+      // Kapaliyken pasif pull-down (dahili ~45kOhm + harici 10kOhm) MQ6'nin
+      // sizinti/yari-aktif ciktisini bastiramiyor, pin 2.4-3.3V arasi salinip
+      // CN2 uzerinden Yedek Aku ADC'sine (GPIO2) sizip saturasyona goturuyordu
+      // (2026-08-31, sahada dogrulandi). Aktif OUTPUT LOW (birkac ohm) cok
+      // daha guclu bir GND kenetlemesi - pull-down yerine gercek surucu.
+      pinMode(MQ6_ADC_PIN, OUTPUT);
+      digitalWrite(MQ6_ADC_PIN, LOW);
+    }
+    DEBUG_PRINT("[MQ6] guc="); DEBUG_PRINTLN(mq6Data.powered ? "ACIK" : "KAPALI");
   }
   // "Gaz Alarmi Aktif" checkbox'i kapatilinca alarm ANINDA sussun - guc
   // dongusu kapaliyken (gunun cogu, bkz MQ6_CYCLE_MS_*) asagidaki return
