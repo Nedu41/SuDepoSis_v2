@@ -864,7 +864,11 @@ function renderUI(d){
   // alarmi) kirmizi - bkz .kpi/.kpi.danger CSS.
   const depoTehlike = !!(d.alarm && d.alarm.low_level);
   ['kpi-pct','kpi-cm','kpi-litre'].forEach(id=>{ const el=$('#'+id); if(el) el.classList.toggle('danger', depoTehlike); });
-  if(esp8266Baglı){
+  // ESP8266 baglantisi VAR ama mesafe sensoru (HC-SR04) kendisi hata
+  // veriyorsa (d.sensor_err) da ayni sorun gecerli - esp8266Baglı tek basina
+  // yeterli degil, o zaman da eski/yanlis deger "canliymis gibi" kalirdi.
+  const seviyeGecerli = esp8266Baglı && !d.sensor_err;
+  if(seviyeGecerli){
     $('#kpi-pct').textContent=(d.level_percent||0).toFixed(1)+'%';
     $('#kpi-cm').textContent=(d.level_cm||0).toFixed(1)+' cm';
     $('#kpi-litre').textContent=(d.level_liters||0).toFixed(0)+' L';
@@ -937,7 +941,7 @@ function renderUI(d){
     const sorunMetni = (d.esp8266_online === false && d.nano_online === false) ? 'ESP8266 VE Nano bağlantısı yok'
       : (d.esp8266_online === false) ? 'ESP8266 (Sudepo) bağlantısı yok'
       : (d.nano_online === false) ? 'Nano bağlantısı yok'
-      : (d.rtc_ok === false) ? 'RTC geçersiz' : 'Sensör hatası';
+      : (d.rtc_ok === false) ? 'RTC geçersiz' : 'Mesafe sensörü (HC-SR04) hatası';
     at = at ? (at + ' | ' + sorunMetni) : sorunMetni;
   }
   // Sistem durumu 3 kademeli: Tehlike (kırmızı, soft yanıp söner) = aktif
