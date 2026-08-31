@@ -203,6 +203,16 @@
 #define ANA_GUC_ESIK2_V 22.0f       // Kademe 2 "Kritik" - daha guclu uyari
 #define ANA_GUC_ESIK3_V 21.0f       // Kademe 3 "Acil" - en kritik uyari
 
+// 2026-08-31 (kullanici talebi): yukaridaki 3 kademeli (esik1/2/3) sistemden
+// AYRI, daha ince granulerlikte bir erken-uyari merdiveni - ana guc
+// ANA_GUC_UYARI_BASLANGIC_V'ye VEYA ALTINA dustugunde, ardindan HER
+// ANA_GUC_UYARI_ADIM_V'lik ek dususte (24.0, 23.5, 23.0, ...) yeni bir
+// Telegram + tarayici bildirimi tetiklenir (bkz main.cpp anaGucPoll()).
+// Voltaj tekrar baslangic esiginin USTUNE cikinca merdiven sifirlanir,
+// bir sonraki dususte bastan baslar.
+#define ANA_GUC_UYARI_BASLANGIC_V 24.0f
+#define ANA_GUC_UYARI_ADIM_V 0.5f
+
 // ===== Konteyner Ek Sensorler (AHT10 + MQ6 + Duman Dedektoru) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
 // yerine elle CRC16, IRremote yerine ham kenar yakalama gibi) Wire.h ile elle

@@ -513,6 +513,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <div><label class="sz-label">Acil (V)</label><input class="input" type="number" step="0.1" min="0" id="ana-guc-esik3" onchange="anaGucEsikKaydet()"></div>
       </div>
       <div id="ana-guc-esik-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <hr style="border-color:var(--border);margin:10px 0">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Erken uyarı: ana güç 24V ve altına düşünce, her 0.5V'lik ek düşüşte (24.0, 23.5, 23.0, ...) hem Telegram hem de bu tarayıcıya (sekme açıkken) bildirim gider.</p>
+      <button class="btn" id="bildirim-izin-btn" onclick="bildirimIzniIste()">🔔 Tarayıcı Bildirimlerini Etkinleştir</button>
+      <div id="bildirim-izin-durum" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
     <details class="card">
@@ -1181,6 +1185,7 @@ function renderUI(d){
     const sag=$('#sum-anaguc'); if(sag) sag.textContent = agOk ? (ag.volt||0).toFixed(1)+'V - '+(kademeEtiket[ag.kademe]||'-') : 'Bağlantı yok';
     agDurum.style.color = (agOk && ag.kademe>=2) ? 'var(--danger)' : '';
   }
+  anaGucUyariKontrolEt(ag);
   const ae1=$('#ana-guc-esik1'); if(ae1&&!ae1.matches(':focus')&&!yakinKorumali('ana-guc-esik1')&&ag.esik1!=null) ae1.value=ag.esik1;
   const ae2=$('#ana-guc-esik2'); if(ae2&&!ae2.matches(':focus')&&!yakinKorumali('ana-guc-esik2')&&ag.esik2!=null) ae2.value=ag.esik2;
   const ae3=$('#ana-guc-esik3'); if(ae3&&!ae3.matches(':focus')&&!yakinKorumali('ana-guc-esik3')&&ag.esik3!=null) ae3.value=ag.esik3;
@@ -1667,6 +1672,41 @@ function restartSistem(){
   if(confirm('Yeniden başlatılsın mı?'))
     api('/api/restart').then(()=>{$('#wifi-sonuc').textContent='Yeniden başlatılıyor...';}).catch(()=>{});
 }
+// Ana guc erken-uyari merdiveni - tarayici bildirimi (2026-08-31). Sekme
+// acikken (arka planda bile) 24V ve alti her 0.5V basamakta tetiklenir.
+// Servis worker/push abonelik YOK - ESP32 uzaktan push gonderemez, bu
+// yuzden sayfa/sekme kapaliyken bildirim gelmez (Telegram bu bosluk icin
+// zaten var, uzaktan/sekme-kapali durumda tek guvenilir kanal odur).
+let _anaGucSonUyariId = null;
+try { const s = localStorage.getItem('anaGucSonUyariId'); if(s !== null) _anaGucSonUyariId = parseInt(s, 10); } catch(e) {}
+function anaGucUyariKontrolEt(ag){
+  if(!ag || ag.uyari_id == null) return;
+  if(_anaGucSonUyariId === null){
+    // ilk yukleme (bu tarayicida hic gorulmemis) - mevcut id'yi sessizce
+    // benimse, gecmiste olmus bir basamak icin geriye donuk bildirim gosterme
+    _anaGucSonUyariId = ag.uyari_id;
+    try { localStorage.setItem('anaGucSonUyariId', String(ag.uyari_id)); } catch(e) {}
+    return;
+  }
+  if(ag.uyari_id === _anaGucSonUyariId) return;
+  _anaGucSonUyariId = ag.uyari_id;
+  try { localStorage.setItem('anaGucSonUyariId', String(ag.uyari_id)); } catch(e) {}
+  if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+    try { new Notification('SuDepo Konteyner', {body: ag.uyari_metin || ('Ana guc dusuk: '+(ag.volt||0).toFixed(1)+'V'), icon: undefined}); } catch(e) {}
+  }
+}
+function bildirimIzniDurumGuncelle(){
+  const el = $('#bildirim-izin-durum'), btn = $('#bildirim-izin-btn');
+  if(!el || typeof Notification === 'undefined') { if(el) el.textContent='Bu tarayıcı bildirimi desteklemiyor'; return; }
+  if(Notification.permission === 'granted'){ el.textContent = '✅ Etkin - sekme açıkken bildirim gelecek'; if(btn) btn.disabled = true; }
+  else if(Notification.permission === 'denied'){ el.textContent = '🚫 Engellendi - tarayıcı ayarlarından izin vermeniz gerekir'; }
+  else { el.textContent = 'Henüz izin verilmedi'; }
+}
+function bildirimIzniIste(){
+  if(typeof Notification === 'undefined') { $('#bildirim-izin-durum').textContent='Bu tarayıcı bildirimi desteklemiyor'; return; }
+  Notification.requestPermission().then(bildirimIzniDurumGuncelle);
+}
+bildirimIzniDurumGuncelle();
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
 yedekDurumYukle();

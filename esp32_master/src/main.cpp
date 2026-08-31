@@ -1500,6 +1500,14 @@ void alarmLoguKontrolEt() {
 bool anaGucBildirimBekliyor = false;
 String anaGucBildirimMetni = "";
 
+// Ince granulerlikte erken-uyari merdiveni (bkz config.h ANA_GUC_UYARI_*) -
+// esik1/2/3 kademe sisteminden BAGIMSIZ. uyariAdimSayaci tarayiciya (SSE/
+// /api/status) gonderilen monoton bir sayac - istemci onceki degerden farkli
+// gorunce Notification tetikler (id degismezse tekrar bildirim gostermez).
+int anaGucUyariAdimSayaci = 0;
+String anaGucUyariMetni = "";
+bool anaGucUyariBekliyor = false; // telegramAnaGucUyariKontrolEt() tarafindan tuketilir
+
 // bateryaKritik gecisinde (acilis/kapanis) bir kez bildirim gonderir - ayni
 // bekle/retry deseni telegramAlarmKontrolEt ile ayni, ayri degiskenlerle.
 void telegramBateryaKontrolEt() {
@@ -1542,6 +1550,33 @@ void telegramAnaGucKontrolEt() {
   if (anaGucBildirimBekliyor) {
     anaGucBildirimBekliyor = false;
     metin = anaGucBildirimMetni;
+    bekliyor = true; ilkDenemeMs = millis();
+  }
+
+  if (bekliyor) {
+    if (telegramMesajGonder(metin)) {
+      bekliyor = false;
+    } else if (millis() - ilkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
+      bekliyor = false;
+    }
+  }
+}
+
+// Ana guc erken-uyari merdiveninde (anaGucUyariBekliyor, bkz config.h
+// ANA_GUC_UYARI_*) her yeni basamakta bir kez bildirim gonderir - yukaridaki
+// telegramAnaGucKontrolEt() ile AYNI bekle/retry deseni ama BAGIMSIZ
+// kuyruk/degiskenler (kademe gecisiyle ayni anda tetiklenirse biri digerini
+// ezmesin diye).
+void telegramAnaGucUyariKontrolEt() {
+  static bool bekliyor = false;
+  static String metin;
+  static unsigned long ilkDenemeMs = 0;
+
+  if (!telegramBildirimAktif) { anaGucUyariBekliyor = false; bekliyor = false; return; }
+
+  if (anaGucUyariBekliyor) {
+    anaGucUyariBekliyor = false;
+    metin = anaGucUyariMetni;
     bekliyor = true; ilkDenemeMs = millis();
   }
 
@@ -2118,6 +2153,26 @@ void anaGucPoll() {
       const char* kademeAdi = (yeniKademe == 3) ? "ACIL" : (yeniKademe == 2) ? "KRITIK" : "DUSUK";
       anaGucBildirimMetni = "⚡ Konteyner: Ana guc " + String(kademeAdi) + " seviyede (" + String(anaGucData.voltaj, 1) + "V) - acil durum lambasini gerekirse manuel acabilirsiniz";
       anaGucBildirimBekliyor = true;
+    }
+  }
+
+  // Ince granulerlikte erken-uyari merdiveni (bkz config.h ANA_GUC_UYARI_*,
+  // 2026-08-31 kullanici talebi) - esik1/2/3 kademe sisteminden BAGIMSIZ.
+  // Voltaj ANA_GUC_UYARI_BASLANGIC_V (24V) ustundeyken merdiven sifirlanir;
+  // altina/esitine dustugunde HER ANA_GUC_UYARI_ADIM_V'lik (0.5V) ek dususte
+  // (24.0, 23.5, 23.0, ...) yeni bir basamak sayilir, sadece basamak
+  // ILERLEDIKCE (dalgalanmada tekrar tekrar degil) bildirim tetiklenir.
+  static int sonUyariAdim = -1;
+  if (anaGucData.voltaj > ANA_GUC_UYARI_BASLANGIC_V) {
+    sonUyariAdim = -1;
+  } else {
+    int adim = (int)floorf((ANA_GUC_UYARI_BASLANGIC_V - anaGucData.voltaj) / ANA_GUC_UYARI_ADIM_V + 0.0001f) + 1;
+    if (adim > sonUyariAdim) {
+      sonUyariAdim = adim;
+      float seviye = ANA_GUC_UYARI_BASLANGIC_V - (adim - 1) * ANA_GUC_UYARI_ADIM_V;
+      anaGucUyariMetni = "🔻 Konteyner: Ana guc " + String(anaGucData.voltaj, 1) + "V (" + String(seviye, 1) + "V esigi altina dustu)";
+      anaGucUyariBekliyor = true;
+      anaGucUyariAdimSayaci++; // tarayici bildirimi icin - istemci bunu son gordugu id ile karsilastirir
     }
   }
 
@@ -2848,6 +2903,8 @@ String durumJson() {
   doc["ana_guc"]["esik3"] = anaGucEsik3Volt;
   doc["ana_guc"]["acil_lamba"] = acilLambaAktif;
   doc["ana_guc"]["acil_lamba_manuel"] = acilLambaManuel;
+  doc["ana_guc"]["uyari_id"] = anaGucUyariAdimSayaci; // tarayici Notification tetikleyici (bkz web_ui.h)
+  doc["ana_guc"]["uyari_metin"] = anaGucUyariMetni;
 
   doc["bosMesafe"] = TANK_EMPTY_CM;
   doc["doluMesafe"] = TANK_FULL_CM;
@@ -4595,6 +4652,7 @@ void loop() {
   telegramBateryaKontrolEt();
   telegramKonteynerOtoSusturKontrolEt();
   telegramAnaGucKontrolEt();
+  telegramAnaGucUyariKontrolEt();
 
   // BLE - bagli telefona periyodik anlik veri
 #if ENABLE_BLE
