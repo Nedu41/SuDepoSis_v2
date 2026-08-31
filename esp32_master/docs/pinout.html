@@ -148,7 +148,7 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>Konteyner — Bekleme (idle)</td><td>ESP32 + MAX485 + MAX3232 + IR + AHT10 + ADS1115 + PIR'lar (hepsi bekleme)</td><td>~1.3-1.5W</td><td>~20-23 gün (tek başına, şarjsız, teorik)</td></tr>
 <tr><td>Konteyner — Alarm Aktif (Siren + Lamba + LED/Buzzer)</td><td>Bekleme yükü + Siren + Lamba + yerel LED/Buzzer</td><td>~11-13W</td><td>~2-2.5 gün kesintisiz çalarsa (gerçekte kısa süreli)</td></tr>
 <tr><td>Konteyner — MQ6 Isıtıcı (gece/zayıf akü, 10dk'da 60sn)</td><td>Bekleme yükü + MQ6 ısıtıcı, en konservatif kademe</td><td>~1.5-2.2W (döngü ortalaması ~1.6W)</td><td>~18-20 gün</td></tr>
-<tr><td>Konteyner — MQ6 Isıtıcı (gündüz, solar ≥26V, SÜREKLİ açık)</td><td>Bekleme yükü + MQ6 ısıtıcı sürekli</td><td>~2.0-2.5W</td><td>Gündüz solar zaten şarj sağladığından otonomi anlamsız (net tüketici değil)</td></tr>
+<tr><td>Konteyner — MQ6 Isıtıcı (yedek akü DOLU ≥12.8V, SÜREKLİ açık)</td><td>Bekleme yükü + MQ6 ısıtıcı sürekli</td><td>~2.0-2.5W</td><td>Akü dolu olduğunda (tipik gündüz/güneşli, solar şarj etkiliyken) net tüketici değil</td></tr>
 <tr><td>Konteyner — En Kötü Durum</td><td>Alarm + MQ6 ısıtıcı + Acil Lamba aynı anda</td><td>~14-16W</td><td>~1.5-2 gün kesintisiz (gerçekte dakikalar)</td></tr>
 <tr><td>Sudepo — Bekleme (idle)</td><td>ESP8266 + Nano + HC-SR04 + MAX485 + DS1307 + nem sensörü + PIR (HC-SR501, hepsi bekleme, röle/lamba kapalı)</td><td>~1.1-1.4W</td><td>~21-27 gün (tek başına, teorik)</td></tr>
 <tr><td>Sudepo — Sulama (Nem Rölesi, 30dk sabit süre)</td><td>Bekleme yükü + Nem Rölesi bobini</td><td>~1.5-1.9W</td><td>~16-20 gün (tek başına, teorik — gerçekte 30dk'lık pencereler halinde)</td></tr>
