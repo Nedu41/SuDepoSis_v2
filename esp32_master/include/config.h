@@ -222,16 +222,20 @@
 // uygulanir: MQ6_POWER_PIN'den transistor/MOSFET uzerinden her
 // dongu periyodunda MQ6_POWER_ON_MS kadar guc verilir, olcum alinir,
 // sonra tekrar kesilir (bkz main.cpp mq6Poll()).
-// 2026-08-26 (kullanici talebi): dongu periyodu artik SABIT degil, gunduz/gece
-// ve yedek aku doluluguna gore ADAPTIF - gaz alarminin en riskli oldugu
-// gunduz/bol-enerji saatlerinde algilama gecikmesini azaltmak, gece/dusuk
-// akude ise pil tuketimini korumak icin (bkz main.cpp mq6EtkinCycleMs()):
-//   - Ana guc (solar) >= MQ6_GUNDUZ_ANA_GUC_ESIK_V: isitici SUREKLI acik (dongu yok)
+// 2026-08-26 (kullanici talebi): dongu periyodu artik SABIT degil, yedek aku
+// doluluguna gore ADAPTIF - gaz alarminin en riskli oldugu gunduz/bol-enerji
+// saatlerinde algilama gecikmesini azaltmak, gece/dusuk akude ise pil
+// tuketimini korumak icin (bkz main.cpp mq6EtkinCycleMs()). 2026-08-31'de
+// "ana guc >= esik -> surekli" kosulu KALDIRILDI - ana guc (24V solar) artik
+// besleme zincirinde yok (2026-08-25 karariyla her sey yedek akuden
+// besleniyor, anaGucData sadece bildirim amacli), gunduz/gunesli saatlerde
+// solar sarj kontrolcusu zaten akuyu DOLU'da tuttugu icin DOLU kendisi
+// gunduz/bol-enerji gostergesi:
+//   - Yedek aku DOLU (>=YEDEK_AKU_DOLU_V): isitici SUREKLI acik (dongu yok)
 //   - Aksi halde yedek aku voltajina gore 3 kademe (DOLU/ORTA/ZAYIF)
 #define MQ6_ADC_PIN 10              // GPIO10 - ADC1 kanal 9
 #define MQ6_POWER_PIN 16            // MOSFET/transistor modulunun sinyal ucu - MQ6 VCC hattini anahtarlar
 #define MQ6_POWER_ON_MS (60UL * 1000UL)        // guc verildikten sonra acik kalma (isinma+olcum) suresi
-#define MQ6_GUNDUZ_ANA_GUC_ESIK_V 26.0f         // Bu ve uzeri ana guc (solar) voltajinda isitici SUREKLI acik kalir
 #define MQ6_CYCLE_MS_DOLU  (3UL * 60UL * 1000UL)   // Yedek aku DOLU (>=YEDEK_AKU_DOLU_V) - 3dk'da bir 60sn
 #define MQ6_CYCLE_MS_ORTA  (6UL * 60UL * 1000UL)   // Yedek aku ORTA (ZAYIF ile DOLU arasi) - 6dk'da bir 60sn
 #define MQ6_CYCLE_MS_ZAYIF (10UL * 60UL * 1000UL)  // Yedek aku ZAYIF (<=YEDEK_AKU_ZAYIF_V) - 10dk'da bir 60sn (eski sabit varsayilan)
