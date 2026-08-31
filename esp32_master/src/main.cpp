@@ -1265,8 +1265,10 @@ void irKumandaIsle() {
 bool telegramOncekiAlarmVar = false;
 bool telegramBekleyenVar = false;
 String telegramBekleyenMetin = "";
+String telegramBekleyenReplyMarkup = ""; // bkz telegramAksiyonButonlariJson()
 unsigned long telegramIlkDenemeMs = 0;
 #define TELEGRAM_RETRY_SURESI_MS (2UL * 60UL * 1000UL) // basarisizsa bu kadar sure tekrar denenir, sonra vazgecilir
+#define TELEGRAM_UPDATE_POLL_INTERVAL_MS (4UL * 1000UL) // inline buton (Sustur/Onayla/Panik Iptal) getUpdates polling araligi
 
 // Kullanici talebiyle: Telegram alarm bildirimi ac/kapa ayari (Ayarlar
 // sekmesi) - NVS'de kalici, varsayilan acik (eski davranisla ayni).
@@ -1342,8 +1344,9 @@ String telegramUrlEncode(const String& s) {
 
 // Telegram Bot API'ye mesaj gonderir. Basarisiz olursa false doner (WiFi
 // yok, token/chat ID bos, HTTP hatasi vb.) - cagiran taraf yeniden deneme
-// mantigina sahip.
-bool telegramMesajGonder(const String& metin) {
+// mantigina sahip. replyMarkupJson verilirse (bos degilse) mesaja inline
+// buton(lar) eklenir - bkz telegramAksiyonButonlariJson().
+bool telegramMesajGonder(const String& metin, const String& replyMarkupJson = "") {
   if (WiFi.status() != WL_CONNECTED) return false;
   if (String(TELEGRAM_BOT_TOKEN).length() == 0) return false;
   // bkz weatherKontrolEt yanindaki heap notu - ayni sebep.
@@ -1354,15 +1357,33 @@ bool telegramMesajGonder(const String& metin) {
 
   String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage";
   String body = "chat_id=" + String(TELEGRAM_CHAT_ID) + "&text=" + telegramUrlEncode(metin);
+  if (replyMarkupJson.length() > 0) {
+    body += "&reply_markup=" + telegramUrlEncode(replyMarkupJson);
+  }
 
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
+  http.setTimeout(5000);
   http.begin(client, url);
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   int code = http.POST(body);
   http.end();
   return (code == HTTP_CODE_OK);
+}
+
+// Alarm bildirimlerine eklenen "Sustur"/"Onayla"/"Paniği İptal Et" inline
+// butonlarinin callback_data'lari (bkz telegramGuncellemeleriKontrolEt()).
+// Panik aktifken 3, degilse 2 buton - tek satirda yan yana.
+String telegramAksiyonButonlariJson(bool panikAktif) {
+  String json = "{\"inline_keyboard\":[[";
+  json += "{\"text\":\"🔇 Sustur\",\"callback_data\":\"sustur\"},";
+  json += "{\"text\":\"✅ Onayla\",\"callback_data\":\"onayla\"}";
+  if (panikAktif) {
+    json += ",{\"text\":\"🚫 Paniği İptal Et\",\"callback_data\":\"panik_iptal\"}";
+  }
+  json += "]]}";
+  return json;
 }
 
 // Alarm durumunu (ESP8266'dan RS485 ile zaten cekilen alarmStatus) izler;
@@ -1397,18 +1418,116 @@ void telegramAlarmKontrolEt() {
     String baslik = alarmStatus.panic_mode ? "PANIK AKTIF" :
                      (alarmStatus.pending ? "ALARM - Onay Bekliyor" : "ALARM TETIKLENDI");
     telegramBekleyenMetin = "🌱 SuDepo: " + baslik + " | Tetikleyen: " + alarmTetikleyenMetni(mask, alarmStatus.panic_mode, konteynerPirVar, konteynerKapiVar, konteynerSwanVar, konteynerDumanTetik, konteynerGazTetik);
+    telegramBekleyenReplyMarkup = telegramAksiyonButonlariJson(alarmStatus.panic_mode);
     telegramBekleyenVar = true;
     telegramIlkDenemeMs = millis();
   }
   telegramOncekiAlarmVar = alarmVar;
 
   if (telegramBekleyenVar) {
-    if (telegramMesajGonder(telegramBekleyenMetin)) {
+    if (telegramMesajGonder(telegramBekleyenMetin, telegramBekleyenReplyMarkup)) {
       telegramBekleyenVar = false;
     } else if (millis() - telegramIlkDenemeMs > TELEGRAM_RETRY_SURESI_MS) {
       telegramBekleyenVar = false; // vazgecildi - internet gelmedi
     }
   }
+}
+
+bool alarmSustur(String& reply); // asagida tanimli
+bool alarmOnayla(String& reply); // asagida tanimli
+bool panikTetikleHedef(bool hedef, bool& panicActive, String& reply); // asagida tanimli
+
+// Telegram butonuna basildiginda Telegram'daki "yukleniyor" donusunu
+// kaldirmak icin cagirilir (metin verilirse kisa bir toast gosterir).
+// Basarisiz olsa bile onemli degil - kullanici zaten butona basti,
+// isyeri/aksiyon zaten uygulanmis olur (bkz telegramGuncellemeleriKontrolEt()).
+void telegramCallbackYanitla(const String& callbackId, const String& metin) {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (String(TELEGRAM_BOT_TOKEN).length() == 0) return;
+  String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/answerCallbackQuery";
+  String body = "callback_query_id=" + callbackId + "&text=" + telegramUrlEncode(metin);
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  http.POST(body);
+  http.end();
+}
+
+// Alarm bildirimindeki inline butonlara (Sustur/Onayla/Paniği İptal Et)
+// basilinca Telegram'in getUpdates long-poll API'siyle callback_query
+// yakalanir ve ilgili mevcut fonksiyon (alarmSustur/alarmOnayla/
+// panikTetikleHedef - web arayuzundeki AYNI fonksiyonlar) cagrilir.
+// GUVENLIK: sadece TELEGRAM_CHAT_ID ile eslesen sohbetten gelen callback'ler
+// kabul edilir - bot token'i baskasinin eline gecse bile (ornegin grup
+// sohbetinde yanlislikla eklenirse) yabanci bir sohbet alarmi kontrol edemez.
+// Reboot sonrasi ILK poll'da hicbir aksiyon UYGULANMAZ, sadece update_id
+// takibi baslatilir - reboot ONCESINDEN kalan eski/basilmis butonlar
+// yeniden oynatilmaz.
+void telegramGuncellemeleriKontrolEt() {
+  static unsigned long sonPollMs = 0;
+  static long sonUpdateId = -1;
+  static bool ilkPollTamamlandi = false;
+
+  if (!telegramBildirimAktif) return;
+  if (millis() - sonPollMs < TELEGRAM_UPDATE_POLL_INTERVAL_MS) return;
+  sonPollMs = millis();
+
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (String(TELEGRAM_BOT_TOKEN).length() == 0) return;
+  if (ESP.getFreeHeap() < BLE_SAFE_MIN_HEAP) return; // bkz telegramMesajGonder ayni heap notu
+
+  String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN +
+               "/getUpdates?timeout=0&allowed_updates=%5B%22callback_query%22%5D";
+  if (sonUpdateId >= 0) url += "&offset=" + String(sonUpdateId + 1);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(client, url);
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) { http.end(); return; }
+  String payload = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(2048);
+  if (deserializeJson(doc, payload) != DeserializationError::Ok) return;
+  JsonArray sonuclar = doc["result"].as<JsonArray>();
+
+  for (JsonObject r : sonuclar) {
+    long updateId = r["update_id"] | -1L;
+    if (updateId > sonUpdateId) sonUpdateId = updateId;
+    if (!ilkPollTamamlandi) continue; // reboot sonrasi eski callback'leri atla
+
+    JsonObject cq = r["callback_query"];
+    if (cq.isNull()) continue;
+    String cbId = cq["id"].as<String>();
+    String chatId = cq["message"]["chat"]["id"].as<String>();
+    String data = cq["data"].as<String>();
+
+    if (chatId != String(TELEGRAM_CHAT_ID)) {
+      telegramCallbackYanitla(cbId, "Yetkisiz sohbet");
+      continue;
+    }
+
+    String reply, yanitMetni = "Uygulandi";
+    if (data == "sustur") {
+      alarmSustur(reply);
+      yanitMetni = alarmStatus.muted ? "Susturuldu" : "Susturma kaldirildi";
+    } else if (data == "onayla") {
+      alarmOnayla(reply);
+      yanitMetni = "Onaylandi";
+    } else if (data == "panik_iptal") {
+      bool panicActive;
+      panikTetikleHedef(false, panicActive, reply);
+      yanitMetni = "Panik iptal edildi";
+    }
+    telegramCallbackYanitla(cbId, yanitMetni);
+  }
+  ilkPollTamamlandi = true;
 }
 
 // ===== Gunluk Alarm Logu (2026-08-27 kullanici talebi) =====
@@ -3259,7 +3378,10 @@ void handleAPI_WeatherCheck() {
 }
 
 void handleAPI_TelegramTest() {
-  bool ok = telegramMesajGonder("🌱 SuDepo: Test mesaji - bildirimler calisiyor.");
+  // Butonlar da test mesajina eklenir - gercek bir alarm tetiklemeden
+  // Sustur/Onayla/Panik Iptal callback zincirinin uctan uca calistigini
+  // dogrulamak icin (bkz telegramGuncellemeleriKontrolEt()).
+  bool ok = telegramMesajGonder("🌱 SuDepo: Test mesaji - bildirimler calisiyor.", telegramAksiyonButonlariJson(false));
   String mesaj;
   if (ok) mesaj = "Gonderildi - Telegram'i kontrol edin";
   else if (WiFi.status() != WL_CONNECTED) mesaj = "WiFi bagli degil";
@@ -4653,6 +4775,7 @@ void loop() {
   telegramKonteynerOtoSusturKontrolEt();
   telegramAnaGucKontrolEt();
   telegramAnaGucUyariKontrolEt();
+  telegramGuncellemeleriKontrolEt(); // Sustur/Onayla/Panik Iptal inline buton callback'leri
 
   // BLE - bagli telefona periyodik anlik veri
 #if ENABLE_BLE
