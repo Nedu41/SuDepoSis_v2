@@ -80,6 +80,35 @@ struct Ayarlar {
   uint16_t sirenChirpMs;         // chirp suresi (ms)
   uint16_t sirenBeklemeSaniye;   // chirp/aktif-periyot sonrasi sessizlik
   uint16_t sirenAktifSaniye;     // dongudeki tam-aktif kalma suresi
+  // YENI ALAN - struct'in EN SONUNA eklendi (EEPROM.put/get struct'i ham
+  // bayt olarak yazip okuyor, var olan cihazlardaki eski/kisa EEPROM
+  // blob'unun yerlesimini bozmamak icin ortaya degil sona eklenir - eski
+  // cihazda bu alan gecersiz/rastgele gelebilir, ayarlariYukle() icinde
+  // sanity-clamp edilir, bkz asagida). Eskiden SIREN_MAX_SURE_MS sabit
+  // (5dk) idi, artik Konteyner/ESP32 ile ayni mantikla (k_sr_max) web'den
+  // 1-30dk ayarlanabilir (kullanici talebi, 2026-09-04: "dis sirenler
+  // esp8266'ninki de esp32 gibi calissin").
+  uint8_t sirenMaxDakika;        // epizot boyunca kesintisiz azami calma suresi (dk)
+  // Toprak nem kontrol penceresi (2026-09-06, struct'in EN SONUNA eklendi -
+  // yukaridaki YENI ALAN yorumuyla ayni gerekce). Nem rolesi harici sulama
+  // programlayicisinin devresine SERI baglanmis bir NC-kontak kesici -
+  // moistureThresholdLow/High bu pencere ICINDE degerlendirilir, disinda
+  // role hep de-enerjili kalir. Gun biti: RTClib dayOfTheWeek() (0=Pazar..
+  // 6=Cumartesi), 0 = tum gunler pasif/devre disi (varsayilan, kullanici
+  // gun secene kadar role hic enerjilenmez).
+  // moistureKontrolMagic SART: gunMask==0 sentinel'i eski EEPROM'daki
+  // RASTGELE bir baytin 0-127 araliginda dusup "gecerli gun secimi" gibi
+  // yanlislikla kabul edilmesine karsi yetersizdi (sahada gorulen bug,
+  // 2026-09-06: OTA sonrasi gunMask=127/tum gunler kendiliginden olustu).
+  // 16-bit'lik ayri bir magic ile, bu alanlarin GERCEKTEN bu firmware
+  // tarafindan yazildigini garanti ediyoruz - uyusmazlikta hepsi guvenli
+  // varsayilanlara sifirlanir (bkz ayarlariYukle()).
+  uint16_t moistureKontrolMagic;
+  uint8_t moistureKontrolGunMask;
+  uint8_t moistureKontrolBaslangicSaat;
+  uint8_t moistureKontrolBaslangicDakika;
+  uint8_t moistureKontrolBitisSaat;
+  uint8_t moistureKontrolBitisDakika;
 };
 Ayarlar ayar;
 
@@ -142,10 +171,20 @@ void varsayilanAyarlar() {
   ayar.moistureThresholdHigh = 70;
   ayar.pirPencereSaniye = 10;
   ayar.pirMinTetiklenme = 2;
-  ayar.sirenGecikmeSaniye = 5;
+  // Konteyner/ESP32 ile AYNI varsayilanlar (kullanici talebi, 2026-09-04:
+  // iki zonun dis sirenleri "ayni mantikla" calissin) - eskiden 5/300/10
+  // idi, ESP32'nin 10/300/3'unden farkliydi.
+  ayar.sirenGecikmeSaniye = 10;
   ayar.sirenChirpMs = 300;
-  ayar.sirenBeklemeSaniye = 10;
-  ayar.sirenAktifSaniye = 5;
+  ayar.sirenBeklemeSaniye = 3;
+  ayar.sirenAktifSaniye = 5; // artik kullanilmiyor (bkz struct yorumu)
+  ayar.sirenMaxDakika = 2;
+  ayar.moistureKontrolMagic = MOISTURE_KONTROL_MAGIC;
+  ayar.moistureKontrolGunMask = 0;  // varsayilan: devre disi, kullanici gun secmeden role hic enerjilenmez
+  ayar.moistureKontrolBaslangicSaat = MOISTURE_KONTROL_BASLANGIC_SAAT_VARSAYILAN;
+  ayar.moistureKontrolBaslangicDakika = MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN;
+  ayar.moistureKontrolBitisSaat = MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN;
+  ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
 }
 
 void ayarlariKaydet() {
@@ -177,6 +216,24 @@ void ayarlariYukle() {
     // tetiklenemeyen bir alarm demekti (bug). Define bu noktadan sonra
     // oldugundan (once kullanilamaz) literal 8 yazildi.
     if (ayar.pirMinTetiklenme == 0 || ayar.pirMinTetiklenme > 8) ayar.pirMinTetiklenme = 2;
+    // sirenMaxDakika struct'a SONRADAN eklendi - eski (kucuk) EEPROM
+    // blob'undan yuklenen cihazlarda bu bayt gecersiz/rastgele olabilir.
+    if (ayar.sirenMaxDakika == 0 || ayar.sirenMaxDakika > 30) ayar.sirenMaxDakika = 2;
+    // moistureKontrol* alanlari struct'a SONRADAN eklendi. Basit deger
+    // araligi kontrolu (ornegin gunMask<=0x7F) YETERSIZ - eski EEPROM'daki
+    // rastgele bir bayt kolayca 0-127 arasina dusup "gecerli" sanilabiliyor
+    // (sahada gorulen bug, 2026-09-06: gunMask=127/tum gunler kendiliginden
+    // olustu). Ayri magic ile bu alanlarin GERCEKTEN bu firmware tarafindan
+    // yazildigini dogrula, uyusmazsa hepsini guvenli varsayilana sifirla.
+    if (ayar.moistureKontrolMagic != MOISTURE_KONTROL_MAGIC) {
+      ayar.moistureKontrolMagic = MOISTURE_KONTROL_MAGIC;
+      ayar.moistureKontrolGunMask = 0;
+      ayar.moistureKontrolBaslangicSaat = MOISTURE_KONTROL_BASLANGIC_SAAT_VARSAYILAN;
+      ayar.moistureKontrolBaslangicDakika = MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN;
+      ayar.moistureKontrolBitisSaat = MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN;
+      ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
+      ayarlariKaydet();
+    }
   }
 }
 
@@ -223,7 +280,9 @@ bool alarmSusturuldu = false;   // Susturma - tetikleyici aktifken siren susturu
 unsigned long sirenEpisodeBaslangicMs = 0; // 0 = siren cikisi su an secili degil - HEM state machine referans ani HEM oto-sustur olcumu icin kullanilir (bkz asagidaki tekrarlayan-atis deseni)
 uint8_t sirenFaz = 0;              // 0=ilk gecikme,1=atis-acik,2=atislar-arasi (Konteyner/ESP32 ile BIREBIR ayni mantik, 2026-08-27)
 unsigned long sirenFazBaslangicMs = 0;
-#define SIREN_MAX_SURE_MS (5UL * 60UL * 1000UL) // bu kadar kesintisiz calarsa (sensor arizasi ihtimaline karsi) otomatik susturulur - bir sonraki YENI tetiklenmeye kadar boyle kalir (kullanici talebi, 2026-08-27: "en fazla 5dk aktif olsunlar"). ESP8266'nin Telegram'i olmadigindan bildirim gitmez, sadece susturulur
+// Azami kesintisiz siren suresi artik SABIT degil - ayar.sirenMaxDakika
+// (web'den ayarlanabilir, bkz struct Ayarlar). ESP8266'nin Telegram'i
+// olmadigindan bildirim gitmez, sadece susturulur.
 unsigned long lambaSurekliBaslangicMs = 0; // 0 = alarm-tetikli lamba su an surekli yanmiyor
 #define LAMBA_MAX_SURE_MS (10UL * 60UL * 1000UL) // alarm-tetikli lamba (manuel haric) bu kadar kesintisiz yanarsa zorla soner - Konteyner/ESP32 ile ayni deger, enerji butcesi ust siniri
 bool alarmOnayBekliyor = false; // Mod 3 (Onayli): tetiklendi, onay bekleniyor
@@ -413,6 +472,24 @@ bool geceModuMu() {
   if (b == e) return false;
   if (b < e) return (saat >= b && saat < e);
   return (saat >= b || saat < e);
+}
+
+// Toprak nem kontrol penceresi icinde miyiz? (bkz struct Ayarlar yorumu,
+// config.h MOISTURE_KONTROL_* aciklamasi). Gun maskesi RTClib
+// dayOfTheWeek() ile ayni kodlamayi kullanir (0=Pazar..6=Cumartesi).
+// Gece penceresinden farkli olarak gece yarisini gecen pencere DESTEKLENMEZ
+// (sulama programlayicilari tipik olarak gunduz/aksam calisir, ihtiyac olursa
+// genisletilebilir).
+bool moistureKontrolPenceresindeMi() {
+  if (!rtcHazir) return false;
+  if (ayar.moistureKontrolGunMask == 0) return false;
+  DateTime now = rtc.now();
+  if (!(ayar.moistureKontrolGunMask & (1 << now.dayOfTheWeek()))) return false;
+  int simdiDk = now.hour() * 60 + now.minute();
+  int baslangicDk = ayar.moistureKontrolBaslangicSaat * 60 + ayar.moistureKontrolBaslangicDakika;
+  int bitisDk = ayar.moistureKontrolBitisSaat * 60 + ayar.moistureKontrolBitisDakika;
+  if (baslangicDk >= bitisDk) return false;  // gecersiz/sifir genislikte pencere
+  return (simdiDk >= baslangicDk && simdiDk < bitisDk);
 }
 
 // ============ NANO HABERLESME ============
@@ -652,6 +729,21 @@ void moistureOku() {
   if (moisturePercent > 100) moisturePercent = 100;
 }
 
+// 2026-09-06 kullanici talebi: toprak nemi saniyeler icinde degismez,
+// "anlik" okumaya gerek yok - artik otomatik cagrilar (masterGonder/SSE/
+// olcumYap) bu sarmalayiciyi kullanir, MOISTURE_OKUMA_ARALIGI_MS'den once
+// tekrar analogRead yapmaz. Manuel "Canli Olcum" butonu (handleNemOlc) ve
+// kontrol penceresine YENI giris ani (bkz applyMoistureControl cagirani)
+// dogrudan moistureOku() cagirip bu araligi atlar - kararin/gostergenin
+// tam pencere baslangicinda/manuel testte bayat kalmamasi icin.
+unsigned long moistureSonOkumaMs = 0;
+void moistureOkuOtomatik() {
+  unsigned long simdi = millis();
+  if (moistureSonOkumaMs != 0 && simdi - moistureSonOkumaMs < MOISTURE_OKUMA_ARALIGI_MS) return;
+  moistureOku();
+  moistureSonOkumaMs = simdi;
+}
+
 // Kalburum'un hava durumu ozelligi ("yarin yagmur var, bugun sulama atla")
 // RS485 ile SET_RAIN_SKIP=1/0 gonderir. Kalici EEPROM alani degil - bilincli
 // tercih: Kalburum zaten RS485 uzerinden periyodik tazeler (WiFi/internet
@@ -676,18 +768,53 @@ bool yagmurSulamaAtlaGecerli() {
 // manuel akis normal calismaya devam eder.
 bool batteryLowOverride = false;
 
+// GUNCELLEME (2026-09-06, kullanici bulgusu): bu fonksiyon eskiden roleyi
+// DOGRUDAN VANA SURUCUSU sayiyordu (nem dusukse AC=sula, nem yuksekse
+// KAPAT=durdur). Gercek sahada role D5, NC (normalde kapali) kontagi
+// kullanilarak harici bir sulama programlayicisinin (haftada 1 gun, sabit
+// saatte vana acan ayri bir cihaz) devresine SERI baglanmis bir KESICI -
+// dogrudan vana surmuyor. Mantik TAM TERS olmali:
+//   - Role DE-ENERJILI (moistureOutputActive=false) -> NC kontak KAPALI ->
+//     programlayicinin devresi saglam -> vana kendi programina gore acilabilir
+//   - Role ENERJILI (moistureOutputActive=true) -> NC kontak ACIK -> devre
+//     KESIK -> vana ACILAMAZ (toprak zaten nemliyken bosuna sulanmasin diye)
+// Ayrica role artik SADECE haftalik kontrol penceresinde (bkz
+// moistureKontrolPenceresindeMi()) degerlendiriliyor - pencere disinda her
+// zaman de-enerjili kalir (nem gunlerce yuksek kalsa bile role gereksiz
+// yere enerji harcamaz, sadece programlayicinin calisacagi saatte onemlidir).
 void applyMoistureControl() {
   if (batteryLowOverride) {
     if (moistureOutputActive) nanoMoistureKontrol(false);
     return;
   }
   if (!ayar.moistureAutomatic) return;
-  if (sensorHatasi) return;
-  if (moisturePercent <= ayar.moistureThresholdLow && !moistureOutputActive) {
-    if (yagmurSulamaAtlaGecerli()) return;  // Yarin yagmur bekleniyor, yeni sulama baslatma
-    nanoMoistureKontrol(true);
-  } else if (moisturePercent >= ayar.moistureThresholdHigh && moistureOutputActive) {
-    nanoMoistureKontrol(false);
+  // ONCEDEN: sensorHatasi (HC-SR04/tank mesafe sensoru arizali) iken nem
+  // otomasyonu TAMAMEN bloke oluyordu - iki sensor (A0 nem, HC-SR04 tank)
+  // fiziksel olarak alakasiz oldugu icin bu yanlisti (kullanici bulgusu,
+  // 2026-09-04: "nem otomatikte role cekmiyor"). Duzeltme/kullanici karari:
+  // sensor hatasinda depoda su olma ihtimali YUKSEK sayilir (fail-open, nem
+  // kontrolu normal calisir) - SADECE seviye GECERLI OKUNUP GERCEKTEN sifirsa
+  // (tank fiilen bos) vana engellenir (pompayi kuru calistirmamak icin).
+  if (!sensorHatasi && sonYuzde <= 0.0f) {
+    if (!moistureOutputActive) nanoMoistureKontrol(true);  // tank bos -> vanayi engelle
+    return;
+  }
+  static bool oncekiPencereIcinde = false;
+  bool pencereIcinde = moistureKontrolPenceresindeMi();
+  if (pencereIcinde && !oncekiPencereIcinde) moistureOku();  // pencereye YENI giris: kararin tazeligi icin saatlik siniri atla
+  oncekiPencereIcinde = pencereIcinde;
+  if (!pencereIcinde) {
+    if (moistureOutputActive) nanoMoistureKontrol(false);  // pencere disi: hep serbest, enerji harcama
+    return;
+  }
+  if (yagmurSulamaAtlaGecerli()) {
+    if (!moistureOutputActive) nanoMoistureKontrol(true);  // yarin yagmur bekleniyor -> bu pencerede sulamayi engelle
+    return;
+  }
+  if (moisturePercent >= ayar.moistureThresholdHigh && !moistureOutputActive) {
+    nanoMoistureKontrol(true);  // toprak nemli -> vanayi engelle
+  } else if (moisturePercent <= ayar.moistureThresholdLow && moistureOutputActive) {
+    nanoMoistureKontrol(false);  // toprak kuru -> vanayi serbest birak
   }
 }
 
@@ -730,11 +857,11 @@ void rs485Gonder(const char* data) {
 // Periyodik gönderme, SoftwareSerial'in güvenilmez olduğu durumlarda yedek sağlar.
 // ESP32 poll'u kaçsa bile veri akışı devam eder.
 void masterGonder() {
-  // Kalburum'a (ESP32) her zaman taze nem degeri gitsin diye gonderim
-  // aninda oku - eskiden bu, sadece sudepo sayfasi acikken (SSE) veya
-  // 60-900sn'lik periyodik olcumde tazeleniyordu, aradaki surede Kalburum
-  // eski/durgun deger gorebiliyordu.
-  moistureOku();
+  // Kalburum'a (ESP32) gonderim aninda nem degerini tazele - 2026-09-06'dan
+  // itibaren moistureOkuOtomatik() saatlik sinirlama uyguluyor (toprak nemi
+  // saniyeler icinde degismez), bu fonksiyon hala ~1sn'de bir calisiyor ama
+  // artik her seferinde gercek analogRead yapmiyor.
+  moistureOkuOtomatik();
   // EKSIK KALAN YARISI (BUG): deger burada taze okunuyordu ama role KARARI
   // (applyMoistureControl) HALA sadece 60sn (gunduz) / 900sn=15dk (gece!)
   // periyodik olcum donguisunde veriliyordu - Kalburum panelinde deger
@@ -922,6 +1049,10 @@ void rs485KomutDinle() {
           // ozellik icin cok daha ciddiydi. Artik acik HEDEF degere set
           // ediliyor, idempotent.
           panicRoleAktif = (komut.substring(6) == "1");
+          // Panik kapaninca chirp epizotu/susturma bir sonraki tetiklenme
+          // (panik ya da normal) icin sifirdan baslasin - bkz loop() panik
+          // dalindaki azami-sure notu.
+          if (!panicRoleAktif) { sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; alarmSusturuldu = false; }
           bool ok = nanoRoleKontrol(panicRoleAktif);
           response = (ok ? "ACK:" : "NACK:") + String("PANIC=") + (panicRoleAktif ? "1" : "0");
         } else if (komut == "GET_AYARLAR") {
@@ -930,14 +1061,14 @@ void rs485KomutDinle() {
           // yurutucu, ESP32 sadece okuyup RS485 ile geri yaziyor.
           char buf[540];
           snprintf(buf, sizeof(buf),
-            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d,sirenGecikmeSaniye=%d,sirenChirpMs=%d,sirenBeklemeSaniye=%d,sirenAktifSaniye=%d",
+            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d,sirenGecikmeSaniye=%d,sirenChirpMs=%d,sirenBeklemeSaniye=%d,sirenAktifSaniye=%d,sirenMaxDakika=%d",
             ayar.bosMesafe, ayar.doluMesafe, ayar.depoKapasiteLitre, ayar.alarmSeviyeYuzde,
             ayar.geceBaslangicSaat, ayar.geceBitisSaat, ayar.minDolumLitre, ayar.kacakEsikDakika,
             ayar.depoYatay, ayar.moistureAutomatic, ayar.moistureThresholdLow, ayar.moistureThresholdHigh,
             ayar.alarmTriggerGunduz, ayar.alarmTriggerGece, ayar.alarmMod, ayar.alarmSensorEtkin, ayar.alarmMaskSesli,
             ayar.alarmMaskSessiz, ayar.alarmMaskOnayli, ayar.alarmOutputSesli, ayar.alarmOutputSessiz,
             ayar.pirPencereSaniye, ayar.pirMinTetiklenme,
-            ayar.sirenGecikmeSaniye, ayar.sirenChirpMs, ayar.sirenBeklemeSaniye, ayar.sirenAktifSaniye);
+            ayar.sirenGecikmeSaniye, ayar.sirenChirpMs, ayar.sirenBeklemeSaniye, ayar.sirenAktifSaniye, ayar.sirenMaxDakika);
           response = "ACK:AYARLAR=" + String(buf);
         } else if (komut.startsWith("SET_AYARLAR=")) {
           String veri = komut.substring(12);
@@ -972,6 +1103,7 @@ void rs485KomutDinle() {
           v = ayarDegerAl(veri, "sirenChirpMs"); if (v.length()) { int x = v.toInt(); if (x < 50) x = 50; if (x > 5000) x = 5000; ayar.sirenChirpMs = x; }
           v = ayarDegerAl(veri, "sirenBeklemeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenBeklemeSaniye = x; }
           v = ayarDegerAl(veri, "sirenAktifSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenAktifSaniye = x; }
+          v = ayarDegerAl(veri, "sirenMaxDakika"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 30) x = 30; ayar.sirenMaxDakika = x; }
           ayarlariKaydet();
           response = "ACK:SET_AYARLAR";
         }
@@ -1050,7 +1182,7 @@ float olcumOrtalama() {
 
 // ============ OLCUM ============
 void olcumYap() {
-  moistureOku();
+  moistureOkuOtomatik();
   applyMoistureControl();
   float m = olcumOrtalama();
   if (m > 0 && m < 500) {
@@ -1303,6 +1435,7 @@ String durumJson() {
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
   j += "\"moisturePercent\":" + String(moisturePercent, 1) + ",";
   j += "\"moistureOutput\":" + String(moistureOutputActive ? "true" : "false") + ",";
+  j += "\"moisturePencerede\":" + String(moistureKontrolPenceresindeMi() ? "true" : "false") + ",";
   j += "\"moistureAuto\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",";
   j += "\"moistureLow\":" + String(ayar.moistureThresholdLow) + ",";
   j += "\"moistureHigh\":" + String(ayar.moistureThresholdHigh) + ",";
@@ -1318,6 +1451,10 @@ String durumJson() {
    j += "\"pirTetikleyici\":" + String(pirTetikleyici ? "true" : "false") + ",";
    j += "\"pirDarbeSayisiPencerede\":" + String(pirDarbeSayisiPencerede) + ",";
    j += "\"alarmTetikleyenMask\":" + String(alarmTetikleyenMask) + ",";
+   // Sadece "bilgi amacli" tetikleyiciler (su seviyesi/sensor hatasi) aktifse
+   // true - frontend banner'i sade "Onayla" butonuyla gosterir, dis siren/lamba
+   // hic tetiklenmez (bkz yukarida ayni istisna, main loop).
+   j += "\"alarmBilgiSadece\":" + String((alarmTetikleyenMask != 0 && (alarmTetikleyenMask & ~(ALARM_TRIGGER_SU_SEVIYE | ALARM_TRIGGER_SENSOR)) == 0) ? "true" : "false") + ",";
    j += "\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",";
    j += "\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",";
    j += "\"alarmMod\":" + String(ayar.alarmMod) + ",";
@@ -1520,8 +1657,17 @@ void handleRestart() {
   ESP.restart();
 }
 void handleMeasure() { olcumYap(); ssePush(); server.send(200, "application/json", durumJson()); }
-void handleStatus() { moistureOku(); if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
+void handleStatus() { moistureOkuOtomatik(); if (ayar.moistureAutomatic) applyMoistureControl(); server.send(200, "application/json", durumJson()); }
+// 2026-09-06: Ayarlar > Nem Ayarlari "Canli Olcum" butonu icin - hourly
+// sinirlamayi ATLAYIP aninda taze analogRead yapar (saha testi/kalibrasyon).
+void handleNemOlc() { moistureOku(); moistureSonOkumaMs = millis(); server.send(200, "application/json", "{\"moisturePercent\":" + String(moisturePercent, 1) + ",\"moistureRaw\":" + String(moistureRaw) + "}"); }
 void handleTime() {
+  // Kullanici talebi (2026-09-04): "Zaman" butonu basilinca kayitli saati
+  // DEGISTIRMEDEN (sifirlamadan) sadece RTC ile I2C iletisimini yeniden
+  // baslatsin - rtcHazir daha once (pil/I2C sorunu) false'a dustuyse chip
+  // fiziksel takiliysa/duzeldiyse bu butonla kurtarilabilir, sonraki rtc.now()
+  // cagrisi (simdikiZamanStr icinde) guncel cipteki degeri okur.
+  rtcHazir = rtc.begin();
   String json = "{\"zaman\":\"" + simdikiZamanStr() + "\",\"tarihISO\":\"" + simdikiTarihISO() + "\"}";
   server.send(200, "application/json", json);
 }
@@ -1530,15 +1676,20 @@ void handleSetTime() {
   if (server.hasArg("zaman")) {
     String z = server.arg("zaman");
     if (z.length() >= 16) {
-      int y = z.substring(0,4).toInt(), a = z.substring(5,7).toInt(), g = z.substring(8,10).toInt(), s = z.substring(11,13).toInt(), d = z.substring(14,16).toInt(), sn = z.length()>=19?z.substring(17,19).toInt():0;
-      if (rtcHazir) { rtc.adjust(DateTime(y,a,g,s,d,sn)); m = "Zaman ayarlandi"; b = true; } else m = "RTC yok";
+      if (rtcHazir) {
+        int y = z.substring(0,4).toInt(), a = z.substring(5,7).toInt(), g = z.substring(8,10).toInt(), s = z.substring(11,13).toInt(), d = z.substring(14,16).toInt(), sn = z.length()>=19?z.substring(17,19).toInt():0;
+        rtc.adjust(DateTime(y,a,g,s,d,sn));
+        m = "Zaman ayarlandi"; b = true;
+      } else {
+        m = "RTC yok";
+      }
     } else m = "Format!";
   }
   server.send(200, "application/json", "{\"mesaj\":\"" + m + "\",\"basarili\":" + String(b?"true":"false") + "}");
 }
 void handleGetSettings() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + "}";
   server.send(200, "application/json", j);
 }
 void handleSaveSettings() {
@@ -1580,6 +1731,12 @@ void handleSaveSettings() {
   if (server.hasArg("sirenChirpMs")) { int v = server.arg("sirenChirpMs").toInt(); if (v < 50) v = 50; if (v > 5000) v = 5000; ayar.sirenChirpMs = v; }
   if (server.hasArg("sirenBeklemeSaniye")) { int v = server.arg("sirenBeklemeSaniye").toInt(); if (v < 1) v = 1; if (v > 120) v = 120; ayar.sirenBeklemeSaniye = v; }
   if (server.hasArg("sirenAktifSaniye")) { int v = server.arg("sirenAktifSaniye").toInt(); if (v < 1) v = 1; if (v > 120) v = 120; ayar.sirenAktifSaniye = v; }
+  if (server.hasArg("sirenMaxDakika")) { int v = server.arg("sirenMaxDakika").toInt(); if (v < 1) v = 1; if (v > 30) v = 30; ayar.sirenMaxDakika = v; }
+  if (server.hasArg("moistureKontrolGunMask")) { int v = server.arg("moistureKontrolGunMask").toInt(); if (v < 0) v = 0; if (v > 0x7F) v = 0x7F; ayar.moistureKontrolGunMask = v; }
+  if (server.hasArg("moistureKontrolBaslangicSaat")) { int v = server.arg("moistureKontrolBaslangicSaat").toInt(); if (v < 0) v = 0; if (v > 23) v = 23; ayar.moistureKontrolBaslangicSaat = v; }
+  if (server.hasArg("moistureKontrolBaslangicDakika")) { int v = server.arg("moistureKontrolBaslangicDakika").toInt(); if (v < 0) v = 0; if (v > 59) v = 59; ayar.moistureKontrolBaslangicDakika = v; }
+  if (server.hasArg("moistureKontrolBitisSaat")) { int v = server.arg("moistureKontrolBitisSaat").toInt(); if (v < 0) v = 0; if (v > 23) v = 23; ayar.moistureKontrolBitisSaat = v; }
+  if (server.hasArg("moistureKontrolBitisDakika")) { int v = server.arg("moistureKontrolBitisDakika").toInt(); if (v < 0) v = 0; if (v > 59) v = 59; ayar.moistureKontrolBitisDakika = v; }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
 }
@@ -1635,6 +1792,7 @@ void handleRolePanic() {
   // geri duser.
   bool hedef = server.hasArg("aktif") ? (server.arg("aktif").toInt() != 0) : !panicRoleAktif;
   panicRoleAktif = hedef;
+  if (!panicRoleAktif) { sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; alarmSusturuldu = false; }
   bool ok = nanoRoleKontrol(panicRoleAktif);
   // FIX (kullanici sikayeti, 2026-08-27 - "banner butonlarda gecikme var"):
   // eskiden burada ssePush() cagrilmiyordu, degisiklik ancak periyodik 4sn'lik
@@ -2046,8 +2204,9 @@ void setup() {
   }
   if (ok) lambaAcik = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(lambaAcik?"Acik":"Kapali"):"Hatali") + "\"}");});  
   server.on("/nem", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt(); while (Serial.available()) Serial.read(); Serial.println(y ? "MOISTURE_ON" : "MOISTURE_OFF"); unsigned long t = millis(); bool ok = false; while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ACK:MOISTURE") >= 0) { ok = true; break; } } yield(); }
-  if (ok) moistureOutputActive = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(moistureOutputActive?"Acik":"Kapali"):"Hatali") + "\"}");});
+  if (ok) moistureOutputActive = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(moistureOutputActive?"Vana Engellendi":"Vana Serbest"):"Hatali") + "\"}");});
   server.on("/nem/mod", []() { if (!server.hasArg("otomatik")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } ayar.moistureAutomatic = server.arg("otomatik").toInt()?1:0; ayarlariKaydet(); if (ayar.moistureAutomatic) { olcumYap(); } server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(ayar.moistureAutomatic?"Otomatik":"Manuel") + "\"}"); });
+  server.on("/nem/olc", handleNemOlc);
   // ===== NANO GENEL GPIO API (PIN_MODE/PIN_WRITE/PIN_READ) =====
   // Nano'ya seri komut gonderir, yaniti bekler ve JSON olarak dondurur.
   // Ornek: /pin/mode?pin=6&mod=OUTPUT  |  /pin/write?pin=6&val=1  |  /pin/read?pin=6
@@ -2213,8 +2372,50 @@ void loop() {
     if (panicRoleAktif) {
       alarmTetikleyenMask = 0; // panikte sensor tetikleyicisi yok, elle acildi
       alarmCikisLambaIstenen = true; // panikte her zaman hem siren hem lamba
-      sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; lambaSurekliBaslangicMs = 0; // panik kademeli zamanlama desenini atlar - sonraki normal tetiklenme sifirdan baslasin
-      if (!roleFizikselDurum) nanoRoleKontrol(true);
+      lambaSurekliBaslangicMs = 0; // lamba icin MAX-sure sayaci panikte HER dongude sifirlanir (Konteyner/ESP32'deki konteynerAcilDurum ile ayni mantik) - lamba panikte kendiliginden SONMEZ
+      // BUG DUZELTMESI (kullanici bulgusu, 2026-09-04: "panikte de Kalburum/
+      // Konteyner gibi chirp calsin, surekli acik kalmasin"): eskiden burada
+      // sirenEpisodeBaslangicMs/sirenFaz HER dongude sifirlaniyordu - bu da
+      // asagidaki FSM'nin faz 0'dan (ilk gecikme) hic ilerleyememesine, role'un
+      // ilk acildigi haliyle SURESIZ acik kalmasina sebep oluyordu. Artik
+      // Konteyner/ESP32'deki ile BIREBIR ayni chirp FSM'i kullaniyor (bkz
+      // asagidaki normal tetikleyici dalindaki AYNI kod), mod/mask'ten
+      // BAGIMSIZ ama azami-sure kuralina normal tetikleyiciyle AYNI sekilde
+      // uyar (kullanici talebi, 2026-09-04: "paniktede max sureye uyulsun,
+      // sonra kapansin") - asagida ayar.sirenMaxDakika asilinca alarmSusturuldu
+      // ile siren susturulur, panicRoleAktif (panik DURUMU) degismeden kalir,
+      // sadece butona tekrar basilinca (PANIC=0) tamamen kapanir.
+      unsigned long simdiMs = millis();
+      if (sirenEpisodeBaslangicMs == 0) {
+        sirenEpisodeBaslangicMs = simdiMs;
+        sirenFaz = 0;
+        sirenFazBaslangicMs = simdiMs;
+      }
+      unsigned long gecikmeMs = (unsigned long)ayar.sirenGecikmeSaniye * 1000UL;
+      unsigned long chirpMs = (unsigned long)ayar.sirenChirpMs;
+      unsigned long beklemeMs = (unsigned long)ayar.sirenBeklemeSaniye * 1000UL;
+      bool sirenIstenen;
+      switch (sirenFaz) {
+        case 0: // ilk gecikme - sessiz
+          sirenIstenen = false;
+          if (simdiMs - sirenFazBaslangicMs >= gecikmeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
+          break;
+        case 1: // atis - acik
+          sirenIstenen = true;
+          if (simdiMs - sirenFazBaslangicMs >= chirpMs) { sirenFaz = 2; sirenFazBaslangicMs = simdiMs; }
+          break;
+        default: // 2: atislar arasi - kapali
+          sirenIstenen = false;
+          if (simdiMs - sirenFazBaslangicMs >= beklemeMs) { sirenFaz = 1; sirenFazBaslangicMs = simdiMs; }
+          break;
+      }
+      sirenIstenen = sirenIstenen && !alarmSusturuldu;
+      if (sirenEpisodeBaslangicMs != 0 && millis() - sirenEpisodeBaslangicMs > (unsigned long)ayar.sirenMaxDakika * 60000UL) {
+        alarmSusturuldu = true;
+        sirenIstenen = false;
+      }
+      if (sirenIstenen && !roleFizikselDurum) nanoRoleKontrol(true);
+      else if (!sirenIstenen && roleFizikselDurum) nanoRoleKontrol(false);
     } else if (!ayar.alarmRoleAktif) {
       // Alarm sistemi kapali: hicbir tetikleyici sirene/roleye yansimamali
       alarmSusturuldu = false; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false;
@@ -2245,6 +2446,10 @@ void loop() {
       if ((mask & ALARM_TRIGGER_KACAK) && kacakAlarmi) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KACAK; }
       if ((mask & ALARM_TRIGGER_SENSOR) && sensorHatasi) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_SENSOR; }
       alarmTetikleyenMask = tetikleyenMask;
+      // Sadece "bilgi amacli" tetikleyiciler (su seviyesi/sensor hatasi) mi
+      // aktif? Asagida (a) Onayli modun onay-bekleme adimini atlamak icin,
+      // (b) siren/lamba hedefini sifirlamak icin kullanilir.
+      bool bilgiSadeceTetik = (tetikleyenMask != 0) && ((tetikleyenMask & ~(ALARM_TRIGGER_SU_SEVIYE | ALARM_TRIGGER_SENSOR)) == 0);
 
       bool lambaHedefHam = false; // bu turun ham lamba hedefi - MIN sure asagida uygulanir
       if (!triggerActive) {
@@ -2263,7 +2468,14 @@ void loop() {
           sirenSeciliHam = (ayar.alarmOutputSessiz & ALARM_OUTPUT_SIREN) != 0;
           lambaHedefHam = (ayar.alarmOutputSessiz & ALARM_OUTPUT_LAMBA) != 0;
         } else if (ayar.alarmMod == ALARM_MOD_ONAYLI) {
-          if (alarmOnaySadeceLamba) {
+          if (bilgiSadeceTetik) {
+            // Bilgi amacli tetikleyici (su seviyesi/sensor) Onayli modun onay-
+            // bekleme adimini hic tetiklemesin - asagidaki genel istisna zaten
+            // siren/lambayi kapatacak, burada sadece alarmOnayBekliyor'un
+            // gereksiz yere true olmasini (ve RS485 uzerinden Konteyner'e
+            // "onay bekliyor" olarak sizmasini) onluyoruz.
+            sirenSeciliHam = false; lambaHedefHam = false;
+          } else if (alarmOnaySadeceLamba) {
             sirenSeciliHam = false; lambaHedefHam = true; // sadece lamba flaşörü - siren/role calismaz
           } else if (!alarmOnaylandi) {
             alarmOnayBekliyor = true; sirenSeciliHam = false; lambaHedefHam = false;
@@ -2279,11 +2491,14 @@ void loop() {
           sirenSeciliHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_SIREN) != 0;
           lambaHedefHam = (ayar.alarmOutputSesli & ALARM_OUTPUT_LAMBA) != 0;
         }
-        // Su seviyesi dusuk bir guvenlik tehdidi degil (kullanici talebi) -
-        // siren/lamba TETIKLEMESIN, sadece banner/mesaj olarak gorunsun.
-        // Ayni anda baska bir tetikleyici (kapi/PIR/kacak/sensor) da aktifse
-        // o normal siren/lamba davranisini tetiklemeye devam eder.
-        if ((tetikleyenMask & ~ALARM_TRIGGER_SU_SEVIYE) == 0) {
+        // Su seviyesi dusuk VE sensor hatasi (HC-SR04 bagli degil/okunamiyor)
+        // guvenlik tehdidi degil (kullanici talebi, 2026-09-04: "esp8266
+        // hc-sr04 bagli degil diye surekli alarm veriyor, bu tur uyarilar dis
+        // sirene bagli olmasin") - siren/lamba TETIKLEMESIN, sadece banner/
+        // mesaj olarak gorunsun (Telegram zaten ayrica gidiyor, bkz sensorHatasi
+        // kullanildigi yerler). Ayni anda baska bir tetikleyici (kapi/PIR/kacak)
+        // da aktifse o normal siren/lamba davranisini tetiklemeye devam eder.
+        if (bilgiSadeceTetik) {
           sirenSeciliHam = false;
           lambaHedefHam = false;
         }
@@ -2330,13 +2545,15 @@ void loop() {
         }
         sirenIstenen = sirenIstenen && !alarmSusturuldu;
         // Sensor arizasi/unutulmus tetiklenmede siren SINIRSIZ calmasin diye
-        // EPIZOT BASLANGICINDAN itibaren gecen TOPLAM sure SIREN_MAX_SURE_MS'i
-        // asarsa otomatik susturulur (panik haric - panik zaten bu blogun
-        // disinda, kendi ayri dalinda). Kademeli zamanlama nedeniyle
+        // EPIZOT BASLANGICINDAN itibaren gecen TOPLAM sure asarsa otomatik
+        // susturulur. Panik bu BLOGA hic girmez (kendi ayri dalinda, yukarida)
+        // ama panik dalinda da AYNI azami-sure kurali AYRICA uygulaniyor
+        // (2026-09-04 kullanici talebi - panik de kendiliginden susar).
+        // Kademeli zamanlama nedeniyle
         // sirenIstenen bekleme fazlarinda sik sik false oldugundan, olcum
         // "kesintisiz calma" yerine sirenEpisodeBaslangicMs referans alinarak
         // yapilir (aksi halde 2dk'ya asla ulasilamaz).
-        if (sirenEpisodeBaslangicMs != 0 && millis() - sirenEpisodeBaslangicMs > SIREN_MAX_SURE_MS) {
+        if (sirenEpisodeBaslangicMs != 0 && millis() - sirenEpisodeBaslangicMs > (unsigned long)ayar.sirenMaxDakika * 60000UL) {
           alarmSusturuldu = true;
           sirenIstenen = false;
         }
@@ -2480,7 +2697,7 @@ void loop() {
   // aksine). Kullanici istegiyle 4000ms'e yavaslatildi - ekranda hala
   // akici hissettirecek kadar sik, ama analogRead sıklığı ~2.7 kat azaldi.
   static unsigned long sseGonderMs = 0;
-  if (s - sseGonderMs >= 4000UL) { sseGonderMs = s; moistureOku(); ssePush(); }
+  if (s - sseGonderMs >= 4000UL) { sseGonderMs = s; moistureOkuOtomatik(); ssePush(); }
   // KALDIRILDI: Periyodik (1000ms) istem-disi masterGonder() gonderimi.
   // ESP32 zaten kendi 600ms'lik dongusunde GET_STATUS ile surekli soruyor
   // (bkz esp32_master rs485_poll) - bu "yedek" gonderim aslinda ESP32'nin
