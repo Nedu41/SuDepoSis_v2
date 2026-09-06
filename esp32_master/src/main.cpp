@@ -73,10 +73,33 @@ void jsonSendOkReply(bool basarili, const String& mesaj, const String& reply);
 #define WEATHER_DOSYASI "/hava_tahmini.json"
 String weatherForecastDates[WEATHER_FORECAST_DAYS];
 float weatherForecastMm[WEATHER_FORECAST_DAYS];
+int weatherForecastProb[WEATHER_FORECAST_DAYS]; // yagis olasiligi (%) - bkz WEATHER_RAIN_PROB_THRESHOLD yorumu
+int weatherForecastCode[WEATHER_FORECAST_DAYS]; // WMO weather_code (bkz weatherFirtinaMi())
+float weatherForecastGust[WEATHER_FORECAST_DAYS]; // ruzgar hamlesi (km/h)
 int weatherForecastCount = 0;
 long weatherFetchGunSayisi = 0;      // son basarili cekimin gun-sayisi degeri (0 = hic yok)
 String weatherFetchTarihStr = "-";   // ayni bilgi, insan-okunur (UI icin, YYYY-MM-DD)
 bool weatherSkipOneri = false;       // guncel tahmine gore "bugun sulamayi atla" onerisi
+// WMO weather_code 95/96/99 = gok gurultulu saganak (thunderstorm), veya
+// ruzgar hamlesi esigi asilmis - bkz WEATHER_STORM_WIND_GUST_KMH yorumu.
+bool weatherFirtinaMi(int gunIndex) {
+  if (gunIndex < 0 || gunIndex >= weatherForecastCount) return false;
+  int c = weatherForecastCode[gunIndex];
+  return (c == 95 || c == 96 || c == 99) || (weatherForecastGust[gunIndex] >= WEATHER_STORM_WIND_GUST_KMH);
+}
+bool weatherFirtinaVar = false;     // onumuzdeki WEATHER_FIRTINA_UFUK_GUN icinde firtina bekleniyor mu
+int weatherFirtinaGunIndex = -1;    // -1 = yok, aksi halde en yakin firtinali gunun weatherForecastDates indeksi
+#define WEATHER_FIRTINA_UFUK_GUN 3  // bugun+yarin+ertesi gun - daha ileri gunler icin gok gurultusu tahmini zaten guvenilmez
+// weatherKontrolEt/handleAPI_WeatherCheck sonrasi cagrilir - yeni cekilen
+// (veya SPIFFS'ten yuklenen) tahminde en yakin firtinali gunu bulur.
+void weatherFirtinaHesapla() {
+  weatherFirtinaVar = false;
+  weatherFirtinaGunIndex = -1;
+  int ufuk = min(WEATHER_FIRTINA_UFUK_GUN, weatherForecastCount);
+  for (int i = 0; i < ufuk; i++) {
+    if (weatherFirtinaMi(i)) { weatherFirtinaVar = true; weatherFirtinaGunIndex = i; break; }
+  }
+}
 String weatherDurum = "Henuz denenmedi";
 unsigned long lastWeatherCheckMs = 0;
 bool weatherWifiOncekiDurum = false; // WiFi baglanti gecisini (rising edge) yakalamak icin
@@ -142,7 +165,7 @@ void zamanCacheGuncelle() {
 void weatherYukle() {
   File f = SPIFFS.open(WEATHER_DOSYASI, "r");
   if (!f) return;
-  DynamicJsonDocument doc(1536);
+  DynamicJsonDocument doc(2048); // 2026-09-01: prob/kod/gust alanlari eklenince 1536 dar geldi
   if (deserializeJson(doc, f) == DeserializationError::Ok) {
     weatherFetchGunSayisi = doc["gunSayisi"] | 0L;
     weatherFetchTarihStr = doc["tarih"] | "-";
@@ -153,6 +176,9 @@ void weatherYukle() {
       if (i >= WEATHER_FORECAST_DAYS) break;
       weatherForecastDates[i] = g["t"].as<String>();
       weatherForecastMm[i] = g["mm"].as<float>();
+      weatherForecastProb[i] = g["prob"] | 0;
+      weatherForecastCode[i] = g["kod"] | 0;
+      weatherForecastGust[i] = g["gust"] | 0.0f;
       i++;
     }
   }
@@ -160,7 +186,7 @@ void weatherYukle() {
 }
 
 void weatherKaydet() {
-  DynamicJsonDocument doc(1536);
+  DynamicJsonDocument doc(2048); // 2026-09-01: prob/kod/gust alanlari eklenince 1536 dar geldi
   doc["gunSayisi"] = weatherFetchGunSayisi;
   doc["tarih"] = weatherFetchTarihStr;
   doc["sayi"] = weatherForecastCount;
@@ -169,6 +195,9 @@ void weatherKaydet() {
     JsonObject g = arr.createNestedObject();
     g["t"] = weatherForecastDates[i];
     g["mm"] = weatherForecastMm[i];
+    g["prob"] = weatherForecastProb[i];
+    g["kod"] = weatherForecastCode[i];
+    g["gust"] = weatherForecastGust[i];
   }
   File f = SPIFFS.open(WEATHER_DOSYASI, "w");
   if (f) { serializeJson(doc, f); f.close(); }
@@ -186,7 +215,8 @@ bool weatherTahminCek() {
 
   String url = String(WEATHER_FORECAST_API) + "?latitude=" + String(GARDEN_LATITUDE, 6) +
                "&longitude=" + String(GARDEN_LONGITUDE, 6) +
-               "&daily=precipitation_sum&forecast_days=" + String(WEATHER_FORECAST_DAYS) + "&timezone=auto";
+               "&daily=precipitation_sum,precipitation_probability_max,weather_code,wind_gusts_10m_max&forecast_days=" + String(WEATHER_FORECAST_DAYS) +
+               "&timezone=auto&models=" + WEATHER_FORECAST_MODEL;
   DEBUG_PRINTLN("[Weather] GET " + url);
   WiFiClientSecure client;
   client.setInsecure();
@@ -214,7 +244,7 @@ bool weatherTahminCek() {
   http.end();
   DEBUG_PRINTLN("[Weather] Yanit boyutu: " + String(payload.length()) + " byte");
 
-  DynamicJsonDocument doc(3072);
+  DynamicJsonDocument doc(4096); // weather_code/wind_gusts eklenince 3072 dar geldi
   DeserializationError parseErr = deserializeJson(doc, payload);
   if (parseErr != DeserializationError::Ok) {
     weatherDurum = "JSON parse hatasi: " + String(parseErr.c_str());
@@ -223,6 +253,9 @@ bool weatherTahminCek() {
   }
   JsonArray dates = doc["daily"]["time"].as<JsonArray>();
   JsonArray precip = doc["daily"]["precipitation_sum"].as<JsonArray>();
+  JsonArray prob = doc["daily"]["precipitation_probability_max"].as<JsonArray>();
+  JsonArray kod = doc["daily"]["weather_code"].as<JsonArray>();
+  JsonArray gust = doc["daily"]["wind_gusts_10m_max"].as<JsonArray>();
   int n = min((int)precip.size(), WEATHER_FORECAST_DAYS);
   DEBUG_PRINTLN("[Weather] Parse edilen gun sayisi: " + String(n));
   if (n < 2) { weatherDurum = "API yanitinda gun verisi eksik"; DEBUG_PRINTLN("[Weather] " + weatherDurum); return false; }
@@ -230,7 +263,11 @@ bool weatherTahminCek() {
   for (int i = 0; i < n; i++) {
     weatherForecastDates[i] = dates[i].as<String>();
     weatherForecastMm[i] = precip[i].as<float>();
-    DEBUG_PRINTLN("[Weather]   " + weatherForecastDates[i] + ": " + String(weatherForecastMm[i], 1) + "mm");
+    weatherForecastProb[i] = (i < (int)prob.size()) ? prob[i].as<int>() : 0;
+    weatherForecastCode[i] = (i < (int)kod.size()) ? kod[i].as<int>() : 0;
+    weatherForecastGust[i] = (i < (int)gust.size()) ? gust[i].as<float>() : 0.0f;
+    DEBUG_PRINTLN("[Weather]   " + weatherForecastDates[i] + ": " + String(weatherForecastMm[i], 1) + "mm, %" + String(weatherForecastProb[i]) +
+                  ", kod=" + String(weatherForecastCode[i]) + ", ruzgar=" + String(weatherForecastGust[i], 0) + "km/h");
   }
   weatherForecastCount = n;
 
@@ -299,7 +336,13 @@ void weatherKontrolEt() {
   }
 
   bool guncel = weatherGuncelMi();
-  weatherSkipOneri = guncel && weatherForecastCount >= 2 && (weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM);
+  // bkz WEATHER_RAIN_PROB_THRESHOLD yorumu (config.h) - mm VEYA olasilik
+  // esiklerinden HERHANGI BIRI asilirsa yagmur bekleniyor sayilir (sadece
+  // ortalama mm'ye bakmak dagitik/konvektif yagmurlarda "0.0mm" yanilgisina
+  // yol aciyordu).
+  weatherSkipOneri = guncel && weatherForecastCount >= 2 &&
+    ((weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM) || (weatherForecastProb[1] >= WEATHER_RAIN_PROB_THRESHOLD));
+  if (guncel) weatherFirtinaHesapla(); else { weatherFirtinaVar = false; weatherFirtinaGunIndex = -1; }
 
   String reply;
   rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
@@ -944,16 +987,29 @@ void alarmLedGuncelle() {
 
   // Sensor arizasi/unutulmus tetiklenmede siren SINIRSIZ calmasin diye
   // EPIZOT BASLANGICINDAN itibaren gecen TOPLAM sure KONTEYNER_SIREN_MAX_MS'i
-  // asarsa otomatik susturulur (panik/gaz haric - bunlar elle ac/kapat ya da
-  // gaz kaynagi giderilene kadar kendiliginden susmamali). Kademeli zamanlama
-  // nedeniyle konteynerBuzzerVar bekleme fazlarinda sik sik false oldugundan,
-  // olcum "kesintisiz calma" yerine konteynerSirenEpisodeMs referans alinarak
-  // yapilir (aksi halde 2dk'ya asla ulasilamaz).
-  if (konteynerSirenEpisodeMs != 0 && !konteynerAcilDurum) {
+  // asarsa otomatik susturulur. Gaz/duman haric (patlayici gaz/yangin riski -
+  // kaynak giderilene kadar kendiliginden susmamali). Panik ARTIK bu istisnada
+  // DEGIL (kullanici talebi, 2026-09-04: "paniktede de max sureye uyulsun,
+  // sonra kapansin" - Sudepo tarafinda ayni kural uygulandi) - panik hala
+  // ACIL LAMBAYI/aciyi ANINDA tetikler ama siren de digerleri gibi azami
+  // sureden sonra susar, panicRoleAktif durumu DEGISMEDEN (sadece siren
+  // susturulur, panigi kapatmak icin yine butona basmak gerekir). Kademeli
+  // zamanlama nedeniyle konteynerBuzzerVar bekleme fazlarinda sik sik false
+  // oldugundan, olcum "kesintisiz calma" yerine konteynerSirenEpisodeMs
+  // referans alinarak yapilir (aksi halde sureye asla ulasilamaz).
+  if (konteynerSirenEpisodeMs != 0 && !(konteynerGazAlarmVar || konteynerDumanAlarmVar)) {
     if (millis() - konteynerSirenEpisodeMs > (unsigned long)konteynerSirenMaxDakika * 60000UL) {
+      // BUG DUZELTMESI (kullanici bulgusu, 2026-09-04: paniği 2dk+ acik
+      // birakinca Telegram'a SUREKLI "otomatik susturuldu" mesaji geliyordu,
+      // buzzer da susmadi). Kok neden: konteynerSirenEpisodeMs, tetikleyici
+      // (panik/PIR/vb.) hala aktif oldugu surece HIC sifirlanmiyor - bu yuzden
+      // bu blok susturulduktan SONRA da HER dongude tekrar calisip
+      // konteynerOtoSusturBildirimBekliyor'u yeniden true yapiyordu (Telegram
+      // spam'i). Artik SADECE susturulmamis->susturulmus GECISINDE bildirim
+      // isteniyor.
+      if (!konteynerSusturuldu) konteynerOtoSusturBildirimBekliyor = true;
       konteynerSusturuldu = true;
       konteynerBuzzerVar = false;
-      konteynerOtoSusturBildirimBekliyor = true;
     }
   }
 
@@ -991,7 +1047,22 @@ void alarmLedGuncelle() {
   digitalWrite(KONTEYNER_SIREN_PIN, konteynerSirenAktif ? HIGH : LOW);
   digitalWrite(KONTEYNER_LAMBA_PIN, konteynerLambaPinAc ? HIGH : LOW);
 
-  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0) || alarmStatus.panic_mode || alarmStatus.pending || konteynerBuzzerVar;
+  // Sudepo'dan gelen mask sadece "bilgi amacli" (su seviyesi/sensor hatasi)
+  // bitlerinden olusuyorsa, Konteyner'in kendi buzzer/LED'ini TETIKLEMESIN -
+  // Sudepo tarafinda zaten dis sirene baglanmiyor (bkz esp8266_slave
+  // "bilgiSadeceTetik"), ayni kategori ayrimi burada da uygulanmali. pending
+  // (Onayli mod onay-bekleme) de esp8266 tarafinda artik bilgi-only icin hic
+  // set edilmiyor (bkz ayni tarihli fix), o yuzden burada ayrica filtrelemeye
+  // gerek yok.
+  bool sudepoBilgiSadece = (alarmStatus.trigger_mask != 0) && ((alarmStatus.trigger_mask & ~(SUDEPO_TRIGGER_SU_SEVIYE | SUDEPO_TRIGGER_SENSOR)) == 0);
+  // BUG DUZELTMESI (kullanici bulgusu, 2026-09-04: panigi 2dk+ acik birakinca
+  // ana siren azami sureden sonra susuyordu AMA bu kucuk yerel LED+buzzer
+  // (ALARM_LED_PIN/GPIO5) "alarmStatus.panic_mode" terimi yuzunden SONSUZA
+  // kadar 400ms'de bir yanip-sonmeye/otmeye devam ediyordu - azami-sure
+  // kuralini hic gormuyordu. konteynerBuzzerVar zaten panik/chirp/susturma/
+  // azami-sure durumunu DOGRU yansitiyor (bkz yukarida), o yuzden ayri bir
+  // panic_mode terimine gerek yok - kaldirildi.
+  bool alarmVar = (alarmStatus.enabled && alarmStatus.trigger_mask != 0 && !sudepoBilgiSadece) || alarmStatus.pending || konteynerBuzzerVar;
 
   // On uyari darbesi - sadece gercek bir alarm CALMIYORSA baslat (cakismasin diye)
   if (konteynerOnBipCiksin) {
@@ -1142,7 +1213,17 @@ void konteynerSensorleriOku() {
   // temizlenir. Swan icin BOLUM durumu (konteynerSwanAlarmVar) kullanilir,
   // sadece eskalasyon degil - PIR2'deki konteynerPirAlarmVar ile AYNI mantik
   // (onay suresi dolmadan bolum devam ederken erken sifirlanmasin diye).
-  if (!konteynerPirAlarmVar && !kapiEfektif && !(konteynerSwanEtkin && konteynerSwanAlarmVar)) {
+  // BUG DUZELTMESI (kullanici bulgusu, 2026-09-04: "2dk sonra alarmlar
+  // susuyor ama Telegram'a surekli mesaj geliyor"): panik surerken PIR/kapi/
+  // Swan HICBIRI aktif olmadigindan bu blok HER DONGUDE calisip
+  // konteynerSusturuldu'yu false'a cekiyordu - alarmLedGuncelle() (bundan
+  // SONRA calisir) azami-sureyi asildigini gorup tekrar true yapiyor, bu da
+  // "susturulmamistan susturulmusa GECIS" sanilip Telegram bildirimini HER
+  // DONGUDE yeniden tetikliyordu (bkz konteynerOtoSusturBildirimBekliyor).
+  // Panik surerken bu genel PIR/kapi/Swan-bolum sifirlamasi ARTIK devre disi -
+  // panik bitince (alarmStatus.panic_mode false olunca) normal sekilde
+  // calisip susturmayi bir sonraki tetiklenme icin temizler.
+  if (!konteynerPirAlarmVar && !kapiEfektif && !(konteynerSwanEtkin && konteynerSwanAlarmVar) && !alarmStatus.panic_mode) {
     konteynerOnayBekleniyor = false;
     konteynerOnayVerildi = false;
     konteynerLambaOnayVerildi = false;
@@ -1173,6 +1254,22 @@ void konteynerSensorleriOku() {
 #define IR_FRAME_GAP_US 15000UL // bu kadar sessizlik = kare bitti
 #define IR_MIN_EDGES 10         // bundan az kenar = gercek IR gurultusu, at
 #define IR_LOCKOUT_MS 400       // tusa basili tutarken gelen tekrar darbelerini yut (eski "repeat" filtresiyle ayni amac)
+// ONCE 200us, sonra 500us'luk INCE kova denendi - ikisi de sahada yetersiz
+// kaldi: hem ogrenme (cift-onay) hem CALISTIRMA (kaydedilmis koda TAM
+// eslesme) sirasinda ufak bir zamanlama sapmasi (ucuz osilator veya ESP32
+// WiFi radyosunun ara sira sinyale bindirdigi gurultu) tum FNV hash'ini
+// degistirip "5-6 kez basinca calisiyor" sikayetine yol aciyordu. Sahada
+// yakalanan ham veri kumandanin klasik iki-seviyeli kodlama kullandigini
+// gosterdi: sabit ~640us mark + KISA (~510us) veya UZUN (~1590us) space -
+// yani her "bit" aslinda ikili (kisa/uzun) bir sinif. Ince mikrosaniye
+// kovasi yerine dogrudan bu ikili esikle siniflandirmak (kisa/uzun arasinda
+// 3 kat fark oldugundan gurultunun bunu karistirmasi neredeyse imkansiz)
+// jitter'i tamamen ortadan kaldirir.
+#define IR_BIT_ESIK_US 1000UL
+// NEC-tipi protokollerin lider (header) darbesi ~9ms mark - bu esigin
+// uzerindeki her kenar "gercek bir karenin baslangici" sayilir (bkz asagida
+// irKumandaIsle icindeki "KALINTI KARE TEMIZLEME" yorumu).
+#define IR_LIDER_ESIK_US 3000UL
 
 volatile uint16_t irRawBuf[IR_RAW_MAX];
 volatile uint16_t irRawLen = 0;
@@ -1203,6 +1300,10 @@ void irAliciBaslat() {
 // irKomutIsleVeCalistir()'i cagirir.
 volatile bool irYeniKodVar = false;
 uint32_t irSonKod = 0;
+// asagida (IR KUMANDA ESLESTIRME bolumunde) tanimli - ogrenme modunda
+// IR_LOCKOUT_MS'i atlamak icin burada ileri bildirime ihtiyac var (bkz
+// irKumandaIsle icindeki kilit kontrolu).
+extern bool irOgrenmeModu;
 // TESHIS AMACLI: web'den ("Kumanda" sekmesi ogrenme durumu) seri kabloya
 // ihtiyac olmadan neler oldugunu gormek icin.
 String irSonDenemeProtokol = "-";
@@ -1227,30 +1328,62 @@ void irKumandaIsle() {
   portEXIT_CRITICAL(&irMux);
 
   irDenemeSayaci++;
-  irSonRawlen = localLen;
 
-  if (millis() - sonIslemMs < IR_LOCKOUT_MS) {
+  // KALINTI KARE TEMIZLEME: bazi ucuz kumandalar (sahada Serial dump'ta
+  // dogrulandi) ayni basista arka arkaya 2 kare gonderiyor, aralarindaki
+  // bosluk IR_FRAME_GAP_US'ten (15ms) kisa oldugundan ikisi TEK capture'a
+  // karisiyor - basita gore degisken sayida "kalinti kenar" NEC-tipi asil
+  // lider'den (~9ms mark + ~4.5ms space, yani buyuk bir deger) ONCE gelip
+  // her basimda toplam uzunlugu/hash'i degistiriyor, bu da ogrenmedeki
+  // cift-onayin (bkz IR_OGRENME_ONAY_PENCERE_MS) hicbir zaman tutmamasina
+  // yol aciyordu. Duzeltme: arabellegin SONUNDAN geriye dogru son "buyuk"
+  // kenari (gercek lider) bulup ondan ONCEKI her seyi (varsa kalinti) atiyoruz -
+  // boylece her basimda ayni, kararli kare hashlenir. Lider'i olmayan kisa
+  // protokollerde (RC5 vb.) hicbir buyuk deger bulunamaz, baslangic 0 kalir,
+  // davranis DEGISMEZ.
+  uint16_t baslangic = 0;
+  for (uint16_t i = localLen; i > 0; i--) {
+    if (localBuf[i - 1] > IR_LIDER_ESIK_US) { baslangic = i - 1; break; }
+  }
+  uint16_t etkinLen = localLen - baslangic;
+  irSonRawlen = etkinLen;
+
+  // Ogrenme modunda LOCKOUT atlanir: kullanicidan zaten BILEREK 2 ayri
+  // basis (cift-onay icin) isteniyor, hizli cift-basista ikinci basis 400ms
+  // icinde gelirse bu filtre onu sessizce yutup 3. basisa kadar
+  // eslesmeyi geciktiriyordu (sahada gozlemlendi: "2-3 kez deniyor").
+  if (millis() - sonIslemMs < IR_LOCKOUT_MS && !irOgrenmeModu) {
     irSonDenemeProtokol = "tekrar/kilit";
     return; // tusa basili tutma sirasindaki tekrar kareleri - yoksay
   }
-  if (localLen < IR_MIN_EDGES) {
+  if (etkinLen < IR_MIN_EDGES) {
     irSonDenemeProtokol = "gurultu(kisa)";
     return; // gercek IR gurultusu (gunes isigi, floresan vb.)
   }
 
   uint32_t hash = 2166136261UL; // FNV-1a
-  for (uint16_t i = 0; i < localLen; i++) {
-    uint16_t kova = localBuf[i] / 200; // ~200us kovaya yuvarla, jitter toleransi
+  for (uint16_t i = 0; i < etkinLen; i++) {
+    uint16_t kova = (localBuf[baslangic + i] > IR_BIT_ESIK_US) ? 1 : 0; // kisa/uzun ikili siniflandirma (bkz IR_BIT_ESIK_US yorumu)
     hash ^= kova;
     hash *= 16777619UL;
   }
-  hash ^= localLen;
+  hash ^= etkinLen;
   hash *= 16777619UL;
 
   irSonKod = hash;
-  irSonDenemeProtokol = "HAM(" + String(localLen) + " kenar)";
+  irSonDenemeProtokol = "HAM(" + String(etkinLen) + " kenar)";
   irYeniKodVar = true;
   sonIslemMs = millis();
+#if DEBUG_SERIAL
+  // TESHIS: iki ayri basimin ham kenar dizisini yan yana karsilastirabilmek
+  // icin (bkz "ucuz kumanda ogrenilmiyor" vakasi - hash'in neden degistigini
+  // gormek icin tek yol bu ham veri: jitter mi (kucuk farklar) yoksa yapisal
+  // bir fark mi - ör. toggle bit degisimi (RC5/RC6 tarzi) - ondan mi).
+  DEBUG_PRINT("[IR] Ham kenarlar (us, kalinti dahil, toplam "); DEBUG_PRINT(localLen); DEBUG_PRINT("): ");
+  for (uint16_t i = 0; i < localLen; i++) { DEBUG_PRINT(localBuf[i]); DEBUG_PRINT(","); }
+  DEBUG_PRINTLN("");
+  DEBUG_PRINT("[IR] Kullanilan (baslangic="); DEBUG_PRINT(baslangic); DEBUG_PRINT(", etkinLen="); DEBUG_PRINT(etkinLen); DEBUG_PRINTLN(")");
+#endif
   DEBUG_PRINT("[IR] Ham kod: 0x");
   DEBUG_PRINTLN(String(irSonKod, HEX));
 }
@@ -2300,6 +2433,47 @@ void anaGucPoll() {
 }
 
 // ============================================================
+// LAPTOP ADAPTORU KESME ROLESI (GPIO21/ADAPTOR_RELE_PIN) - ana guc dustugunde
+// (aksam/gunessiz) adaptorun 19.5V DC cikisini MOSFET (low-side) ile keser, mains
+// tasarrufu icin. AC (220V) tarafi kesilmiyor - sadece DC cikis. Histerezis:
+// ANA_GUC_ADAPTOR_KESME_V'de keser, ancak ANA_GUC_ADAPTOR_BAGLA_V'ye cikana kadar
+// tekrar baglamaz (bkz config.h). ANA_GUC verisi bayat/okunamiyorsa DOKUNULMAZ -
+// son bilinen (veya boot varsayilani: BAGLI) durum korunur, fail-safe "kesmemek"
+// yonunde (sarjdan mahrum kalmaktan daha az riskli).
+// ============================================================
+bool adaptorBagli = true; // boot varsayilani: BAGLI (GPIO21 HIGH, modul aktif-HIGH)
+
+float adaptorKesmeVolt = ANA_GUC_ADAPTOR_KESME_V;
+float adaptorBaglaVolt = ANA_GUC_ADAPTOR_BAGLA_V;
+
+void adaptorEsikYukle() {
+  ayarPrefs.begin("ayarlar", true);
+  adaptorKesmeVolt = ayarPrefs.getFloat("ad_kesme", ANA_GUC_ADAPTOR_KESME_V);
+  adaptorBaglaVolt = ayarPrefs.getFloat("ad_bagla", ANA_GUC_ADAPTOR_BAGLA_V);
+  ayarPrefs.end();
+}
+
+void adaptorEsikKaydet(float kesme, float bagla) {
+  adaptorKesmeVolt = kesme; adaptorBaglaVolt = bagla;
+  ayarPrefs.begin("ayarlar", false);
+  ayarPrefs.putFloat("ad_kesme", kesme);
+  ayarPrefs.putFloat("ad_bagla", bagla);
+  ayarPrefs.end();
+}
+
+void adaptorReleGuncelle() {
+  if (!anaGucData.read_ok) return; // veri bayat/yok: son durumu koru
+
+  if (adaptorBagli && anaGucData.voltaj <= adaptorKesmeVolt) {
+    adaptorBagli = false;
+  } else if (!adaptorBagli && anaGucData.voltaj > adaptorBaglaVolt) {
+    adaptorBagli = true;
+  }
+
+  digitalWrite(ADAPTOR_RELE_PIN, adaptorBagli ? HIGH : LOW); // modul aktif-HIGH: HIGH=cikis var/bagli, LOW=kesili (sahada olculdu, 2026-09-06)
+}
+
+// ============================================================
 // ACIL DURUM LAMBASI (GPIO12/ACIL_LAMBA_PIN, Sari RCA uzerinden disari cikar) -
 // manuel web butonu VEYA panik/Konteyner-alarm durumunda DOGRUDAN/otomatik
 // yanar (onay beklemeden - konteynerAcilDurum ile ayni oncelik). Ana guc
@@ -3020,6 +3194,9 @@ String durumJson() {
   doc["ana_guc"]["esik1"] = anaGucEsik1Volt;
   doc["ana_guc"]["esik2"] = anaGucEsik2Volt;
   doc["ana_guc"]["esik3"] = anaGucEsik3Volt;
+  doc["ana_guc"]["adaptor_kesme"] = adaptorKesmeVolt;
+  doc["ana_guc"]["adaptor_bagla"] = adaptorBaglaVolt;
+  doc["ana_guc"]["adaptor_bagli"] = adaptorBagli;
   doc["ana_guc"]["acil_lamba"] = acilLambaAktif;
   doc["ana_guc"]["acil_lamba_manuel"] = acilLambaManuel;
   doc["ana_guc"]["uyari_id"] = anaGucUyariAdimSayaci; // tarayici Notification tetikleyici (bkz web_ui.h)
@@ -3358,11 +3535,14 @@ void handleAPI_WeatherGet() {
   j += "\"sayi\":" + String(weatherForecastCount) + ",";
   j += "\"guncel\":" + String(weatherGuncelMi() ? "true" : "false") + ",";
   j += "\"oneri\":" + String(weatherSkipOneri ? "true" : "false") + ",";
+  j += "\"firtinaVar\":" + String(weatherFirtinaVar ? "true" : "false") + ",";
+  j += "\"firtinaGun\":\"" + (weatherFirtinaGunIndex >= 0 ? jsonKacir(weatherForecastDates[weatherFirtinaGunIndex]) : "") + "\",";
   j += "\"durum\":\"" + jsonKacir(weatherDurum) + "\",";
   j += "\"haftalik\":[";
   for (int i = 0; i < weatherForecastCount; i++) {
     if (i > 0) j += ",";
-    j += "{\"tarih\":\"" + jsonKacir(weatherForecastDates[i]) + "\",\"mm\":" + String(weatherForecastMm[i], 1) + "}";
+    j += "{\"tarih\":\"" + jsonKacir(weatherForecastDates[i]) + "\",\"mm\":" + String(weatherForecastMm[i], 1) + ",\"prob\":" + String(weatherForecastProb[i]) +
+         ",\"firtina\":" + String(weatherFirtinaMi(i) ? "true" : "false") + "}";
   }
   j += "]}";
   server.send(200, "application/json", j);
@@ -3371,7 +3551,13 @@ void handleAPI_WeatherGet() {
 void handleAPI_WeatherCheck() {
   bool ok = weatherTahminCek();
   bool guncel = weatherGuncelMi();
-  weatherSkipOneri = guncel && weatherForecastCount >= 2 && (weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM);
+  // bkz WEATHER_RAIN_PROB_THRESHOLD yorumu (config.h) - mm VEYA olasilik
+  // esiklerinden HERHANGI BIRI asilirsa yagmur bekleniyor sayilir (sadece
+  // ortalama mm'ye bakmak dagitik/konvektif yagmurlarda "0.0mm" yanilgisina
+  // yol aciyordu).
+  weatherSkipOneri = guncel && weatherForecastCount >= 2 &&
+    ((weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM) || (weatherForecastProb[1] >= WEATHER_RAIN_PROB_THRESHOLD));
+  if (guncel) weatherFirtinaHesapla(); else { weatherFirtinaVar = false; weatherFirtinaGunIndex = -1; }
   String reply;
   rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
   jsonSendOk(ok, weatherDurum);
@@ -3677,6 +3863,16 @@ void handleAPI_AnaGucEsik() {
   if (e3 >= e2) e3 = e2 - 0.1f;
   anaGucEsikKaydet(e1, e2, e3);
   server.send(200, "application/json", "{\"basarili\":true,\"esik1\":" + String(e1, 1) + ",\"esik2\":" + String(e2, 1) + ",\"esik3\":" + String(e3, 1) + "}");
+}
+
+void handleAPI_AdaptorEsik() {
+  float kesme = adaptorKesmeVolt, bagla = adaptorBaglaVolt;
+  if (server.hasArg("kesme")) kesme = server.arg("kesme").toFloat();
+  if (server.hasArg("bagla")) bagla = server.arg("bagla").toFloat();
+  // Baglama esigi kesme esiginden dusuk/esit olamaz (histerezis mantikli sirada kalsin)
+  if (bagla <= kesme) bagla = kesme + 0.1f;
+  adaptorEsikKaydet(kesme, bagla);
+  server.send(200, "application/json", "{\"basarili\":true,\"kesme\":" + String(kesme, 1) + ",\"bagla\":" + String(bagla, 1) + "}");
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
@@ -4009,9 +4205,46 @@ bool komutCalistir(const String& komut, String& mesaj) {
     ok = alarmAyarla(komut == "ALARM_AC", reply);
     mesaj = ok ? (komut == "ALARM_AC" ? "ALARM=1" : "ALARM=0") : "ALARM";
   } else if (komut == "ALARM_TOGGLE") {
+    // IR kumandadan TEK tusla HER IKI zonu (Sudepo RS485 + Konteyner yerel)
+    // birlikte ac/kapa - kullanici talebi: eskiden bu IR komutu sadece
+    // Sudepo'yu etkiliyordu. Herhangi biri acikken hedef KAPALI (hepsini
+    // kapat), ikisi de kapaliyken hedef ACIK (hepsini ac) - boylece iki zon
+    // her zaman senkron kalir. Konteyner tarafi RS485'ten BAGIMSIZ oldugundan
+    // (bkz konteynerAlarmEtkin yorumu) Sudepo offline olsa bile uygulanir.
+    bool yeniDurum = !(alarmStatus.enabled || konteynerAlarmEtkin);
+    alarmAyarla(yeniDurum, reply); // Sudepo (RS485) - basarisiz olsa da Konteyner'i engellemez
+    konteynerAlarmAyarKaydet(yeniDurum); // Konteyner (yerel NVS)
+    ok = true;
+    mesaj = "ALARM=" + String(yeniDurum ? "1" : "0");
+  } else if (komut == "ALARM_TOGGLE_SUDEPO") {
+    // Kullanici talebi: tum-zon TOGGLE'a ek olarak zonlari AYRI AYRI da
+    // kontrol edebilmek - bu sadece Sudepo (RS485) zonunu degistirir.
     bool yeniDurum = !alarmStatus.enabled;
     ok = alarmAyarla(yeniDurum, reply);
-    mesaj = ok ? ("ALARM=" + String(yeniDurum ? "1" : "0")) : "ALARM";
+    mesaj = ok ? ("ALARM_SUDEPO=" + String(yeniDurum ? "1" : "0")) : "ALARM_SUDEPO";
+  } else if (komut == "ALARM_TOGGLE_KONTEYNER") {
+    // bkz ALARM_TOGGLE_SUDEPO yorumu - bu sadece Konteyner (yerel) zonunu degistirir.
+    bool yeniDurum = !konteynerAlarmEtkin;
+    konteynerAlarmAyarKaydet(yeniDurum);
+    ok = true;
+    mesaj = "ALARM_KONTEYNER=" + String(yeniDurum ? "1" : "0");
+  } else if (komut == "ACIL_LAMBA_TOGGLE") {
+    // Acil Durum Lambasi manuel anahtari (bkz handleAPI_AcilLamba) - panik/
+    // Konteyner alarminda zaten otomatik yanar, bu sadece elle ac/kapa.
+    acilLambaManuel = !acilLambaManuel;
+    ok = true;
+    mesaj = "ACIL_LAMBA=" + String(acilLambaManuel ? "1" : "0");
+  } else if (komut == "KONTEYNER_LAMBA_TOGGLE") {
+    // Konteyner'in KENDI elle ac/kapa lambasi (bkz handleAPI_KonteynerLamba) -
+    // Sudepo'nun LAMBA_TOGGLE'i ile AYNI sey DEGIL, RS485 YOK.
+    konteynerLambaManuel = !konteynerLambaManuel;
+    if (!konteynerLambaManuel) konteynerLambaOnayVerildi = false; // bkz handleAPI_KonteynerLamba'daki ayni FIX
+    ok = true;
+    mesaj = "KONTEYNER_LAMBA=" + String(konteynerLambaManuel ? "1" : "0");
+  } else if (komut == "TELEGRAM_TOGGLE") {
+    telegramAyarKaydet(!telegramBildirimAktif);
+    ok = true;
+    mesaj = "TELEGRAM=" + String(telegramBildirimAktif ? "1" : "0");
   } else if (komut.startsWith("ALARM_MOD=")) {
     int mod = komut.substring(10).toInt();
     if (mod >= 1 && mod <= 3) {
@@ -4065,6 +4298,23 @@ bool irOgrenmeModu = false;
 unsigned long irOgrenmeBaslangicMs = 0;
 uint32_t irOgrenmeYakalananKod = 0;
 bool irOgrenmeKodHazir = false;
+// CIFT-ONAY (gurultu filtresi): ESP32'nin kendi WiFi/BLE radyosu, IR alici
+// modulunun (TSOP benzeri) ciktisina RF gurultusu bindirebiliyor - bu,
+// TSOP/IR alici + WiFi kombinasyonunda cok bilinen bir sorun (Vishay'in
+// kendi "Using IR Receivers in WiFi Environments" app notu da bunu dogrular:
+// RF gucu ve antene yakinlik arttikca alici sahte darbeler uretir).
+// Ozellikle "Ogren" butonuna basildigi an tam da bu oluyor - tarayicidan
+// gelen HTTP istegine ESP32'nin verdigi WiFi yaniti kisa bir RF patlamasi
+// yaratiyor, bu da IR_MIN_EDGES esigini gecen TEK SEFERLIK sahte bir "kod"
+// olarak yakalanip kumandaya hic dokunulmadan "ogrenilmis" gibi gorunuyordu.
+// Gercek bir kumanda tusu basili tutuldugunda (veya art arda basildiginda)
+// AYNI hash birkac yuz ms icinde TEKRAR gelir (repeat kare) - RF gurultusu
+// ise tek seferlik oldugundan bu tekrari veremez. Bu yuzden ogrenme modunda
+// bir kodu kabul etmeden once AYNI kodun IR_OGRENME_ONAY_PENCERE_MS icinde
+// ikinci kez gelmesini bekliyoruz.
+#define IR_OGRENME_ONAY_PENCERE_MS 3000UL
+uint32_t irOgrenmeBekleyenKod = 0;
+unsigned long irOgrenmeBekleyenMs = 0;
 
 void irEslesmeYukle() {
   File f = SPIFFS.open(IR_MAP_DOSYA, "r");
@@ -4108,11 +4358,26 @@ void irKomutIsleVeCalistir() {
   uint32_t kod = irSonKod;
 
   if (irOgrenmeModu) {
-    irOgrenmeYakalananKod = kod;
-    irOgrenmeKodHazir = true;
-    irOgrenmeModu = false;
-    DEBUG_PRINT("[IR] Ogrenme modunda kod yakalandi: 0x");
-    DEBUG_PRINTLN(String(kod, HEX));
+    // bkz IR_OGRENME_ONAY_PENCERE_MS yorumu - tek seferlik (RF gurultusu
+    // olabilecek) bir kodu hemen kabul etmek yerine, ayni kodun ikinci kez
+    // gelmesini bekliyoruz.
+    if (irOgrenmeBekleyenKod == kod && millis() - irOgrenmeBekleyenMs < IR_OGRENME_ONAY_PENCERE_MS) {
+      irOgrenmeYakalananKod = kod;
+      irOgrenmeKodHazir = true;
+      irOgrenmeModu = false;
+      irOgrenmeBekleyenKod = 0;
+      DEBUG_PRINT("[IR] Ogrenme modunda kod ONAYLANDI (2x): 0x");
+      DEBUG_PRINTLN(String(kod, HEX));
+    } else {
+      if (irOgrenmeBekleyenKod != 0) {
+        DEBUG_PRINT("[IR] Onay ESLESMEDI - onceki: 0x"); DEBUG_PRINT(String(irOgrenmeBekleyenKod, HEX));
+        DEBUG_PRINT(" yeni: 0x"); DEBUG_PRINTLN(String(kod, HEX));
+      }
+      irOgrenmeBekleyenKod = kod;
+      irOgrenmeBekleyenMs = millis();
+      DEBUG_PRINT("[IR] Ogrenme modunda kod ilk kez yakalandi, onay bekleniyor: 0x");
+      DEBUG_PRINTLN(String(kod, HEX));
+    }
     return;
   }
 
@@ -4146,6 +4411,8 @@ void handleAPI_IrOgrenBaslat() {
   irOgrenmeKodHazir = false;
   irOgrenmeYakalananKod = 0;
   irOgrenmeBaslangicMs = millis();
+  irOgrenmeBekleyenKod = 0; // onceki denemeden kalmis bekleyen onayi temizle
+  irOgrenmeBekleyenMs = 0;
   server.send(200, "application/json", "{\"basarili\":true}");
 }
 
@@ -4445,6 +4712,7 @@ void setupWebServer() {
   server.on("/api/konteyner/lamba", handleAPI_KonteynerLamba);
   server.on("/api/acil-lamba", handleAPI_AcilLamba);
   server.on("/api/ana-guc-esik", handleAPI_AnaGucEsik);
+  server.on("/api/adaptor-esik", handleAPI_AdaptorEsik);
   server.on("/api/moisture", handleAPI_MoistureToggle);
   server.on("/api/moisture/auto", handleAPI_MoistureAuto);
   server.on("/api/moisture/threshold", handleAPI_MoistureThreshold);
@@ -4633,8 +4901,12 @@ void setup() {
   mppt_init();
   pinMode(ACIL_LAMBA_PIN, OUTPUT);
   digitalWrite(ACIL_LAMBA_PIN, LOW); // guvenli varsayilan: acil lamba kapali
+
+  pinMode(ADAPTOR_RELE_PIN, OUTPUT);
+  digitalWrite(ADAPTOR_RELE_PIN, HIGH); // guvenli varsayilan: adaptor BAGLI (modul aktif-HIGH)
   pinMode(ACIL_BUTON_PIN, INPUT_PULLUP);
   anaGucEsikYukle();
+  adaptorEsikYukle();
   Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C - ADS1115 de ayni hatta (farkli adres)
   Wire.setClock(50000); // AHT10 7m CAT5 uzerinden - kapasitans/yukselme suresi icin 100kHz yerine 50kHz
 
@@ -4642,7 +4914,7 @@ void setup() {
   if (!SPIFFS.begin(true)) {
     DEBUG_PRINTLN("[SPIFFS] Baslatilamadi");
   }
-  weatherYukle();
+  weatherYukle(); // firtina/skip hesabi ilk weatherKontrolEt() dongusunde yapilir - burada RS485'e (simdikiGunSayisi) gerek yok, boot sirasinda ekstra RS485 trafigi eklemekten kacinilir
   irEslesmeYukle();
   telegramAyarYukle();
   konteynerPirAyarYukle();
@@ -4753,6 +5025,7 @@ void loop() {
   // Yedek Aku (GPIO2 ADC) - duz analogRead, bloke olmaz, dogrudan loop()'ta
   yedekAkuPoll();
   anaGucPoll(); // Ana guc (ADS1115/I2C, 3 kademeli bildirim)
+  adaptorReleGuncelle(); // Laptop adaptoru kesme rolesi (ana guc'e bagli histerezis)
   acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO15)
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
   mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
@@ -4792,7 +5065,13 @@ void loop() {
   // sadece veri TAZEYSE (esp8266_online ile ayni 10sn esigi) degerlendiriliyor,
   // bayat veride mevcut/varsayilan durum korunuyor.
   if ((millis() - sensorData.last_update_ms) < 10000) {
-    alarmStatus.low_level_alarm = (sensorData.level_percent < ALARM_LEVEL_PERCENT);
+    // sensor_err (HC-SR04 bagli degil/okunamiyor) iken level_percent anlamsiz/
+    // bayat degerde kalir (bkz esp8266_slave olcumYap - basarisiz olcumde
+    // sonYuzde GUNCELLENMEZ, ilk aciliste ise 0.0 varsayilaniyla baslar) -
+    // bu durumda dusuk seviye alarmi UYDURMA VERIYLE tetiklenmesin (2026-09-04
+    // kullanici bulgusu: sensor hatasi Sudepo'da bilgi-only'e alindi ama ESP32
+    // burada AYRI bir yoldan "dusuk seviye" alarmi uretmeye devam ediyordu).
+    alarmStatus.low_level_alarm = !sensorData.sensor_err && (sensorData.level_percent < ALARM_LEVEL_PERCENT);
   }
   
   // MQTT Callback process
