@@ -163,6 +163,9 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <div id="alarm-log-list" style="margin-top:4px;font-size:11px;color:var(--muted);max-height:110px;overflow-y:auto">Yükleniyor...</div>
       </details>
     </div>
+    <div class="card tikla" style="padding:8px 16px;margin-bottom:12px;white-space:nowrap;overflow-x:auto" onclick="gitAyar('ayar-weather')">
+      <span style="font-size:12px">🌤️ <span id="db-hava">Yükleniyor...</span></span>
+    </div>
     <div class="grid">
       <div class="card tikla" style="grid-column:span 2" onclick="gitAyar('ayar-sudepo')">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
@@ -307,7 +310,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div id="yedek-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
-    <details class="card">
+    <details class="card" id="ayar-weather">
       <summary>Hava Durumu / Yağmur Tahmini</summary>
       <p style="font-size:12px;color:var(--muted)">Sabit konum (bahçe) - internet varken (örn. telefon hotspot'u) otomatik çekilir. 7 günden eski tahmin dikkate alınmaz, o durumda sulama normal devam eder.</p>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="weather-durum-kutu">Yükleniyor...</div>
@@ -517,6 +520,13 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Erken uyarı: ana güç 24V ve altına düşünce, her 0.5V'lik ek düşüşte (24.0, 23.5, 23.0, ...) hem Telegram hem de bu tarayıcıya (sekme açıkken) bildirim gider.</p>
       <button class="btn" id="bildirim-izin-btn" onclick="bildirimIzniIste()">🔔 Tarayıcı Bildirimlerini Etkinleştir</button>
       <div id="bildirim-izin-durum" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <hr style="border-color:var(--border);margin:10px 0">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Laptop Adaptörü Kesme (MOSFET): ana güç Kesme voltajına düşünce adaptörün 19.5V DC çıkışı kesilir, Bağlama voltajına çıkınca tekrar bağlanır (histerezis). Şu an: <b id="adaptor-durum">—</b></p>
+      <div class="sz-grid">
+        <div><label class="sz-label">Kesme (V)</label><input class="input" type="number" step="0.1" min="0" id="adaptor-kesme" onchange="adaptorEsikKaydet()"></div>
+        <div><label class="sz-label">Bağlama (V)</label><input class="input" type="number" step="0.1" min="0" id="adaptor-bagla" onchange="adaptorEsikKaydet()"></div>
+      </div>
+      <div id="adaptor-esik-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
 
     <details class="card">
@@ -898,6 +908,11 @@ function renderUI(d){
   // mod+zaman senaryosuna gore filtreledigi otoriter kaynak - artik o
   // kullaniliyor. Panik de ayrica eklendi (eskiden hic banner tetiklemiyordu).
   const alarmMask = (d.alarm && d.alarm.trigger_mask) || 0;
+  // Sudepo'dan gelen mask sadece "bilgi amacli" (su seviyesi dusuk=bit3/8,
+  // sensor hatasi=bit5/32) bitlerinden olusuyorsa Konteyner banner'i da
+  // tetiklenmesin - Sudepo tarafinda zaten dis sirene baglanmiyor, Telegram
+  // ayrica gidiyor (bkz esp8266_slave main.cpp bilgiSadeceTetik, ayni tarih).
+  const alarmMaskBilgiSadece = alarmMask !== 0 && (alarmMask & ~(0x08 | 0x20)) === 0;
   // Konteyner (ESP32-yerel) sensorleri de genel alarm sistemine dahil - ama
   // KENDI bagimsiz ac/kapa anahtarina (d.konteyner.enabled) uyar, Sudepo'nun
   // d.alarm.enabled'inden AYRI - iki zon birbirinden bagimsiz kapatilabilir.
@@ -917,7 +932,13 @@ function renderUI(d){
   // her seyin onunde calisir (bkz esp8266_slave main.cpp panicRoleAktif) - bu
   // yuzden panic iken enabled kontrolunu atlar, aksi halde alarm sistemi
   // kapatilmisken panik basilinca banner hic gorunmuyordu.
-  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0) || d.alarm.panic || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanVar || konteynerGazVar));
+  // Panik: azami sure dolup HER IKI zon da (Sudepo d.alarm.muted, Konteyner
+  // d.konteyner.susturuldu) susturulmusse banner de kapanmali (kullanici
+  // talebi, 2026-09-04: "alarmlar susunca banner de kapansin") - tek basina
+  // d.alarm.panic (mute'dan bagimsiz) eskiden banner'i panik butonuna
+  // tekrar basilana kadar SONSUZA acik tutuyordu.
+  const panikSesliVar = !!(d.alarm && d.alarm.panic && !(d.alarm.muted && d.konteyner && d.konteyner.susturuldu));
+  const anyAlarm = !!(d.alarm && ((enabledMi && alarmMask !== 0 && !alarmMaskBilgiSadece) || panikSesliVar || konteynerPirVar || konteynerKapiVar || konteynerSwanVar || konteynerDumanVar || konteynerGazVar));
   if(d.alarm){
     if(d.alarm.panic) at='PANİK AKTİF';
     else if(konteynerGazVar) at='ALARM: Konteyner gaz sızıntısı!';
@@ -925,7 +946,6 @@ function renderUI(d){
     else if(d.alarm.low_level) at='ALARM: Sudepo düşük seviye!';
     else if(d.alarm.door) at='ALARM: Sudepo kapı açık!';
     else if(alarmMask & 4) at='ALARM: Sudepo hareket algılandı!';
-    else if(alarmMask & 32) at='ALARM: Sudepo sensör hatası!';
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
     else if(konteynerSwanVar) at='ALARM: Konteyner Swan PIR hareket!';
@@ -1193,6 +1213,9 @@ function renderUI(d){
   const ae1=$('#ana-guc-esik1'); if(ae1&&!ae1.matches(':focus')&&!yakinKorumali('ana-guc-esik1')&&ag.esik1!=null) ae1.value=ag.esik1;
   const ae2=$('#ana-guc-esik2'); if(ae2&&!ae2.matches(':focus')&&!yakinKorumali('ana-guc-esik2')&&ag.esik2!=null) ae2.value=ag.esik2;
   const ae3=$('#ana-guc-esik3'); if(ae3&&!ae3.matches(':focus')&&!yakinKorumali('ana-guc-esik3')&&ag.esik3!=null) ae3.value=ag.esik3;
+  const adk=$('#adaptor-kesme'); if(adk&&!adk.matches(':focus')&&!yakinKorumali('adaptor-kesme')&&ag.adaptor_kesme!=null) adk.value=ag.adaptor_kesme;
+  const adb=$('#adaptor-bagla'); if(adb&&!adb.matches(':focus')&&!yakinKorumali('adaptor-bagla')&&ag.adaptor_bagla!=null) adb.value=ag.adaptor_bagla;
+  const ads=$('#adaptor-durum'); if(ads&&ag.adaptor_bagli!=null) ads.textContent = ag.adaptor_bagli ? 'Bağlı' : 'Kesili';
   const alBtn=$('#acil-lamba-btn');
   if(alBtn){
     alBtn.textContent = ag.acil_lamba ? '🔴 ACİL LAMBA AÇIK (Kapat)' : '⚪ Acil Durum Lambası (Kapalı)';
@@ -1307,6 +1330,14 @@ function anaGucEsikKaydet(){
     $('#ana-guc-esik-sonuc').textContent='Kaydedildi ✓';
   }).catch(()=>{ $('#ana-guc-esik-sonuc').textContent='Hata oluştu'; });
 }
+
+function adaptorEsikKaydet(){
+  yakinDuzenlendi('adaptor-kesme'); yakinDuzenlendi('adaptor-bagla');
+  const kesme=$('#adaptor-kesme').value, bagla=$('#adaptor-bagla').value;
+  api('/api/adaptor-esik?kesme='+encodeURIComponent(kesme)+'&bagla='+encodeURIComponent(bagla)).then(()=>{
+    $('#adaptor-esik-sonuc').textContent='Kaydedildi ✓';
+  }).catch(()=>{ $('#adaptor-esik-sonuc').textContent='Hata oluştu'; });
+}
 function toggleMoisture(){
   const acik = $('#moisture-settings-toggle-btn').textContent.trim() === 'Kapat';
   sendCommand('#moisture-settings-toggle-btn', '/api/moisture?durum='+(acik?0:1), '#moisture-settings-msg');
@@ -1389,26 +1420,51 @@ function kayitGeriYukle(){
   $('#yedek-sonuc').textContent='Geri yukleniyor...';
   api('/api/kayit/geri_yukle').then(d=>{$('#yedek-sonuc').textContent=d.mesaj||'';});
 }
+let weatherCache=null;
 function weatherYukleUI(){
-  const kutu=$('#weather-haftalik'); if(!kutu) return;
+  const kutu=$('#weather-haftalik');
   fetch('/api/weather').then(r=>r.json()).then(d=>{
+    weatherCache=d;
     const wdk=$('#weather-durum-kutu');
     if(wdk){
       wdk.innerHTML = d.sayi>0
-        ? ('Son çekim: <b>'+(d.tarih||'-')+'</b> ('+(d.guncel?'güncel':'ESKİ - dikkate alınmıyor')+')<br>Yarın yağmur: <b>'+(d.oneri?'Evet, sulama atlanacak':'Hayır')+'</b><br><span style="font-size:11px;color:var(--muted)">Durum: '+(d.durum||'-')+'</span>')
+        ? ('Son çekim: <b>'+(d.tarih||'-')+'</b> ('+(d.guncel?'güncel':'ESKİ - dikkate alınmıyor')+')<br>Yarın yağmur: <b>'+(d.oneri?'Evet, sulama atlanacak':'Hayır')+'</b>'
+           +(d.firtinaVar?'<br><b style="color:var(--warn)">⚡ Fırtına uyarısı: '+gunAdiKisa(d.firtinaGun)+'</b>':'')
+           +'<br><span style="font-size:11px;color:var(--muted)">Durum: '+(d.durum||'-')+'</span>')
         : ('Henüz tahmin çekilmedi<br><span style="font-size:11px;color:var(--muted)">Durum: '+(d.durum||'-')+'</span>');
     }
-    const gunler=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
-    const liste=d.haftalik||[];
-    if(liste.length===0){kutu.innerHTML='';return;}
-    kutu.innerHTML=liste.map((g,i)=>{
-      const tarih=new Date(g.tarih+'T12:00:00');
-      const gunAdi=i===0?'Bugün':(i===1?'Yarın':gunler[tarih.getDay()]);
-      const yagmurVar=g.mm>=1.0;
-      const stil=yagmurVar?'background:rgba(37,99,235,.15);border-color:var(--primary)':'';
-      return '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;'+stil+'">'+gunAdi+'<br><b>'+g.mm.toFixed(1)+'mm</b>'+(yagmurVar?' 🌧':'')+'</div>';
-    }).join('');
+    if(kutu){
+      const liste=d.haftalik||[];
+      if(liste.length===0){kutu.innerHTML='';}
+      else kutu.innerHTML=liste.map((g,i)=>{
+        const yagmurVar=(g.mm>=1.0)||(g.prob>=40);
+        const stil=g.firtina?'background:rgba(239,68,68,.15);border-color:var(--warn)':(yagmurVar?'background:rgba(37,99,235,.15);border-color:var(--primary)':'');
+        return '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;text-align:center;'+stil+'">'+gunAdiKisa(g.tarih,i)+'<br><b>'+g.mm.toFixed(1)+'mm</b><br>%'+(g.prob||0)+(g.firtina?' ⚡':(yagmurVar?' 🌧':''))+'</div>';
+      }).join('');
+    }
+    dashboardHavaGuncelle();
   }).catch(()=>{});
+}
+const HAVA_GUNLER=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+function gunAdiKisa(tarihStr, i){
+  if(!tarihStr) return '-';
+  if(i===0) return 'Bugün'; if(i===1) return 'Yarın';
+  return HAVA_GUNLER[new Date(tarihStr+'T12:00:00').getDay()];
+}
+// Ana sayfada tek satira sigan kompakt hava seridi - Ayarlar sekmesindeki
+// detayli haftalik kutulardan AYRI, sadece bugun/yarin ozeti + firtina uyarisi.
+function dashboardHavaGuncelle(){
+  const el=$('#db-hava'); if(!el || !weatherCache) return;
+  const d=weatherCache;
+  if(!d.sayi){ el.textContent='Hava tahmini yok'; return; }
+  const liste=d.haftalik||[];
+  const gunEtiket=(g,i)=>i===0?'Bugün':(i===1?'Yarın':gunAdiKisa(g.tarih,i));
+  let html=liste.slice(0,3).map((g,i)=>
+    '<span class="muted">'+gunEtiket(g,i)+':</span> <b>'+g.mm.toFixed(1)+'mm/%'+g.prob+(g.firtina?' ⚡':'')+'</b>'
+  ).join('&nbsp;&nbsp;');
+  if(d.oneri) html+='&nbsp;&nbsp;<span style="color:var(--primary)">🌧 Sulama atlanacak</span>';
+  if(d.firtinaVar) html+='&nbsp;&nbsp;<span style="color:var(--warn);font-weight:700">⚡ Fırtına: '+gunAdiKisa(d.firtinaGun)+'</span>';
+  el.innerHTML=html;
 }
 function weatherKontrolEt(){
   $('#weather-sonuc').textContent='Kontrol ediliyor...';
@@ -1779,22 +1835,54 @@ if(document.getElementById('bilgiler') && document.getElementById('bilgiler').cl
 })();
 
 // === IR KUMANDA - OGRENME/ESLESTIRME ===
-const irKomutAdlari={LAMBA_TOGGLE:'Lamba Aç/Kapat (tek tuş)',LAMBA_AC:'Lamba Aç',LAMBA_KAPAT:'Lamba Kapat',ALARM_TOGGLE:'Alarm Aç/Kapat (tek tuş)',ALARM_AC:'Alarm Aç',ALARM_KAPAT:'Alarm Kapat','ALARM_MOD=1':'Mod: Sesli','ALARM_MOD=2':'Mod: Sessiz','ALARM_MOD=3':'Mod: Onaylı',ALARM_SUSTUR:'Sustur',ALARM_ONAYLA:'Onayla',KAPI_TOGGLE:'Kapı Aç/Kapat (tek tuş)',KAPI_AC:'Kapı Aç',KAPI_KAPAT:'Kapı Kapat',PANIK:'Panik'};
+const irKomutAdlari={
+  LAMBA_TOGGLE:'Sudepo Lamba Aç/Kapat',
+  KAPI_TOGGLE:'Sudepo Kapı Aç/Kapat',
+  KONTEYNER_LAMBA_TOGGLE:'Konteyner Lamba Aç/Kapat',
+  ACIL_LAMBA_TOGGLE:'Acil Durum Lambası Aç/Kapat',
+  ALARM_TOGGLE:'Alarm Aç/Kapat - Tüm Zonlar',
+  ALARM_TOGGLE_SUDEPO:'Alarm Aç/Kapat - Sadece Sudepo',
+  ALARM_TOGGLE_KONTEYNER:'Alarm Aç/Kapat - Sadece Konteyner',
+  'ALARM_MOD=1':'Mod: Sesli',
+  'ALARM_MOD=2':'Mod: Sessiz',
+  'ALARM_MOD=3':'Mod: Onaylı',
+  ALARM_SUSTUR:'Sustur',
+  ALARM_ONAYLA:'Onayla',
+  TELEGRAM_TOGGLE:'Telegram Bildirim Aç/Kapat',
+  PANIK:'Panik'
+};
 let irOgrenPolling=null;
+let irListeCache=[];
 function irListesiYukle(){
   fetch('/api/ir/liste').then(r=>r.json()).then(list=>{
+    irListeCache = Array.isArray(list) ? list : [];
     const el=$('#ir-liste'); if(!el) return;
-    if(!Array.isArray(list)||!list.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; return; }
-    el.innerHTML=list.map(e=>
+    if(!irListeCache.length){ el.innerHTML='<p class="muted">Henüz tanımlı tuş yok.</p>'; return; }
+    el.innerHTML=irListeCache.map(e=>
       '<div class="row" style="justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--input-border)">'
       +'<span>'+(e.etiket||e.komut)+' <span class="muted" style="font-size:11px">(0x'+e.kod+')</span></span>'
-      +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></div>'
+      +'<span><button class="btn-duzenle" onclick="irDuzenle(\''+e.kod+'\')" style="margin-right:4px">✏️</button>'
+      +'<button class="btn-sil" onclick="irSil(\''+e.kod+'\')">🗑</button></span></div>'
     ).join('');
   }).catch(()=>{});
 }
+// Var olan bir esleme icin (yeniden ogrenmeden) sadece komut/notu
+// degistirmek istenirse - kod zaten biliniyor, forma dogrudan doldurup ayni
+// irKaydet() upsert mantigina (bkz handleAPI_IrKaydet, kod varsa GUNCELLER) yollar.
+function irDuzenle(kod){
+  const e = irListeCache.find(x => x.kod === kod);
+  if (!e) return;
+  const komutAdi = irKomutAdlari[e.komut] || e.komut;
+  let not_ = '';
+  if (e.etiket && e.etiket !== komutAdi) {
+    const onek = komutAdi + ' — ';
+    not_ = e.etiket.startsWith(onek) ? e.etiket.slice(onek.length) : e.etiket;
+  }
+  irKodAtamaFormuGoster(kod, e.komut, not_);
+}
 function irOgrenBaslat(){
   fetch('/api/ir/ogren_baslat').then(()=>{
-    $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)';
+    $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basılı tutun (yarım-1sn), gürültü filtresi için kod 2 kez okunmalı... (20sn içinde)';
     if(irOgrenPolling) clearInterval(irOgrenPolling);
     irOgrenPolling=setInterval(irOgrenKontrolEt, 800);
   }).catch(()=>{});
@@ -1821,16 +1909,17 @@ function irOgrenKontrolEt(){
       clearInterval(irOgrenPolling); irOgrenPolling=null;
       $('#ir-ogren-durum').innerHTML='Zaman aşımı, tuş algılanamadı - tekrar deneyin.'+(d.denemeSayisi>0?' (Kumanda algılandı ama protokolü tanınamadı - "'+d.sonProtokol+'" olarak geldi, bu genelde desteklenmeyen/bozuk sinyal demektir.)':' (Hiç IR sinyali algılanmadı - alıcıya doğru mu tutuyorsunuz?)');
     } else {
-      $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basın... (20sn içinde)'+teshis;
+      $('#ir-ogren-durum').innerHTML='Kumandada bir tuşa basılı tutun (yarım-1sn), gürültü filtresi için kod 2 kez okunmalı... (20sn içinde)'+teshis;
     }
   }).catch(()=>{});
 }
-function irKodAtamaFormuGoster(kod){
+function irKodAtamaFormuGoster(kod, mevcutKomut, mevcutNot){
   let secenekler='';
-  for(const k in irKomutAdlari) secenekler+='<option value="'+k+'">'+irKomutAdlari[k]+'</option>';
-  $('#ir-ogren-durum').innerHTML='Kod alındı: <b>0x'+kod+'</b><br>'
+  for(const k in irKomutAdlari) secenekler+='<option value="'+k+'"'+(k===mevcutKomut?' selected':'')+'>'+irKomutAdlari[k]+'</option>';
+  const notDeger=(mevcutNot||'').replace(/"/g,'&quot;');
+  $('#ir-ogren-durum').innerHTML=(mevcutKomut?'Düzenleniyor: ':'Kod alındı: ')+'<b>0x'+kod+'</b><br>'
     +'<select id="ir-komut-sec" style="margin-top:6px">'+secenekler+'</select><br>'
-    +'<input id="ir-not" class="input" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px">'
+    +'<input id="ir-not" class="input" value="'+notDeger+'" placeholder="Not: örn. kumandanın kırmızı tuşu (opsiyonel)" style="margin-top:6px;width:100%;max-width:280px">'
     +'<br><button class="btn btn-yesil" onclick="irKaydet(\''+kod+'\')" style="margin-top:6px">Kaydet</button>';
 }
 function irKaydet(kod){

@@ -11,6 +11,18 @@
 // gercek degerlerini gir.
 #include "secrets.h"
 
+// ===== Sudepo (ESP8266) trigger_mask bit kodlamasi =====
+// RS485 uzerinden alarmStatus.trigger_mask AYNEN kopyalanir (esp8266_slave
+// include/config.h ALARM_TRIGGER_* ile birebir ayni bit sirasi). Bilgi amacli/
+// guvenlik tehdidi olmayan tetikleyicileri (su seviyesi dusuk, sensor hatasi)
+// Konteyner'in KENDI buzzer/banner'indan da haric tutmak icin (2026-09-04
+// kullanici bulgusu: Sudepo'da banner Onayla ile kapaniyordu ama ESP32
+// tarafinda buzzer/banner hala calismaya devam ediyordu - RS485 ile gelen
+// ham mask, kategori ayrimi yapilmadan dogrudan Konteyner'in alarmVar/
+// anyAlarm hesaplarina giriyordu).
+#define SUDEPO_TRIGGER_SU_SEVIYE 0x08  // Bit 3
+#define SUDEPO_TRIGGER_SENSOR    0x20  // Bit 5
+
 // ===== WiFi Ayarları =====
 #define WIFI_STATIC_IP_OCTET_1 192
 #define WIFI_STATIC_IP_OCTET_2 168
@@ -212,6 +224,28 @@
 // bir sonraki dususte bastan baslar.
 #define ANA_GUC_UYARI_BASLANGIC_V 24.0f
 #define ANA_GUC_UYARI_ADIM_V 0.5f
+
+// ===== Laptop Adaptoru Kesme MOSFETu (2026-09-04 kullanici talebi) =====
+// 19.5V laptop adaptoru (Schulzz PWM sarj kontrolcusune giren, panel yerine
+// gecen DC kaynak - bkz proje hafizasi) aksam/gunessiz saatlerde bosuna
+// cekmesin diye, ana guc (ANA_GUC/ADS1115, ayni sinyal "gunes var mi"
+// proxy'si olarak kullanilir) dustugunde adaptorun 19.5V DC cikisi SMD MOSFET
+// (low-side) ile kesilir. GPIO21: eskiden ayni amacli (yedek aku sarj rolesi)
+// kullanilmisti, ADC/touch/strapping degil, su an disari cikisi CN6 Siyah
+// kablo -> SCART Pin 15 uzerinden var, MOSFET modulu fiziksel olarak takili
+// (2026-09-06). 2026-09-06: AC (mains) tarafini kesme fikrinden vazgecildi,
+// DC tarafi kesmek daha guvenli.
+// Pin semantigi (sahada olculup dogrulandi, 2026-09-06 - ilk yazimda tersti):
+// modul AKTIF-HIGH - HIGH = adaptor BAGLI (varsayilan/boot durumu),
+// LOW = adaptor KESILI. Boylece ESP32 resetlenirse veya ANA_GUC verisi
+// bayatsa/okunamiyorsa MOSFET varsayilan olarak KESMEZ (sarjdan mahrum kalmak,
+// gereksiz tuketimden daha riskli kabul edildi).
+// Esik1/2/3 kademe sisteminden BAGIMSIZ ayri sabitler + histerezis (voltaj
+// KESME esiginin biraz USTUNDE olan BAGLA esigine cikmadan tekrar baglanmaz,
+// boylece dalgalanmada role sik sik takla atmaz).
+#define ADAPTOR_RELE_PIN 21
+#define ANA_GUC_ADAPTOR_KESME_V 25.0f   // Varsayilan - Bu voltajin ALTINDA/ESITINDE: adaptor kesilir (web'den ayarlanabilir, NVS'de kalici - ag_esik1/2/3 ile ayni desen)
+#define ANA_GUC_ADAPTOR_BAGLA_V 25.5f   // Varsayilan - Bu voltajin USTUNDE: adaptor tekrar baglanir
 
 // ===== Konteyner Ek Sensorler (AHT10 + MQ6 + Duman Dedektoru) =====
 // AHT10: sicaklik/nem, I2C - kutuphane KULLANILMAYIP (proje deseni: ModbusMaster
@@ -431,8 +465,31 @@
 #define GARDEN_LATITUDE 40.833907
 #define GARDEN_LONGITUDE 29.730263
 #define WEATHER_FORECAST_API "https://api.open-meteo.com/v1/forecast"
+// 2026-09-01 (kullanici sikayeti): varsayilan "best_match" modeli (GFS/ICON
+// karisimina agirlik veriyor gibi gorunuyor) bu bolgede gercekte yagan
+// yagmuru ONCEDEN GORMEDI, hep 0mm/%0 gosterdi. Sahada 4 modeli ayni
+// koordinat+gun icin karsilastirdik: best_match/icon_seamless/gfs_seamless
+// ayni gunler icin %0-3 olasilik verirken, ecmwf_ifs025 (Avrupa Orta Vadeli
+// Tahmin Merkezi) ayni gunler icin %35-46 verdi - kullanicinin telefonundaki
+// diger hava uygulamalarinin gosterdigiyle (Cuma/Cumartesi yagmur) BIREBIR
+// ortustu. Bu yuzden model acikca ECMWF'e sabitlendi.
+#define WEATHER_FORECAST_MODEL "ecmwf_ifs025"
 #define WEATHER_FORECAST_DAYS 7
 #define WEATHER_RAIN_THRESHOLD_MM 1.0f          // Yarin bu kadar mm+ beklenirse sulama atlanir
+// Ayni sikayetin ikinci sebebi: sadece BEKLENEN ORTALAMA mm (precipitation_sum)
+// kontrol ediliyordu, YAGIS OLASILIGI (precipitation_probability_max) hic
+// kullanilmiyordu - dagitik/konvektif (yaz sagnagi tipi) yagislarda olasilik
+// yuksek olsa bile ortalama mm dusuk cikip "0.0mm" gorunebiliyor. Artik
+// mm VEYA olasilik esiklerinden HERHANGI BIRI asilirsa yagmur bekleniyor sayilir.
+#define WEATHER_RAIN_PROB_THRESHOLD 40           // Yarin bu kadar %+ olasilik beklenirse sulama atlanir
+// Firtina uyarisi (kullanici talebi, 2026-09-01): WMO weather_code 95/96/99 =
+// gok gurultulu saganak (thunderstorm) - dogrudan Open-Meteo'nun kendi
+// siniflandirmasi. Buna ek olarak SADECE gok gurultusu olmayan ama guclu
+// ruzgarli gunleri de yakalamak icin ruzgar hamlesi (gust) esigi: 50km/h
+// yaklasik Beaufort 7 (kuvvetli ruzgar) sinirinin biraz altinda - bahce
+// esyalari/bitkiler icin "dikkat" seviyesi, katastrofik degil ama onlem
+// almaya deger.
+#define WEATHER_STORM_WIND_GUST_KMH 50.0f
 #define WEATHER_STALE_DAYS 7                     // Bu kadar gunden eski tahmin gormezden gelinir (fail-open)
 #define WEATHER_CHECK_INTERVAL_MS (30UL * 60UL * 1000UL)  // Guncellik/oneri bu araliklarla yeniden hesaplanir
 // 2026-08-26: WiFi baglanir baglanmaz (setup() icinde, loop() baslamadan
