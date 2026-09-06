@@ -66,8 +66,8 @@
 #define LAMBA_ON_STATE  HIGH
 #define LAMBA_OFF_STATE LOW
 
-// Nem kontrol rölesi: HIGH = Açık, LOW = Kapalı
-#define MOISTURE_ON_STATE   HIGH
-#define MOISTURE_OFF_STATE  LOW
+// Nem kontrol rölesi: sahada ters polarite doğrulandı (2026-09-06) - LOW = Açık, HIGH = Kapalı
+#define MOISTURE_ON_STATE   LOW
+#define MOISTURE_OFF_STATE  HIGH
 
 #endif // CONFIG_H
