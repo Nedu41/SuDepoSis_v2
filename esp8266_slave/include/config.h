@@ -113,6 +113,28 @@
 #define DAY_MEASURE_INTERVAL 60
 #define NIGHT_MEASURE_INTERVAL 900
 
+// ===== Toprak Nem Okuma Sıklığı (2026-09-06 kullanıcı talebi) =====
+// Toprak nemi saniyeler icinde degismez, "anlik" okumaya gerek yok - eskiden
+// masterGonder() (~1sn) ve SSE (~4sn) her dongude analogRead yapiyordu.
+// Artik otomatik okumalar bu araliga sikistirilir (moistureOkuOtomatik()),
+// manuel "Canli Olcum" butonu ve pencereye giris ani bu araligi ATLAYIP
+// aninda taze deger okur (bkz main.cpp).
+#define MOISTURE_OKUMA_ARALIGI_MS (3600000UL)  // 1 saat
+
+// ===== Toprak Nem Kontrol Penceresi (2026-09-06 kullanıcı talebi) =====
+// Nem rolesi (D5, NC kontak - harici sulama programlayicisinin devresine
+// SERI baglanmis bir kesici, dogrudan vana surucusu DEGIL) artik SADECE bu
+// haftalik pencerede aktif degerlendirilir - pencere disinda her zaman
+// de-enerjili (vana serbest) kalir, boylece nem yeterliyken gunlerce
+// gereksiz enerji harcanmaz. Gun/saat web'den ayarlanabilir (varsayilanlar
+// sadece ilk kurulum icin), programlayicinin gercek calisma saatine gore
+// (orn. 18:00-18:30 sulama ise 17:00-19:00 pencere yeterli pay birakir).
+#define MOISTURE_KONTROL_MAGIC 0x4D4B  // "MK" - bkz struct Ayarlar yorumu
+#define MOISTURE_KONTROL_BASLANGIC_SAAT_VARSAYILAN 17
+#define MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN 0
+#define MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN 19
+#define MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN 0
+
 // ===== GitHub OTA (dogrudan, internet varsa - orn. telefon hotspot'u) =====
 // Kalburum'daki (esp32_master) ayni ozellikle eslesir - bkz oradaki
 // GITHUB_FIRMWARE_URL. Bahcede internet yoksa bunun yerine hala Kalburum'un

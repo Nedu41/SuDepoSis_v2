@@ -4,16 +4,24 @@
 <meta charset="UTF-8">
 <title>ESP8266 SuDepoSis v2 - Pinout</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  h1 { color: #1976d2; }
-  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-  th { background: #f0f0f0; }
-  .section { margin-bottom: 30px; }
+  :root {
+    --bg: #14161a; --bg-alt: #1b1e24; --fg: #e6e6e6;
+    --accent: #4fc3f7; --border: #2c313a;
+    --th-bg1: #1976d2; --th-bg2: #0d47a1; --tr-alt: #1e2229; --tr-hover: #262b34;
+  }
+  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background: var(--bg); color: var(--fg); }
+  h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; box-shadow: 0 2px 10px rgba(0,0,0,0.4); border-radius: 8px; overflow: hidden; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+  th { background: linear-gradient(135deg, var(--th-bg1), var(--th-bg2)); color: #fff; }
+  tr:nth-child(even) td { background: var(--tr-alt); }
+  tbody tr:hover td { background: var(--tr-hover); }
+  .section { margin-bottom: 30px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
   @media print {
-    body { margin: 0; }
+    body { margin: 0; background:#fff; color:#000; }
     .no-print { display: none; }
-    table { page-break-inside: avoid; }
+    table { page-break-inside: avoid; box-shadow:none; }
+    .section { background:#fff; }
   }
 </style>
 </head>
@@ -109,25 +117,66 @@
 </div>
 
 <div class="section">
-<h2>Modül 5: Depo Lambası ve Röle</h2>
+<h2>Modül 5: Depo Lambası (5V Power LED, MOSFET)</h2>
+<p><strong>2026-08-26:</strong> Röle değil, doğrudan MOSFET anahtarlama — lamba artık 5V power LED. <strong>2026-08-28:</strong> MOSFET modülü 400W/15A olan.</p>
 <table>
 <tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
-<tr><td>Nano D4</td><td>GPIO</td><td>Röle IN (transistor bazı)</td></tr>
-<tr><td>Röle COM</td><td>Lamba +</td><td>Anahtar</td></tr>
-<tr><td>Röle NO</td><td>Lamba +</td><td>Güç (12V/24V)</td></tr>
-<tr><td>Lamba -</td><td>Güç kaynağı -</td><td>Ortak</td></tr>
+<tr><td>Nano D13</td><td>GPIO</td><td>MOSFET gate (Depo iç lamba, 400W/15A modül)</td></tr>
+<tr><td>MOSFET drain</td><td>LED −</td><td>Anahtarlanan taraf</td></tr>
+<tr><td>LED +</td><td>5V hattı</td><td>Power LED besleme</td></tr>
 <tr><td>Web Arayüzü</td><td>Kapı sekmesi</td><td>Lamba butonu</td></tr>
 </table>
 </div>
 
 <div class="section">
-<h2>Modül 6: Röle Modülü (Alarm Rölesi)</h2>
+<h2>Modül 6: Röle Modülü (Alarm Rölesi + Nem Rölesi, 5V bobin)</h2>
+<p><strong>2026-08-26:</strong> Tüm röle bobinleri 5V — Alarm Rölesi ve Nem Rölesi. Nem rölesi tetiklenince sulama <strong>30 dakika</strong> sürüyor.</p>
 <table>
 <tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
-<tr><td>Nano D4</td><td>GPIO</td><td>Alarm rölesi tetikleme</td></tr>
+<tr><td>Nano D4</td><td>GPIO</td><td>Alarm rölesi tetikleme (5V bobin, NC - LOW=aktif)</td></tr>
 <tr><td>Röle COM</td><td>Cihaz +</td><td>Alarm cihazı</td></tr>
 <tr><td>Röle NO</td><td>Cihaz +</td><td>Güç devresi</td></tr>
+<tr><td>Nano D5</td><td>GPIO</td><td>Nem rölesi tetikleme (5V bobin) — tetiklenince 30dk sulama</td></tr>
 </table>
+</div>
+
+<div class="section">
+<h2>Besleme Voltajı Tablosu (Sudepo Zonu)</h2>
+<table>
+<tr><th>Cihaz/Modül</th><th>Besleme Voltajı</th><th>Akım</th><th>Kaynak</th><th>Not</th></tr>
+<tr><td>ESP8266 (NodeMCU)</td><td>5V giriş (dahili 3.3V regülatörlü)</td><td>~80-170mA (WiFi tepe)</td><td>20m CAT5 12V hat → yerel buck (MP1584EN, 5V)</td><td>—</td></tr>
+<tr><td>Arduino Nano</td><td>5V</td><td>~20-50mA</td><td>Yerel 5V hattı (ESP8266 ile ortak)</td><td>—</td></tr>
+<tr><td>HC-SR04</td><td>5V</td><td>~15mA (aktif)</td><td>Yerel 5V hattı</td><td>—</td></tr>
+<tr><td>MAX485 (RS485)</td><td>5V (3.3V de çalışır)</td><td>~15-40mA</td><td>Yerel 5V hattı</td><td>—</td></tr>
+<tr><td>DS1307 RTC</td><td>3.3V</td><td>~1mA</td><td>ESP8266 3V3 pini</td><td>CR2032 yedekli — ana güç kesilse de saat çalışmaya devam eder</td></tr>
+<tr><td>Toprak Nem Sensörü</td><td>3.3-5V</td><td>~5-20mA (DOĞRULA)</td><td>Yerel 3.3V/5V hattı</td><td>Sensör tipine göre değişir</td></tr>
+<tr><td>PIR (HC-SR501)</td><td>5V</td><td>~50-65mA</td><td>Yerel 5V hattı</td><td>Kullanıcı doğruladı (2026-08-26)</td></tr>
+<tr><td>Alarm Rölesi (bobin)</td><td>5V</td><td>~70-90mA</td><td>Yerel 5V hattı</td><td>Kullanıcı doğruladı — tüm röle bobinleri 5V</td></tr>
+<tr><td>Nem Rölesi (bobin)</td><td>5V</td><td>~70-90mA</td><td>Yerel 5V hattı</td><td>Tetiklenince 30dk sulama süresi</td></tr>
+<tr><td>Depo Lambası (5V Power LED)</td><td>5V</td><td>~200-400mA (DOĞRULA)</td><td>Yerel 5V hattı, Nano D13 MOSFET ile anahtarlanır</td><td>Röle değil, MOSFET — kullanıcı doğruladı (2026-08-26). MOSFET modülü: 400W/15A (2026-08-28)</td></tr>
+</table>
+<p style="color:var(--muted); font-size:0.9em">Akım değerleri tipik datasheet/piyasa değerleridir, "DOĞRULA" işaretli olanlar sahada ölçülmedi. Tüm cihazlar 5V — Sudepo zonunda ayrı bir 12V dağıtımı yok, 12V sadece 20m hat üzerinde taşınıp yerel buck ile 5V'a çevriliyor.</p>
+</div>
+
+<div class="section">
+<h2>Sudepo Besleme Hattı (20m, Ev Yedek Akü Bankasından)</h2>
+<p><strong>2026-08-26 kararı:</strong> Sudepo zonu, Konteyner'i besleyen aynı 3×12V paralel yedek akü bankasından 20m'lik bir hatla beslenecek. RS485 (A/B) haberleşme hattı zaten mevcut/ayrı kablo üzerinden gidiyor — bu güç hattı buna ek, sadece güç taşıyor.</p>
+<p><strong>Yöntem — "çift perli" CAT5:</strong> CAT5 kablonun 4 çiftinden (8 tel) 2 çifti (4 tel) + kutbuna, diğer 2 çifti (4 tel) − kutbuna paralel bağlanarak tek kalın iletken gibi kullanılıyor. Bu, tek bir çift kullanmaya göre direnci 4'e katlıyor (1/4'üne düşürüyor).</p>
+<p><strong>2026-08-26 güncelleme:</strong> Tüm Sudepo yükleri 5V olduğundan (röle bobinleri + PIR + lamba dahil), 12V hattı sadece kablo boyunca taşınıp Sudepo'da TEK bir yerel buck ile 5V'a çevriliyor — 12V'un yerel dağıtımı yok, akım bütçesi öncekinden çok daha düşük.</p>
+<table>
+<tr><th>Hesap</th><th>Değer</th></tr>
+<tr><td>24AWG tek tel direnci</td><td>~0.0842 Ω/m</td></tr>
+<tr><td>Kutup başına direnç (4 paralel tel × 20m)</td><td>(0.0842 × 20) / 4 ≈ 0.42 Ω</td></tr>
+<tr><td>Gidiş-dönüş toplam direnç</td><td>~0.84 Ω</td></tr>
+<tr><td>Toplam 5V yük — bekleme</td><td>~250mA @5V ≈ 1.25W → 12V hatta ~0.12A (buck ~85% verim)</td></tr>
+<tr><td>Toplam 5V yük — sulama (nem rölesi 30dk)</td><td>~340mA @5V ≈ 1.7W → 12V hatta ~0.17A</td></tr>
+<tr><td>Toplam 5V yük — en kötü durum (lamba+alarm+nem rölesi+elektronik tepe)</td><td>~940mA @5V ≈ 4.7W → 12V hatta ~0.46A</td></tr>
+<tr><td>Gerilim düşümü — bekleme (~0.12A)</td><td>~0.10V (uçta ~11.9V)</td></tr>
+<tr><td>Gerilim düşümü — sulama (~0.17A)</td><td>~0.14V (uçta ~11.86V)</td></tr>
+<tr><td>Gerilim düşümü — en kötü durum (~0.46A)</td><td>~0.39V (uçta ~11.6V)</td></tr>
+</table>
+<p>Düşüm her senaryoda ihmal edilebilir düzeyde — geniş marj var. Her polarite üzerinden 4 paralel telde akım dağıldığından (en kötü durumda tel başına ~0.12A), 24AWG'nin güvenli akım taşıma sınırının çok altında kalıyor.</p>
+<p><strong>Not:</strong> Bu hat de yedek akü bankasından ayrı bir çıkış olduğundan, Konteyner'in 19.5V girişindeki gibi kendi <strong>sigortası + ters polarite koruması</strong> gerekiyor.</p>
 </div>
 
 <div class="section">
@@ -169,7 +218,9 @@ RX (D9)  → D1 (TX)
 GND      → GND
 5V       → 5V (opsiyonel)
 
-Nano D4 → Röle IN (Lamba)
+Nano D4 → Alarm Rölesi IN (5V bobin)
+Nano D5 → Nem Rölesi IN (5V bobin, tetiklenince 30dk sulama)
+Nano D13 → Depo Lambası MOSFET gate (5V power LED)
 Nano D2 → Kapı1 sensör
 Nano D3 → Kapı2 sensör
 </pre>
