@@ -227,6 +227,15 @@
 // silecek motorunun normal çalışma akımına göre SAHADA KALİBRE ET.
 #define BAHCE_AKIM_ESIK_A 4.0
 
+// Zil butonu (2026-09-07): dışarıda buton, içeride (Nano/Sudepo) buzzer
+// "ding-dong" çalar - klasik kapı zili, motor/limit switch ile aynı Nano'ya
+// bağlı. Nano'nun yedek pinlerinden biri (D10) kullanılıyor.
+#define BAHCE_ZIL_BUTON_PIN 10   // D10 - INPUT_PULLUP, basılınca LOW
+#define BAHCE_ZIL_POLL_ARALIK_MS 400
+#define BAHCE_ZIL_TON1_HZ 2000
+#define BAHCE_ZIL_TON2_HZ 1500
+#define BAHCE_ZIL_TON_SURE_MS 250
+
 // ===== Debug =====
 // NOT: Serial (UART0) Nano ile PAYLASILIYOR (D9/D10) - acarken Nano'yu
 // fiziksel olarak ayirin (jumper) yoksa debug metni Nano'nun komut

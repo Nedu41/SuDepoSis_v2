@@ -1034,6 +1034,35 @@ void kapiPoll() {
   }
 }
 
+// ============ ZIL BUTONU ============
+// Disarida buton, iceride (Nano/Sudepo) buzzer "ding-dong" calar - klasik
+// kapi zili. Motor hareket halindeyken kapiPoll() zaten sik Nano sorgusu
+// yaptigindan, cakismayi/asiri trafigi onlemek icin bu poll de ayni interval
+// mantigini kullanir ama BAGIMSIZ calisir (kapi hareketinden etkilenmez).
+void zilButonPoll() {
+  static unsigned long sonPollMs = 0;
+  static bool oncekiBasili = false;
+  unsigned long now = millis();
+  if (now - sonPollMs < BAHCE_ZIL_POLL_ARALIK_MS) return;
+  sonPollMs = now;
+  bool okundu = false;
+  bool basili = nanoDijitalOku(BAHCE_ZIL_BUTON_PIN, &okundu) == LOW;  // INPUT_PULLUP, basilinca LOW
+  if (!okundu) return;  // Nano yanit vermediyse bu turu atla, oncekiBasili DEGISTIRME
+  if (basili && !oncekiBasili) {
+    DEBUG_PRINTLN("[ZIL] basildi, ding-dong calinacak");
+    while (Serial.available()) Serial.read();
+    Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON1_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
+    unsigned long t = millis();
+    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
+    delay(BAHCE_ZIL_TON_SURE_MS + 30);
+    while (Serial.available()) Serial.read();
+    Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON2_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
+    t = millis();
+    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
+  }
+  oncekiBasili = basili;
+}
+
 // FIX: masterGonder() hem periyodik (1000ms) hem de poll isteğine yanıt olarak çalışır.
 // Periyodik gönderme, SoftwareSerial'in güvenilmez olduğu durumlarda yedek sağlar.
 // ESP32 poll'u kaçsa bile veri akışı devam eder.
@@ -2304,7 +2333,8 @@ void setupWiFi() {
 bool pinKorumali(int pin) {
   return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13 || pin == NANO_BUZZER_PIN ||
          pin == BAHCE_KAPI1_ACIK_PIN || pin == BAHCE_KAPI2_ACIK_PIN ||
-         pin == BAHCE_KAPI1_AKIM_PIN || pin == BAHCE_KAPI2_AKIM_PIN;
+         pin == BAHCE_KAPI1_AKIM_PIN || pin == BAHCE_KAPI2_AKIM_PIN ||
+         pin == BAHCE_ZIL_BUTON_PIN;
 }
 
 // ============ OTOMATIK ARKA PLAN NTP SENKRONIZASYONU ============
@@ -2362,8 +2392,8 @@ void setup() {
   // tetiklenince GND'ye ceker=LOW), R413D08 rolelerini bilinen guvenli
   // (motor durdurulmus/kilit birakilmis) duruma zorla - ESP8266 reset olsa
   // bile R413D08 kendi son durumunu koruyabildiginden bu onemli.
-  { const int bahceSwitchPinleri[2] = { BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI2_ACIK_PIN };
-    for (int i = 0; i < 2; i++) {
+  { const int bahceSwitchPinleri[3] = { BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI2_ACIK_PIN, BAHCE_ZIL_BUTON_PIN };
+    for (int i = 0; i < 3; i++) {
       while (Serial.available()) Serial.read();
       Serial.print("PIN_MODE:"); Serial.print(bahceSwitchPinleri[i]); Serial.println(",INPUT_PULLUP");
       unsigned long t = millis();
@@ -2659,6 +2689,7 @@ void loop() {
   nanoPoll();
   server.handleClient();  // FIX: Bloklayıcı nanoPoll sonrası web isteklerini işle
   kapiPoll();  // Bahce kapisi hareket halindeyse limit switch/akim kontrolu (bloklayici, sadece hareket sirasinda)
+  zilButonPoll();  // Kapi zili butonu - basilinca Nano buzzer'inda ding-dong calar
   ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
   server.handleClient();
   rs485KomutDinle();
