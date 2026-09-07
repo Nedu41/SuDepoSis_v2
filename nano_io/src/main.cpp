@@ -327,6 +327,20 @@ void handleSerialCommand() {
         } else {
           Serial.println(F("NACK:PIN_READ:BAD_PIN"));
         }
+      } else if (inputString.startsWith(F("ANALOG_READ:"))) {
+        // Genel GPIO: analog pin oku (ACS712 gibi akim sensorleri icin -
+        // PIN_READ dijital okur, bu analogRead ile 0-1023 ham deger doner).
+        // Format: ANALOG_READ:<pin>  (örn: ANALOG_READ:15, A1=15)
+        int pin = inputString.substring(12).toInt();
+        if (pin >= 14 && pin <= 19) {  // A0-A5
+          int val = analogRead(pin);
+          Serial.print(F("ANALOG:"));
+          Serial.print(pin);
+          Serial.print(F("="));
+          Serial.println(val);
+        } else {
+          Serial.println(F("NACK:ANALOG_READ:BAD_PIN"));
+        }
       } else if (inputString == F("PIN_READ_ALL")) {
         // Tüm yedek pinleri oku: D2-D13 + A0-A5
         Serial.print(F("PIN:2="));
