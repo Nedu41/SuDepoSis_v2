@@ -17,6 +17,8 @@
 #include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
 #include <SoftwareSerial.h>
+#include <math.h>
+#include <time.h>
 #include "config.h"
 #include "web_content.h" // OTOMATIK URETILIR - bkz scripts/gen_web_content.py
 
@@ -853,6 +855,185 @@ void rs485Gonder(const char* data) {
   digitalWrite(RS485_DE_PIN, LOW);
 }
 
+// ============ BAHÇE KAPISI (R413D08 Modbus RTU) ============
+// R413D08, mevcut Sudepo<->Konteyner RS485 hattina (yukaridaki swSerial) 3.
+// node olarak eklenir. Custom text protokolden farkli olarak burasi binary
+// Modbus RTU cercevesi gonderir - yanit BEKLENMEZ (fire-and-forget), gercek
+// sonuc limit switch/akim sensoruyle (Nano uzerinden) dogrulanir. Bkz
+// config.h BAHCE_* tanimlari, proje hafizasi project_bahce_kapisi_motor_gelecek_ozellik.
+uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
+  uint16_t crc = 0xFFFF;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= buf[i];
+    for (uint8_t b = 0; b < 8; b++) {
+      if (crc & 1) { crc >>= 1; crc ^= 0xA001; }
+      else crc >>= 1;
+    }
+  }
+  return crc;
+}
+
+// Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
+void r413RoleYaz(uint8_t koilNo, bool acik) {
+  uint8_t frame[8];
+  frame[0] = R413D08_MODBUS_ADRES;
+  frame[1] = 0x05;
+  frame[2] = 0x00; frame[3] = koilNo;
+  frame[4] = acik ? 0xFF : 0x00; frame[5] = 0x00;
+  uint16_t crc = modbusCRC16(frame, 6);
+  frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
+  digitalWrite(RS485_DE_PIN, HIGH);
+  delayMicroseconds(100);
+  swSerial.write(frame, 8);
+  delay(2);
+  digitalWrite(RS485_DE_PIN, LOW);
+}
+
+// Nano'nun genel PIN_READ/ANALOG_READ komutlarina senkron (bloklayan) sarmalayici
+// - /pin/read endpoint'iyle ayni desen, kapi state machine'inden tekrar
+// kullanilabilmesi icin fonksiyona cikarildi.
+bool nanoDijitalOku(int pin, bool* okundu = nullptr) {
+  while (Serial.available()) Serial.read();
+  Serial.print("PIN_READ:"); Serial.println(pin);
+  unsigned long t = millis(); String r = ""; bool ok = false;
+  while (millis() - t < 300) {
+    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("PIN:") >= 0) { ok = true; break; } }
+    yield();
+  }
+  if (okundu) *okundu = ok;
+  if (!ok) return false;
+  int eq = r.indexOf('=');
+  return eq >= 0 ? (r.substring(eq + 1).toInt() != 0) : false;
+}
+
+int nanoAnalogOku(int pin) {
+  while (Serial.available()) Serial.read();
+  Serial.print("ANALOG_READ:"); Serial.println(pin);
+  unsigned long t = millis(); String r = ""; bool ok = false;
+  while (millis() - t < 300) {
+    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ANALOG:") >= 0) { ok = true; break; } }
+    yield();
+  }
+  if (!ok) return -1;
+  int eq = r.indexOf('=');
+  return eq >= 0 ? r.substring(eq + 1).toInt() : -1;
+}
+
+enum KapiDurum { KAPI_KAPALI, KAPI_ACIK, KAPI_KILIT_ACILIYOR, KAPI_HAREKET_AC, KAPI_HAREKET_KAPA, KAPI_HATA };
+const char* kapiDurumAdi(KapiDurum d) {
+  switch (d) {
+    case KAPI_KAPALI: return "kapali";
+    case KAPI_ACIK: return "acik";
+    case KAPI_KILIT_ACILIYOR: return "kilit_aciliyor";
+    case KAPI_HAREKET_AC: return "aciliyor";
+    case KAPI_HAREKET_KAPA: return "kapaniyor";
+    default: return "hata";
+  }
+}
+
+struct BahceKapisi {
+  KapiDurum durum = KAPI_KAPALI;  // gercek konum SADECE limit switch/alarm sensoru ile dogrulanir - kalici degil, boot'ta bilinmiyor sayilir
+  unsigned long hareketBaslangicMs = 0;
+  unsigned long kilitPulseBaslangicMs = 0;
+  unsigned long sonPollMs = 0;
+  uint8_t releA, releB, releKilit;
+  int acikPin, akimPin;
+  bool hataAsiriAkim = false;
+};
+BahceKapisi bahceKapi[2] = {
+  { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI1_RELE_A, BAHCE_KAPI1_RELE_B, BAHCE_KAPI1_KILIT_RELE, BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI1_AKIM_PIN, false },
+  { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI2_RELE_A, BAHCE_KAPI2_RELE_B, BAHCE_KAPI2_KILIT_RELE, BAHCE_KAPI2_ACIK_PIN, BAHCE_KAPI2_AKIM_PIN, false }
+};
+
+// "Kapalı" konumu icin ayri Nano sorgusu YOK - mevcut alarm kapi sensoru
+// (kapi1Acik/kapi2Acik, GET_STATUS ile zaten surekli taze) dogrudan kullanilir.
+// Bu sensor "kapi acik" algiladiginda true oldugundan, bahce kapisi
+// "kapali" durumu = !kapi1Acik/!kapi2Acik.
+bool kapiMevcutAlarmSensoruKapali(int i) { return i == 0 ? !kapi1Acik : !kapi2Acik; }
+
+void kapiMotorDurdur(BahceKapisi& k) {
+  r413RoleYaz(k.releA, false);
+  r413RoleYaz(k.releB, false);
+}
+
+void kapiTumRoleleriKapat() {
+  for (int i = 0; i < 2; i++) {
+    kapiMotorDurdur(bahceKapi[i]);
+    r413RoleYaz(bahceKapi[i].releKilit, false);
+  }
+}
+
+// Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
+// motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
+void kapiAcKomut(int i) {
+  BahceKapisi& k = bahceKapi[i];
+  if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
+  r413RoleYaz(k.releKilit, true);
+  k.kilitPulseBaslangicMs = millis();
+  k.hataAsiriAkim = false;
+  k.durum = KAPI_KILIT_ACILIYOR;
+}
+
+void kapiKapatKomut(int i) {
+  BahceKapisi& k = bahceKapi[i];
+  if (k.durum == KAPI_HAREKET_KAPA) return;
+  kapiMotorDurdur(k);
+  r413RoleYaz(k.releA, false);
+  r413RoleYaz(k.releB, true);
+  k.hareketBaslangicMs = millis();
+  k.hataAsiriAkim = false;
+  k.durum = KAPI_HAREKET_KAPA;
+}
+
+void kapiDurdurKomut(int i) {
+  BahceKapisi& k = bahceKapi[i];
+  kapiMotorDurdur(k);
+  r413RoleYaz(k.releKilit, false);
+  k.durum = KAPI_HATA;
+}
+
+void kapiPoll() {
+  unsigned long now = millis();
+  for (int i = 0; i < 2; i++) {
+    BahceKapisi& k = bahceKapi[i];
+    if (k.durum == KAPI_KILIT_ACILIYOR) {
+      if (now - k.kilitPulseBaslangicMs >= BAHCE_KILIT_PULSE_MS) {
+        r413RoleYaz(k.releKilit, false);  // kilit darbesi bitti, motoru baslat
+        r413RoleYaz(k.releB, false);
+        r413RoleYaz(k.releA, true);
+        k.hareketBaslangicMs = now;
+        k.durum = KAPI_HAREKET_AC;
+      }
+      continue;
+    }
+    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) continue;
+    if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
+    k.sonPollMs = now;
+
+    bool acikOk;
+    bool acikLimit = nanoDijitalOku(k.acikPin, &acikOk) == LOW;
+    bool kapaliLimit = kapiMevcutAlarmSensoruKapali(i);  // mevcut alarm kapi sensorunden, ekstra Nano sorgusu yok
+    int akimRaw = nanoAnalogOku(k.akimPin);
+    float akimAmper = (akimRaw >= 0) ? ((akimRaw - BAHCE_AKIM_SIFIR_RAW) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
+
+    bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
+    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > BAHCE_AKIM_ESIK_A;
+
+    if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
+      kapiMotorDurdur(k);
+      k.durum = KAPI_ACIK;
+    } else if (k.durum == KAPI_HAREKET_KAPA && kapaliLimit) {
+      kapiMotorDurdur(k);
+      k.durum = KAPI_KAPALI;
+    } else if (zamanAsimi || asiriAkim) {
+      kapiMotorDurdur(k);
+      k.hataAsiriAkim = asiriAkim;
+      k.durum = KAPI_HATA;
+      DEBUG_PRINTF("[KAPI%d] HATA: %s\n", i + 1, asiriAkim ? "asiri akim" : "zaman asimi");
+    }
+  }
+}
+
 // FIX: masterGonder() hem periyodik (1000ms) hem de poll isteğine yanıt olarak çalışır.
 // Periyodik gönderme, SoftwareSerial'in güvenilmez olduğu durumlarda yedek sağlar.
 // ESP32 poll'u kaçsa bile veri akışı devam eder.
@@ -872,7 +1053,7 @@ void masterGonder() {
   // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
   char buf[320];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     kapi1Acik ? 1 : 0,
@@ -897,7 +1078,9 @@ void masterGonder() {
     alarmOnayBekliyor ? 1 : 0,
     panicRoleAktif ? 1 : 0,
     alarmTetikleyenMask,
-    batteryLowOverride ? 1 : 0
+    batteryLowOverride ? 1 : 0,
+    (int)bahceKapi[0].durum,
+    (int)bahceKapi[1].durum
   );
   rs485Gonder(buf);
 }
@@ -932,6 +1115,20 @@ void rs485KomutDinle() {
         String komut = buffer.substring(7);
         if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
           masterGonder();
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI_AC") {
+          // Konteyner/ESP32 tarafindaki fiziksel butondan gelir - iki kanat
+          // birlikte acilir (arac girisi icin ayri ayri tetiklemeye gerek yok).
+          kapiAcKomut(0);
+          kapiAcKomut(1);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI_KAPAT") {
+          kapiKapatKomut(0);
+          kapiKapatKomut(1);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI_DUR") {
+          kapiDurdurKomut(0);
+          kapiDurdurKomut(1);
           response = "ACK:" + komut;
         } else if (komut.startsWith("SET_LAMBA=")) {
           int durum = komut.substring(10).toInt();
@@ -1527,7 +1724,7 @@ void handleCSS() {
   // kullanir (background shorthand DEGIL) ki ustteki parlaklik katmani kalsin.
   css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:9px;border:1px solid rgba(0,0,0,.18);font-size:14px;cursor:pointer;font-weight:600;min-width:120px;background-image:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 45%,rgba(0,0,0,.10) 100%);box-shadow:0 2px 0 rgba(0,0,0,.22),0 5px 10px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease}";
   css += ".btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.35);filter:brightness(.93)}";
-  css += ".btn-yesil{background-color:var(--accent)}.btn-turuncu{background-color:var(--warn)}.btn-mavi{background-color:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background-color:var(--danger);width:100%;margin-top:10px}";
+  css += ".btn-yesil{background-color:var(--accent)}.btn-turuncu{background-color:var(--warn);color:#3d2c02}.btn-mavi{background-color:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background-color:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
   css += "label{display:block;font-size:12px;color:var(--muted);margin-top:10px}";
   // LED gostergesi - "var/yok" metni yerine kullanilir, ESP32 Merkez Kontrol
@@ -1668,7 +1865,27 @@ void handleTime() {
   // fiziksel takiliysa/duzeldiyse bu butonla kurtarilabilir, sonraki rtc.now()
   // cagrisi (simdikiZamanStr icinde) guncel cipteki degeri okur.
   rtcHazir = rtc.begin();
-  String json = "{\"zaman\":\"" + simdikiZamanStr() + "\",\"tarihISO\":\"" + simdikiTarihISO() + "\"}";
+  // Kullanici talebi (2026-09-07): STA (ev WiFi) baglantisi varsa RTC'yi
+  // internetten (NTP) otomatik guncelle - Turkiye 2016'dan beri yaz saati
+  // uygulamiyor, sabit UTC+3 (10800sn) yeterli. STA yoksa (sadece AP) veya
+  // NTP zaman asimina ugrarsa RTC'ye DOKUNULMAZ, sadece mevcut deger okunur.
+  bool ntpSenkron = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(10800, 0, "pool.ntp.org", "time.google.com");
+    time_t simdi = time(nullptr);
+    unsigned long t0 = millis();
+    while (simdi < 1700000000 && millis() - t0 < 3000) {  // 2023-11 sonrasi = NTP basarili kabul edilir
+      delay(100);
+      simdi = time(nullptr);
+    }
+    if (simdi >= 1700000000 && rtcHazir) {
+      struct tm tmS;
+      localtime_r(&simdi, &tmS);
+      rtc.adjust(DateTime(tmS.tm_year + 1900, tmS.tm_mon + 1, tmS.tm_mday, tmS.tm_hour, tmS.tm_min, tmS.tm_sec));
+      ntpSenkron = true;
+    }
+  }
+  String json = "{\"zaman\":\"" + simdikiZamanStr() + "\",\"tarihISO\":\"" + simdikiTarihISO() + "\",\"ntpSenkron\":" + String(ntpSenkron ? "true" : "false") + "}";
   server.send(200, "application/json", json);
 }
 void handleSetTime() {
@@ -2085,7 +2302,43 @@ void setupWiFi() {
 // ile SENKRON tutulmali: DOOR1_PIN=2, DOOR2_PIN=3, RELAY_PIN=4,
 // MOISTURE_PIN=5, PIR_PIN=6, LAMBA_PIN=13.
 bool pinKorumali(int pin) {
-  return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13 || pin == NANO_BUZZER_PIN;
+  return pin == 2 || pin == 3 || pin == 4 || pin == 5 || pin == 6 || pin == 13 || pin == NANO_BUZZER_PIN ||
+         pin == BAHCE_KAPI1_ACIK_PIN || pin == BAHCE_KAPI2_ACIK_PIN ||
+         pin == BAHCE_KAPI1_AKIM_PIN || pin == BAHCE_KAPI2_AKIM_PIN;
+}
+
+// ============ OTOMATIK ARKA PLAN NTP SENKRONIZASYONU ============
+// Kullanici talebi (2026-09-07): "Zaman" butonuna basmadan da Depo sayfasinda
+// gercek zaman gorunsun. handleTime() sadece butona basilinca senkronize
+// ediyordu - burada WiFi STA (ev agi) varken RTC'yi periyodik olarak (saatte
+// bir) arka planda, TAMAMEN NON-BLOCKING sekilde tazeler (delay() YOK -
+// configTime() bir donguide tetiklenir, sonraki dongulerde time(nullptr)
+// hazir olunca RTC'ye yazilir). RTC saatte bir kadar sik senkron gerektirecek
+// kadar hizli kaymadigindan bu araligin kisaltilmasina gerek yok - gercek
+// ihtiyac "hic butona basilmasa bile dogru saat gorunmesi", periyodik durum
+// sorgusu (15sn) zaten ekrani surekli tazeliyor.
+#define NTP_OTOMATIK_ARALIK_MS (3600000UL) // 1 saat
+unsigned long ntpSonSenkronMs = 0;   // 0 = henuz hic basarili senkron olmadi
+bool ntpConfigTetiklendi = false;
+void ntpOtomatikPoll() {
+  if (WiFi.status() != WL_CONNECTED) { ntpConfigTetiklendi = false; return; }
+  unsigned long simdi = millis();
+  if (ntpSonSenkronMs != 0 && simdi - ntpSonSenkronMs < NTP_OTOMATIK_ARALIK_MS) return;
+  if (!ntpConfigTetiklendi) {
+    configTime(10800, 0, "pool.ntp.org", "time.google.com");
+    ntpConfigTetiklendi = true;
+    return;  // bir sonraki loop() turunda time(nullptr) kontrol edilir
+  }
+  time_t t = time(nullptr);
+  if (t >= 1700000000) {  // 2023-11 sonrasi = NTP basarili kabul edilir
+    if (rtcHazir) {
+      struct tm tmS;
+      localtime_r(&t, &tmS);
+      rtc.adjust(DateTime(tmS.tm_year + 1900, tmS.tm_mon + 1, tmS.tm_mday, tmS.tm_hour, tmS.tm_min, tmS.tm_sec));
+    }
+    ntpSonSenkronMs = simdi;
+    ntpConfigTetiklendi = false;
+  }
 }
 
 // ============ SETUP ============
@@ -2105,6 +2358,19 @@ void setup() {
   pinMode(RS485_DE_PIN, OUTPUT); digitalWrite(RS485_DE_PIN, LOW);
   // NOT: LAMBA_PIN Nano üzerinde (D13), ESP8266'da değil
   swSerial.begin(RS485_BAUDRATE);
+  // Bahce kapisi: limit switch pinlerini Nano'da INPUT_PULLUP yap (switch
+  // tetiklenince GND'ye ceker=LOW), R413D08 rolelerini bilinen guvenli
+  // (motor durdurulmus/kilit birakilmis) duruma zorla - ESP8266 reset olsa
+  // bile R413D08 kendi son durumunu koruyabildiginden bu onemli.
+  { const int bahceSwitchPinleri[2] = { BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI2_ACIK_PIN };
+    for (int i = 0; i < 2; i++) {
+      while (Serial.available()) Serial.read();
+      Serial.print("PIN_MODE:"); Serial.print(bahceSwitchPinleri[i]); Serial.println(",INPUT_PULLUP");
+      unsigned long t = millis();
+      while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK:PIN_MODE") >= 0) break; } yield(); }
+    }
+  }
+  kapiTumRoleleriKapat();
   // FIX: LittleFS.begin() hatasi + format sonrasi ikinci begin kontrol edilmiyordu.
   // FS acilamazsa dosya okuma/yazma islemleri sessizce basarisiz oluyordu.
   if (!LittleFS.begin()) {
@@ -2254,6 +2520,34 @@ void setup() {
     if (ok) { int eq = r.indexOf('='); if (eq >= 0) deger = r.substring(eq+1).toInt(); }
     server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"pin\":" + String(pin) + ",\"deger\":" + String(deger) + ",\"reply\":\"" + r + "\"}");
   });
+  // ===== BAHCE KAPISI (R413D08 + limit switch/akim, henuz saha kurulumu yok) =====
+  // ?kapi=1 veya ?kapi=2 (2 kanat). Ornek: /api/kapi/ac?kapi=1
+  server.on("/api/kapi/ac", []() {
+    if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
+    int kapi = server.arg("kapi").toInt();
+    if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
+    kapiAcKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kilit aciliyor, ardindan motor baslayacak\"}");
+  });
+  server.on("/api/kapi/kapat", []() {
+    if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
+    int kapi = server.arg("kapi").toInt();
+    if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
+    kapiKapatKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kapaniyor\"}");
+  });
+  server.on("/api/kapi/dur", []() {
+    if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
+    int kapi = server.arg("kapi").toInt();
+    if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
+    kapiDurdurKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
+  });
+  server.on("/api/kapi/durum", []() {
+    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + "},";
+    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + "}}";
+    server.send(200, "application/json", j);
+  });
   // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden
   // "ses geliyor mu" diye aninda kontrol edebilmek icin (2026-08-27, kullanici
   // "ses gelmiyor" bulgusu sonrasi eklendi). Ornek: /buzzer/test?freq=3000&ms=500
@@ -2364,6 +2658,9 @@ void loop() {
   MDNS.update();
   nanoPoll();
   server.handleClient();  // FIX: Bloklayıcı nanoPoll sonrası web isteklerini işle
+  kapiPoll();  // Bahce kapisi hareket halindeyse limit switch/akim kontrolu (bloklayici, sadece hareket sirasinda)
+  ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
+  server.handleClient();
   rs485KomutDinle();
   server.handleClient();  // FIX: RS485 dinleme sonrası web isteklerini işle
   // ALARM KONTROLÜ - nanoMesgul kontrolü blink'i önler (komut beklerken yeni gönderme)
@@ -2439,8 +2736,12 @@ void loop() {
       uint8_t mask = zamanMask & modMask & ayar.alarmSensorEtkin;
       bool triggerActive = false;
       uint8_t tetikleyenMask = 0;
-      if ((mask & ALARM_TRIGGER_KAPI1) && kapi1Acik) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI1; }
-      if ((mask & ALARM_TRIGGER_KAPI2) && kapi2Acik) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI2; }
+      // Bahce kapisi motorla kontrol edilirken (acik/aciliyor/kilit aciliyor/
+      // kapaniyor/hata) bu sensor ayni zamanda "kapi acik" okur - bilerek
+      // yapilan bir hareketi yanlis alarm/telegram bildirimine cevirmemek
+      // icin bu durumda tetikleyici bypass edilir (bkz config.h BAHCE_* notu).
+      if ((mask & ALARM_TRIGGER_KAPI1) && kapi1Acik && bahceKapi[0].durum == KAPI_KAPALI) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI1; }
+      if ((mask & ALARM_TRIGGER_KAPI2) && kapi2Acik && bahceKapi[1].durum == KAPI_KAPALI) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI2; }
       if ((mask & ALARM_TRIGGER_PIR) && pirTetikleyici) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_PIR; }
       if ((mask & ALARM_TRIGGER_SU_SEVIYE) && alarmAktif) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_SU_SEVIYE; }
       if ((mask & ALARM_TRIGGER_KACAK) && kacakAlarmi) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KACAK; }

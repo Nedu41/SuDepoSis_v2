@@ -400,6 +400,15 @@
 // PLANLANAN: Buton disariya SCART Pin 17 (Yesil) uzerinden cikarilacak,
 // GND donusu Pin 21 (Shield/GND) uzerinden. bkz docs/pinout.html SCART tablosu.
 
+// Bahce Kapisi (arac girisi, henuz saha kurulumu yok) - fiziksel acma butonu.
+// Motor/rolelerin kendisi ESP8266/Sudepo tarafinda (R413D08 uzerinden), bu
+// buton sadece RS485 ile "MASTER:BAHCE_KAPI_AC" komutunu gonderir - ACIL_BUTON_PIN
+// (GPIO15) ile AYNI acik-yon riski icin GPIO1-14 (touch/ADC2) araligindan
+// KACINILDI (bkz proje hafizasi GPIO14 touch pin sorunu). GPIO47 daha once
+// MPPT icin degerlendirilip serbest birakilmisti (bkz proje hafizasi mppt-rs232-pi30).
+#define BAHCE_KAPI_BUTON_PIN 47
+#define BAHCE_KAPI_BUTON_COOLDOWN_MS 3000 // ACIL_BUTON_COOLDOWN ile ayni mantik - RS485'i art arda bloke etmesin
+
 // Tetik animasyonu (2026-08-25, kullanici talebi): GAZ HARIC (patlayici gaz
 // icin gecikme guvenlik riski, eskisi gibi aninda/surekli kalir) her alarm
 // tetiklenmesinde (panik dahil, kapi/PIR/Swan PIR/duman) lamba ilk birkac

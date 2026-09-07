@@ -157,6 +157,76 @@
 // TLS yok) BIRINCIL yontem, bu sadece "internet varsa bonus" secenegi.
 #define GITHUB_FIRMWARE_URL "https://raw.githubusercontent.com/Nedu41/SuDepoSis_v2/main/esp8266_slave/firmware/esp8266.bin"
 
+// ===== Bahçe Kapısı (2 kanat, silecek motoru + R413D08 röle) =====
+// HENÜZ SAHAYA KURULMADI (2026-09-07 planlandı) - donanım zamanla monte
+// edilecek, altyapı önceden hazırlanıyor. Bkz proje hafızası
+// project_bahce_kapisi_motor_gelecek_ozellik.
+//
+// "Kapalı" pozisyonu için YENİ switch gerekmiyor: mevcut depo alarm kapı
+// sensörleri (DOOR1_PIN=D2/DOOR2_PIN=D3, nano_io config.h) zaten bu iki
+// kanadın üzerinde - ESP8266 tarafında kapi1Acik/kapi2Acik olarak sürekli
+// taze tutuluyor (nanoPoll/GET_STATUS). Bahçe kapısı "kapalı" durumu için
+// bunlar DOĞRUDAN kullanılıyor (kapı açıldığında bu sensör true olur, yani
+// "kapalı" = !kapi1Acik) - ekstra Nano sorgusu gerekmez.
+// DİKKAT: Bu paylaşım nedeniyle motorla kapı açılınca kapi1Acik/kapi2Acik
+// true olur - alarm sistemi bunu ALARM_TRIGGER_KAPI1/2 olarak algılar. Motorla
+// açılış sırasında bu tetikleyicinin bypass edilmesi ayrıca ele alınmalı
+// (henüz YAPILMADI - bkz proje hafızası project_bahce_kapisi_motor_gelecek_ozellik).
+//
+// Sadece "tam açık" pozisyonu için YENİ limit switch var (kanat başı 1,
+// toplam 2) - Nano'nun yedek GPIO'larında (bkz project_nano_yedek_pin_hazir_altyapi).
+// Akım sensörleri de Nano analog girişlerinde. Bu pinler pinKorumali() ile
+// genel /pin/* API'sinden korunuyor.
+#define BAHCE_KAPI1_ACIK_PIN    7   // D7  - Kapı1 tam açık limit switch (INPUT_PULLUP, tetiklenince LOW)
+#define BAHCE_KAPI2_ACIK_PIN    9   // D9  - Kapı2 tam açık limit switch
+#define BAHCE_KAPI1_AKIM_PIN    15  // A1  - Kapı1 motor akım sensörü (ACS712 5A)
+#define BAHCE_KAPI2_AKIM_PIN    16  // A2  - Kapı2 motor akım sensörü (ACS712 5A)
+
+// R413D08 (8CH RS485/Modbus RTU röle) - mevcut Sudepo<->Konteyner RS485
+// hattına (swSerial, RS485_TX_PIN/RX_PIN) 3. node olarak eklenir. DİKKAT:
+// bu hat daha önce çakışma/gecikme sorunu yaşamıştı (bkz proje hafızası
+// project_rs485_gecikme_cozumu) - Modbus çerçeveleri SADECE kapı hareket
+// halindeyken, seyrek aralıklarla gönderilir, yanıt beklenmez (fire-and-forget,
+// gerçek sonuç limit switch/akım sensörüyle doğrulanır).
+#define R413D08_MODBUS_ADRES  1
+// Motor yön kontrolü: 2 röle/motor (A ve B terminali bağımsız +V/GND'ye
+// çekilir) - AÇIK: A=ON,B=OFF | KAPALI: A=OFF,B=ON | DUR: A=OFF,B=OFF
+// (iki terminal de GND'de = fren/durma, kısa devre riski yok). MOSFET
+// H-köprüsü YERİNE bilinçli olarak seçildi (bkz proje hafızası).
+#define BAHCE_KAPI1_RELE_A  0  // R413D08 kanal 1
+#define BAHCE_KAPI1_RELE_B  1  // R413D08 kanal 2
+#define BAHCE_KAPI2_RELE_A  2  // R413D08 kanal 3
+#define BAHCE_KAPI2_RELE_B  3  // R413D08 kanal 4
+#define BAHCE_KAPI1_KILIT_RELE  4  // R413D08 kanal 5 - elektrikli solenoid kilit (darbeli)
+#define BAHCE_KAPI2_KILIT_RELE  5  // R413D08 kanal 6
+
+// "Kapalı" limit switch bilgisi artik mevcut alarm kapi sensorunden geldiginden
+// (yukaridaki not), bu switch'e ulasilamadan (orn. kilit/mekanik arizasi)
+// motorun sonsuza dek "kapaniyor" durumda kalmamasi icin BAHCE_MAX_HAREKET_MS
+// tek guvenlik agidir - fiziksel arizaya karsi zaten timeout/asiri-akim var.
+
+// Solenoid kilit darbe süresi: enerji verilince kilit açılır/serbest kalır,
+// bu süre kadar beklenip motor başlatılır, sonra röle bırakılır (sürekli
+// enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
+#define BAHCE_KILIT_PULSE_MS 1000
+
+// Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
+// (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
+#define BAHCE_POLL_ARALIK_MS 250
+// Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
+// için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
+// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
+#define BAHCE_MAX_HAREKET_MS 20000UL
+
+// ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
+// BAHCE_AKIM_SIFIR_RAW: 0A'de sensörün ham ADC okuması (teorik ~512, SAHADA
+// KALİBRE ET - motor bağlı değilken/dururken ölçülüp buraya girilmeli).
+#define ACS712_MV_PER_AMP 185.0
+#define BAHCE_AKIM_SIFIR_RAW 512
+// Bu akımın üzerinde "sıkışma/zorlanma" kabul edilip motor durdurulur -
+// silecek motorunun normal çalışma akımına göre SAHADA KALİBRE ET.
+#define BAHCE_AKIM_ESIK_A 4.0
+
 // ===== Debug =====
 // NOT: Serial (UART0) Nano ile PAYLASILIYOR (D9/D10) - acarken Nano'yu
 // fiziksel olarak ayirin (jumper) yoksa debug metni Nano'nun komut

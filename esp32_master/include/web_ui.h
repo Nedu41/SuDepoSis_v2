@@ -75,8 +75,20 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .btn-primary{background-color:var(--primary);color:#fff}
 .btn-accent{background-color:var(--accent);color:#fff}
 .btn-danger{background-color:var(--danger);color:#fff}
-.btn-warn{background-color:var(--warn);color:#fff}
+.btn-warn{background-color:var(--warn);color:#3d2c02}
 .btn:disabled{opacity:.6;cursor:not-allowed}
+.bahce-sim{position:relative;height:90px;margin:10px 0;border-radius:8px;background:repeating-linear-gradient(90deg,var(--border) 0 2px,transparent 2px 14px),var(--bg)}
+.bahce-sim .post{position:absolute;top:50%;width:8px;height:26px;background:var(--muted);transform:translateY(-50%);border-radius:2px}
+.bahce-sim .post.sol{left:calc(50% - 4px)}
+.bahce-sim .post.sag{left:calc(50% - 4px)}
+.bahce-sim .kanat{position:absolute;top:50%;height:6px;width:40%;background:var(--primary);border-radius:3px;transition:transform .6s ease,background-color .3s ease;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.bahce-sim .kanat.sol{left:6%;transform-origin:left center;transform:translateY(-50%) rotate(0deg)}
+.bahce-sim .kanat.sag{right:6%;transform-origin:right center;transform:translateY(-50%) rotate(0deg)}
+.bahce-sim .kanat.sol.acik{transform:translateY(-50%) rotate(-72deg)}
+.bahce-sim .kanat.sag.acik{transform:translateY(-50%) rotate(72deg)}
+.bahce-sim .kanat.hareket{animation:bahceKanatNabiz 1s ease-in-out infinite}
+.bahce-sim .kanat.hata{background:var(--danger)}
+@keyframes bahceKanatNabiz{0%,100%{filter:brightness(1)}50%{filter:brightness(1.5)}}
 .sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}
 .sysdot.normal{background:var(--accent);box-shadow:0 0 7px var(--accent)}
 .sysdot.kritik{background:var(--warn);box-shadow:0 0 7px var(--warn)}
@@ -232,6 +244,25 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div id="konteyner-lamba-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
     </div>
 
+    <div class="card">
+      <h3>Bahçe Kapısı</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">Araç girişi, 2 kanat - motor/röle Sudepo (ESP8266) tarafında. Henüz saha kurulumu yok, komutlar donanım bağlanınca çalışır.</p>
+      <div class="bahce-sim">
+        <div class="post sol"></div><div class="post sag"></div>
+        <div class="kanat sol" id="bahce-kanat1"></div>
+        <div class="kanat sag" id="bahce-kanat2"></div>
+      </div>
+      <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
+        <span>Kapı 1: <b id="bahce-durum1" style="color:var(--text)">-</b></span>
+        <span>Kapı 2: <b id="bahce-durum2" style="color:var(--text)">-</b></span>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
+        <button class="btn btn-danger" onclick="bahceKapiKomut('dur')">Dur</button>
+      </div>
+      <div id="bahce-kapi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
     <div class="card" style="border:2px solid var(--danger)">
       <h3>🚨 Acil Durum Lambası</h3>
       <p style="font-size:12px;color:var(--muted);margin-top:-4px">Ana güç düşük seviyeye inince (aşağıdaki eşikler) sadece bildirim gelir, lamba OTOMATİK açılmaz - gerek görürsen buradan manuel aç. Panik veya Konteyner alarmında ise otomatik/anında yanar.</p>
@@ -245,9 +276,6 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row">
         <button class="btn btn-accent" id="alarm-btn" onclick="toggleAlarm()">Sudepo Zonu: Alarmı Kapat</button>
         <button class="btn btn-accent" id="konteyner-alarm-btn" onclick="toggleKonteynerAlarm()">Konteyner Zonu: Alarmı Kapat</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn btn-primary" onclick="kapiKontrol(1)">Kapıyı Aç/Kapat</button>
       </div>
       <div class="row" style="margin-top:8px">
         <select id="alarm-mod-sel" onchange="setAlarmMod()">
@@ -779,6 +807,7 @@ function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Da
 // Alarm tetiklendiginde kisa bip - ESP8266 panelindeki ile ayni desen.
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
 let alarmOncekiDurum = false;
+let bahceAcikSayilirmi = false;
 let sysDurumOncekiTehlike = false;
 function bipSesi(){
   try{
@@ -1103,11 +1132,27 @@ function renderUI(d){
   { const e=$('#db8-kacak'); if(e) e.classList.toggle('on', esp8266Ok && !!(d.alarm && d.alarm.leak)); }
   { const e=$('#db8-nem'); if(e) e.textContent = esp8266Ok ? (mo.percent||0).toFixed(1)+'%' : '--'; }
   { const e=$('#db8-nem-mod'); if(e) e.textContent = esp8266Ok ? (mo.auto?'Otomatik':'Manuel') : '--'; }
-  { const e=$('#db8-nemrl'); if(e) e.classList.toggle('on', esp8266Ok && !!mo.output); }
+  // Nem rolesi "vana engellendi" durumu ALARM DEGIL - ESP8266'daki referans
+  // mantikla (moistureOutputText, 'ok'=yesil) TUTARLI olmasi icin 'on'
+  // (kirmizi) DEGIL 'ok' (yesil) kullanilir (bkz proje hafizasi
+  // led_renk_tutarliligi_esp32_esp8266, 2026-09-06 kullanici talebi).
+  { const e=$('#db8-nemrl'); if(e) e.classList.toggle('ok', esp8266Ok && !!mo.output); }
   // === BUTON METİNLERİ - SUNUCUDAN GELIR, local state YOK ===
   // Her buton her zaman taze sunucu verisiyle guncellenir - eskiden busySet
   // ile "islemde" butonlar atlaniyordu, bu da tepkinin gec/tikanik hissi
   // vermesine neden oluyordu (kullanici bildirdi), kaldirildi.
+  { // Bahce kapisi simulasyonu - esp8266_slave KapiDurum enum: 0=kapali,1=acik,2=kilit_aciliyor,3=aciliyor,4=kapaniyor,5=hata
+    const bahceEtiket={0:'Kapalı',1:'Açık',2:'Kilit Açılıyor',3:'Açılıyor',4:'Kapanıyor',5:'HATA'};
+    const bk1 = esp8266Ok ? (d.nano.bahce_kapi1||0) : -1, bk2 = esp8266Ok ? (d.nano.bahce_kapi2||0) : -1;
+    const k1=$('#bahce-kanat1'), k2=$('#bahce-kanat2');
+    if(k1){ k1.classList.toggle('acik', bk1===1||bk1===3); k1.classList.toggle('hareket', bk1===2||bk1===3||bk1===4); k1.classList.toggle('hata', bk1===5); }
+    if(k2){ k2.classList.toggle('acik', bk2===1||bk2===3); k2.classList.toggle('hareket', bk2===2||bk2===3||bk2===4); k2.classList.toggle('hata', bk2===5); }
+    const d1=$('#bahce-durum1'); if(d1) d1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
+    const d2=$('#bahce-durum2'); if(d2) d2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
+    // Toggle butonu: 1/2/3 (acik/kilit aciliyor/aciliyor) "acik sayilir" -> buton "Kapat" gosterir
+    bahceAcikSayilirmi = (bk1===1||bk1===2||bk1===3);
+    const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceAcikSayilirmi ? 'Kapat' : 'Aç';
+  }
   $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
   { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
   $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
@@ -1315,6 +1360,12 @@ function toggleLamba(){
   const acik = $('#lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#lamba-btn', '/api/lamba?durum='+(acik?0:1), '#lamba-sonuc');
 }
+function bahceKapiKomut(durum){
+  sendCommand(null, '/api/bahce_kapi?durum='+durum, '#bahce-kapi-sonuc');
+}
+function bahceKapiToggle(){
+  bahceKapiKomut(bahceAcikSayilirmi ? 'kapat' : 'ac');
+}
 function toggleKonteynerLamba(){
   const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#konteyner-lamba-btn', '/api/konteyner/lamba?durum='+(acik?0:1), '#konteyner-lamba-sonuc');
@@ -1362,9 +1413,6 @@ function toggleAlarm(){
 function toggleKonteynerAlarm(){
   const aktif = $('#konteyner-alarm-btn').textContent.trim().endsWith('Alarmı Kapat');
   sendCommand('#konteyner-alarm-btn', '/api/konteyner/alarm?aktif='+(aktif?0:1), '#konteyner-alarm-sonuc');
-}
-function kapiKontrol(v){
-  sendCommand(null, '/api/kapi?durum='+v, '#lamba-sonuc');
 }
 function togglePanic(){
   sendCommand('#panic-btn', '/api/panic', '#panic-sonuc');

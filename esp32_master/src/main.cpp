@@ -374,6 +374,10 @@ struct NanoIOStatus {
   bool door2_open = false;
   bool relay_active = false;
   bool lamp_on = false;
+  // Bahce kapisi (arac girisi) durum kodu - esp8266_slave KapiDurum enum'uyla
+  // BIREBIR ayni sira: 0=kapali,1=acik,2=kilit_aciliyor,3=aciliyor,4=kapaniyor,5=hata
+  uint8_t bahce_kapi1_durum = 0;
+  uint8_t bahce_kapi2_durum = 0;
   String status = "OK";
   unsigned long last_update_ms = 0;
   // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
@@ -2064,6 +2068,10 @@ void parse_esp8266_data(String payload) {
       nanoStatus.lamp_on = (value == "1");
     } else if (key == "NANO") {
       nanoStatus.esp8266_gorunen_baglanti = (value == "1");
+    } else if (key == "BAHCE1") {
+      nanoStatus.bahce_kapi1_durum = (uint8_t)value.toInt();
+    } else if (key == "BAHCE2") {
+      nanoStatus.bahce_kapi2_durum = (uint8_t)value.toInt();
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -2521,6 +2529,27 @@ void acilButonPoll() {
       Serial.println("[ACIL_BUTON] panikTetikle() cagriliyor...");
       bool ok = panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
       Serial.printf("[ACIL_BUTON] panikTetikle sonucu: rs485_ok=%d panicActive=%d panic_mode=%d\n", ok, panicActive, alarmStatus.panic_mode);
+    }
+  }
+}
+
+// Fiziksel Bahce Kapisi Acma Butonu (GPIO47, INPUT_PULLUP, aktif-LOW) - ACIL_BUTON
+// ile AYNI kenar-debounce + cooldown deseni. Motor/role mantigi ESP8266/Sudepo
+// tarafinda oldugundan burada sadece RS485 uzerinden "MASTER:BAHCE_KAPI_AC"
+// komutu gonderilir, iki kanat da birlikte acilir (bkz esp8266_slave rs485KomutDinle).
+void bahceKapiButonPoll() {
+  static bool oncekiBasili = false;
+  static unsigned long sonDegisimMs = 0;
+  static unsigned long sonTetikMs = 0;
+  bool basili = (digitalRead(BAHCE_KAPI_BUTON_PIN) == LOW);
+  if (basili != oncekiBasili && millis() - sonDegisimMs > 50) {
+    sonDegisimMs = millis();
+    oncekiBasili = basili;
+    if (basili && millis() - sonTetikMs > BAHCE_KAPI_BUTON_COOLDOWN_MS) {
+      sonTetikMs = millis();
+      String reply;
+      bool ok = rs485_send_wait_ack("MASTER:BAHCE_KAPI_AC\n", reply, 1000, 3);
+      Serial.printf("[BAHCE_KAPI_BUTON] ac komutu gonderildi, sonuc=%d\n", ok);
     }
   }
 }
@@ -3078,7 +3107,9 @@ String durumJson() {
   doc["nano"]["door2"] = nanoStatus.door2_open;
   doc["nano"]["relay"] = nanoStatus.relay_active;
   doc["nano"]["lamp"] = nanoStatus.lamp_on;
-  
+  doc["nano"]["bahce_kapi1"] = nanoStatus.bahce_kapi1_durum;
+  doc["nano"]["bahce_kapi2"] = nanoStatus.bahce_kapi2_durum;
+
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;
   doc["alarm"]["door"] = alarmStatus.door_alarm;
@@ -3807,6 +3838,33 @@ bool lambaAyarla(bool acik, String& reply) {
     last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
   }
   return ok;
+}
+
+// Bahce kapisi (arac girisi) - motor/rolelerin kendisi ESP8266/Sudepo
+// tarafinda (R413D08 uzerinden), burada sadece komut iletilir. Gercek durum
+// (acik/kapali/hareket halinde) bir sonraki GET_STATUS ile BAHCE1/BAHCE2
+// alanindan gelir (bkz parse_esp8266_data) - burada varsayimsal atama YOK.
+bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
+  String cmd = "MASTER:BAHCE_KAPI_" + String(aksiyon) + "\n";
+  bool ok = rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  if (ok) last_rs485_update_ms = millis();
+  return ok;
+}
+
+void handleAPI_BahceKapi() {
+  if (!server.hasArg("durum")) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
+    return;
+  }
+  String durum = server.arg("durum");
+  const char* aksiyon = durum == "ac" ? "AC" : (durum == "kapat" ? "KAPAT" : (durum == "dur" ? "DUR" : nullptr));
+  if (!aksiyon) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum ac/kapat/dur olmali\"}");
+    return;
+  }
+  String reply;
+  bool ok = bahceKapiKomutGonder(aksiyon, reply);
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Komut gonderildi" : "Sudepo yanit vermedi") + "\"}");
 }
 
 void handleAPI_Lamba() {
@@ -4709,6 +4767,7 @@ void setupWebServer() {
   server.on("/firmware/esp8266.bin", HTTP_GET, handleFirmwareServe);
   server.on("/api/firmware/durum", handleFirmwareDurum);
   server.on("/api/lamba", handleAPI_Lamba);
+  server.on("/api/bahce_kapi", handleAPI_BahceKapi);
   server.on("/api/konteyner/lamba", handleAPI_KonteynerLamba);
   server.on("/api/acil-lamba", handleAPI_AcilLamba);
   server.on("/api/ana-guc-esik", handleAPI_AnaGucEsik);
@@ -4905,6 +4964,7 @@ void setup() {
   pinMode(ADAPTOR_RELE_PIN, OUTPUT);
   digitalWrite(ADAPTOR_RELE_PIN, HIGH); // guvenli varsayilan: adaptor BAGLI (modul aktif-HIGH)
   pinMode(ACIL_BUTON_PIN, INPUT_PULLUP);
+  pinMode(BAHCE_KAPI_BUTON_PIN, INPUT_PULLUP);
   anaGucEsikYukle();
   adaptorEsikYukle();
   Wire.begin(AHT10_SDA_PIN, AHT10_SCL_PIN); // AHT10 I2C - ADS1115 de ayni hatta (farkli adres)
@@ -5027,6 +5087,7 @@ void loop() {
   anaGucPoll(); // Ana guc (ADS1115/I2C, 3 kademeli bildirim)
   adaptorReleGuncelle(); // Laptop adaptoru kesme rolesi (ana guc'e bagli histerezis)
   acilButonPoll(); // Fiziksel Acil Durum butonu (GPIO15)
+  bahceKapiButonPoll(); // Fiziksel Bahce Kapisi Acma butonu (GPIO47)
   ahtPoll();  // AHT10 sicaklik/nem (I2C, kisa surer, bloke olmaz)
   mq6Poll();  // MQ6 (analog, alarma bagli - bkz konteynerGazVar)
   gp2y10Poll();  // GP2Y10 duman/toz sensoru (analog, alarma bagli - bkz konteynerDumanVar)
