@@ -24,10 +24,16 @@ pio run -t upload
 | D4 | Alarm rölesi (OUTPUT, NC — **LOW = aktif**) |
 | D5 | Nem/sulama rölesi (OUTPUT) |
 | D6 | PIR hareket sensörü (INPUT, HIGH = hareket) — ESP8266 `PIN_READ:6` ile okur |
-| D7–D12 | Yedek GPIO (ESP'den `PIN_MODE`/`PIN_WRITE`/`PIN_READ` ile dinamik) |
+| D7 | Bahçe Kapısı 1 (araç girişi) tam açık limit switch (INPUT_PULLUP) — 2026-09-07, henüz sahaya bağlanmadı |
+| D9 | Bahçe Kapısı 2 tam açık limit switch (INPUT_PULLUP) — 2026-09-07, henüz sahaya bağlanmadı |
+| D10 | Zil butonu (INPUT_PULLUP) — basılınca D12 buzzer'da ding-dong çalar |
+| D11 | Yedek GPIO |
+| D12 | Pasif buzzer (`TONE_PLAY`/`TONE_STOP` ile) — açılış melodisi, PIR ön-uyarı bipi, zil |
 | D13 | Depo iç lamba rölesi (OUTPUT) |
 | A0 | Toprak nem sensörü (analog) |
-| A1–A5 | Yedek GPIO |
+| A1 (=15) | Bahçe Kapısı 1 motor akım sensörü (ACS712 5A, `ANALOG_READ` ile) — henüz sahaya bağlanmadı |
+| A2 (=16) | Bahçe Kapısı 2 motor akım sensörü (ACS712 5A, `ANALOG_READ` ile) — henüz sahaya bağlanmadı |
+| A3–A5 | Yedek GPIO |
 | A6–A7 | Yedek (sadece analog input) |
 
 Tam pin şeması için [../esp8266_slave/docs/pinout.html](../esp8266_slave/docs/pinout.html).
@@ -49,6 +55,9 @@ Tam pin şeması için [../esp8266_slave/docs/pinout.html](../esp8266_slave/docs
 | `PIN_WRITE:<pin>,<0\|1>` | — | Yedek pine yaz |
 | `PIN_READ:<pin>` | `PIN:<pin>=<0\|1>` | Yedek pin oku (PIR burada okunur) |
 | `PIN_READ_ALL` | tüm pinler | Toplu okuma |
+| `ANALOG_READ:<pin>` | `ANALOG:<pin>=<0-1023>` | Analog pin oku (A0-A5/14-19) — 2026-09-07 eklendi, akım sensörü gibi analog çıkışlar için |
+| `TONE_PLAY:<pin>,<hz>,<ms>` | `ACK:TONE_PLAY` | Pasif buzzer'da nota çal (D12) |
+| `TONE_STOP:<pin>` | `ACK:TONE_STOP` | Çalan notayı erken kes |
 
 Tüm komutlar `ACK:<komut>` ile onaylanır; ESP8266 tarafı 3 deneme sonrası ACK gelmezse vazgeçip
 durumu yeniden sorgular (bkz. `esp8266_slave/src/main.cpp` `nanoPoll()`).

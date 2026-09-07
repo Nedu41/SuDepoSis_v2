@@ -692,9 +692,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <tr><td>ADC1</td><td>10</td><td>MQ6 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
         <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü)</td><td>2026-08-26: Adaptif döngü — gündüz ana güç ≥26V'da sürekli açık, gece/düşük güçte yedek akü doluluğuna göre 3dk/6dk/10dk'da bir 60sn açılıp kapanır (bkz main.cpp mq6EtkinCycleMs()) - IRF520 modülünün SIG ucu bu pine. Dış çıkışı SCART Pin 20 (Mavi/Beyaz).</td></tr>
         <tr><td>-</td><td>18</td><td>GP2Y10 (duman/toz sensörü) LED sürücü kontrol</td><td>MOSFET modülü üzerinden, ~320us darbe — Ayarlar → Konteyner Alarm Ayarları, Duman Alarm Eşiği</td></tr>
+        <tr><td>-</td><td>47</td><td>Bahçe Kapısı (araç girişi) Açma Butonu</td><td>2026-09-07: INPUT_PULLUP, basışta RS485 ile Sudepo/ESP8266'ya <code>MASTER:BAHCE_KAPI_AC</code> gönderir, iki kanat birlikte açılır. Henüz sahaya fiziksel kablo çekilmedi.</td></tr>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 21, 35, 43, 44, 47, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 35, 43, 44, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
     </details>
 
     <details class="card zone-sudepo">
@@ -725,12 +726,18 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <tr><td>D4</td><td>Alarm rölesi</td><td>OUTPUT (varsayılan LOW=aktif, NC röle) - polarite web'den (/role/polarite) çalışırken de değiştirilip EEPROM'a kalıcı yazılabilir</td></tr>
         <tr><td>D5</td><td>Nem rölesi</td><td>OUTPUT</td></tr>
         <tr><td>D6</td><td>PIR HC-SR501 hareket sensörü</td><td>INPUT - ESP8266 PIN_READ:6 ile okur (Nano kodu değişmez)</td></tr>
-        <tr><td>D7-D12</td><td>Yedek GPIO</td><td>ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik</td></tr>
+        <tr><td>D7</td><td>Bahçe Kapısı 1 (araç girişi) tam açık limit switch</td><td>INPUT_PULLUP - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
+        <tr><td>D9</td><td>Bahçe Kapısı 2 tam açık limit switch</td><td>INPUT_PULLUP - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
+        <tr><td>D10</td><td>Zil butonu</td><td>INPUT_PULLUP - 2026-09-07, basılınca D12 buzzer'da ding-dong çalar</td></tr>
+        <tr><td>D11</td><td>Yedek GPIO</td><td>ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik</td></tr>
+        <tr><td>D12</td><td>Pasif buzzer</td><td>TONE_PLAY/TONE_STOP komutlarıyla - açılış melodisi, PIR "ön uyarı" bipi, zil</td></tr>
         <tr><td>D13</td><td>Depo iç lamba rölesi</td><td>OUTPUT (sadece lamba)</td></tr>
-        <tr><td>A0-A5</td><td>Yedek GPIO</td><td>Analog + digital I/O</td></tr>
+        <tr><td>A1 (=15)</td><td>Bahçe Kapısı 1 motor akım sensörü (ACS712 5A)</td><td>ANALOG_READ ile okunur - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
+        <tr><td>A2 (=16)</td><td>Bahçe Kapısı 2 motor akım sensörü (ACS712 5A)</td><td>ANALOG_READ ile okunur - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
+        <tr><td>A3-A5</td><td>Yedek GPIO</td><td>Analog + digital I/O</td></tr>
         <tr><td>A6-A7</td><td>Yedek</td><td>Sadece analog input</td></tr>
       </table>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL | ANALOG_READ:<pin> (A0-A5, 2026-09-07 eklendi)</p>
     </details>
 
     <details class="card">
