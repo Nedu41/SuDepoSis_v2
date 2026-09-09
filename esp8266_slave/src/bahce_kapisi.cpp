@@ -171,11 +171,32 @@ void kapiPoll() {
     } else if (k.durum == KAPI_HAREKET_KAPA && kapaliLimit) {
       kapiMotorDurdur(k);
       k.durum = KAPI_KAPALI;
-    } else if (zamanAsimi || asiriAkim) {
+    } else if (asiriAkim) {
       kapiMotorDurdur(k);
-      k.hataAsiriAkim = asiriAkim;
+      if (k.hataAsiriAkim) {
+        // Ters yone alindiktan SONRA da asiri akim geldi - gercek bir
+        // tikanma/mekanik ariza (guvenlik icin ters-ileri ping-pong YAPMA),
+        // motoru durdurup HATA'ya gec, kullanicinin mudahalesini bekle.
+        k.durum = KAPI_HATA;
+        DEBUG_PRINTF("[KAPI%d] HATA: ters yon sonrasi da asiri akim\n", i + 1);
+      } else {
+        // Guvenlik: arac/insan sikismasi ihtimaline karsi motoru DURDURMAK
+        // yetmez, ters yone hareket ettirilir (UL 325 engel-geri-donus
+        // mantigi). kapiAcKomut/kapiKapatKomut'daki kilit-darbe gecikmesi
+        // BILEREK atlanir - kilit zaten hareket sirasinda acik, gecikme
+        // sikismis nesneyi ters yone almayi geciktirir.
+        k.hataAsiriAkim = true;
+        KapiDurum tersYon = (k.durum == KAPI_HAREKET_KAPA) ? KAPI_HAREKET_AC : KAPI_HAREKET_KAPA;
+        if (tersYon == KAPI_HAREKET_AC) { r413RoleYaz(k.releB, false); r413RoleYaz(k.releA, true); }
+        else { r413RoleYaz(k.releA, false); r413RoleYaz(k.releB, true); }
+        k.hareketBaslangicMs = now;
+        k.durum = tersYon;
+        DEBUG_PRINTF("[KAPI%d] ASIRI AKIM - ters yone aliniyor (%s)\n", i + 1, kapiDurumAdi(tersYon));
+      }
+    } else if (zamanAsimi) {
+      kapiMotorDurdur(k);
       k.durum = KAPI_HATA;
-      DEBUG_PRINTF("[KAPI%d] HATA: %s\n", i + 1, asiriAkim ? "asiri akim" : "zaman asimi");
+      DEBUG_PRINTF("[KAPI%d] HATA: zaman asimi\n", i + 1);
     }
   }
 }
