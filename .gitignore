@@ -9,5 +9,8 @@
 esp8266_slave/src/depo/
 firmware.bin
 
+# SolidWorks gecici kilit dosyalari (dosya acikken olusur, kalici degil)
+~$*
+
 # Gizli bilgiler (WiFi/OTA/MQTT sifreleri) - secrets.h.example sablon olarak kalir
 secrets.h
