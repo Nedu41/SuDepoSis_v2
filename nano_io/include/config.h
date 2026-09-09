@@ -12,7 +12,7 @@
 // PIN HARİTASI (v2 - 2026 planı)
 // D0/D1  → ESP8266 seri haberleşme
 // D2/D3  → Kapı sensörleri (INPUT_PULLUP)
-// D4     → Alarm rölesi (OUTPUT, NC - LOW=aktif)
+// D4     → Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)
 // D5     → Nem rölesi (OUTPUT)
 // D8     → Yedek (eski durum LED)
 // D13    → Depo iç lamba rölesi (OUTPUT, sadece lamba)
@@ -25,8 +25,8 @@
 #define DOOR1_PIN       2       // D2 - Sol Kapı Sensörü
 #define DOOR2_PIN       3       // D3 - Sağ Kapı Sensörü
 
-// Alarm Rölesi (Output) - NC (Normally Closed), LOW = aktif
-#define RELAY_PIN       4       // D4 - Alarm Rölesi
+// Alarm Sireni (Output) - IRF520 MOSFET SIG, HIGH = aktif (low-side switch, kontak yok)
+#define RELAY_PIN       4       // D4 - Alarm Sireni (IRF520 MOSFET)
 
 // PIR Hareket Sensörü (Input) - GET_STATUS yanitina dogrudan dahil edilir
 #define PIR_PIN         6       // D6 - PIR sensörü (HIGH = hareket)
@@ -56,11 +56,13 @@
 // ============================================================
 
 // NOT: Bu degerler artik sadece ILK ACILIS varsayilanidir (EEPROM bos ise
-// kullanilir). Rolenin gercek polaritesi calisma zamaninda SET_RELAY_POLARITY
+// kullanilir). Cikisin gercek polaritesi calisma zamaninda SET_RELAY_POLARITY
 // komutuyla degistirilebilir ve EEPROM'da kalici kalir - reflash GEREKMEZ.
 // Bkz main.cpp relayPolariteYukle()/relayPolariteKaydet().
-#define RELAY_ACTIVE    LOW
-#define RELAY_INACTIVE  HIGH
+// 2026-09-08: Role (NC, LOW=aktif) yerine IRF520 MOSFET (SIG, HIGH=aktif) -
+// low-side switch'te kontak/NC kavrami yok, varsayilan HIGH'a cevrildi.
+#define RELAY_ACTIVE    HIGH
+#define RELAY_INACTIVE  LOW
 
 // Lamba: HIGH = Açık, LOW = Kapalı
 #define LAMBA_ON_STATE  HIGH

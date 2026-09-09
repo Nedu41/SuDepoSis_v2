@@ -225,6 +225,13 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div class="ledbar" id="ledbar-depo"></div>
       </div>
+      <div class="card"><h3>Bahçe Kapısı</h3>
+        <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
+          <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
+          <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
+        </div>
+        <div class="row" style="margin-top:8px"><button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button></div>
+      </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
       <div class="card"><h3>Akü (MPPT)</h3><div class="kpi" id="kpi-batarya">--</div><small id="batarya-soc"></small><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="batarya-durum">-</div><div style="margin-top:6px;font-size:12px;color:var(--muted)">☀️ Güneş: <b id="batarya-pv">-</b> | 🔌 Tüketim: <b id="batarya-yuk">-</b></div><div style="font-size:12px;color:var(--muted)" id="batarya-kalan">-</div><div style="margin-top:8px"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="show('invertor')">Tüm invertör detayları →</button></div></div>
@@ -258,7 +265,6 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
-        <button class="btn btn-danger" onclick="bahceKapiKomut('dur')">Dur</button>
       </div>
       <div id="bahce-kapi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
@@ -560,13 +566,18 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <details class="card">
       <summary>WiFi <small id="sum-wifi" style="margin-left:auto;font-weight:400;color:var(--muted)"></small></summary>
       <div style="margin-bottom:8px;font-size:13px;color:var(--muted)" id="wifi-durum-kutu">Yükleniyor...</div>
+      <label style="display:block;font-size:12px;color:var(--muted);">Kayıtlı Ağlar</label>
+      <div id="wifi-gecmis-kutu" style="margin-bottom:8px;font-size:13px">Yükleniyor...</div>
       <div class="row">
         <select class="input" id="staSSIDSel"><option value="">Ağları tara...</option></select>
         <button class="btn btn-warn" onclick="wifiScan()">Ağları Tara</button>
       </div>
       <div class="row">
         <input class="input" id="staSSID" placeholder="Ya da elle SSID girin">
-        <input class="input" id="staPASS" placeholder="Şifre" type="password">
+        <div style="position:relative;flex:1">
+          <input class="input" id="staPASS" placeholder="Şifre" type="password" style="width:100%;padding-right:56px">
+          <button type="button" id="pwToggleBtn" onclick="togglePw()" style="position:absolute;right:4px;top:4px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--primary);font-size:11px;padding:6px 8px;cursor:pointer;font-weight:600">Göster</button>
+        </div>
       </div>
       <div class="row">
         <button class="btn btn-primary" onclick="wifiKaydet()">Bağlan &amp; Kaydet</button>
@@ -598,6 +609,24 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row">
         <button class="btn btn-danger" onclick="restartSistem()">Yeniden Başlat</button>
       </div>
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 6px;">Tüm Konteyner ayarları (sensör hassasiyeti, siren zamanlama, batarya/adaptör eşikleri vb) tek dosyada yedeklenir - hem cihazın kendi hafızasına hem bilgisayarına.</p>
+      <div class="row">
+        <a href="/api/ayarlar/yedekle" download="konteyner_ayarlar.json"><button class="btn btn-primary">Ayarları Yedekle (Cihaza + Bilgisayara)</button></a>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="ayarlarCihazdanGeriYukle()">Cihazdaki Yedekten Geri Yükle</button>
+      </div>
+      <label style="display:block;font-size:12px;color:var(--muted);margin-top:8px;">Bilgisayardaki Dosyadan Geri Yükle</label>
+      <input class="input" type="file" id="ayarlar-dosya" accept=".json">
+      <div class="row">
+        <button class="btn" onclick="ayarlarDosyadanGeriYukle()">Dosyadan Geri Yükle</button>
+      </div>
+      <div id="ayarlar-yedek-msg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <hr>
+      <div class="row">
+        <button class="btn btn-danger" onclick="ayarlarFabrikaDondur()">Tüm Ayarları Fabrika Değerlerine Sıfırla</button>
+      </div>
+      <div id="ayarlar-fabrika-msg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </details>
   </div>
 
@@ -815,6 +844,7 @@ function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Da
 // Sadece "kapali -> acik" gecisinde calar, her renderUI'da degil.
 let alarmOncekiDurum = false;
 let bahceAcikSayilirmi = false;
+let bahceHareketVar = false;
 let sysDurumOncekiTehlike = false;
 function bipSesi(){
   try{
@@ -850,6 +880,7 @@ function show(id){
   try{ localStorage.setItem('sonSekme', id); }catch(e){}
   if(id==='bilgiler' && typeof alarmLoguTamYukle==='function') alarmLoguTamYukle();
   if(id==='bilgiler' && typeof suAkisiYukle==='function') suAkisiYukle();
+  if(id==='ayarlar' && typeof wifiGecmisYukle==='function') wifiGecmisYukle();
 }
 // Genel "karta/gostergeye tikla, ilgili ayara git" kisayolu (kullanici
 // talebi, 2026-08-27: "ana guc kartina tikladigimda ana guc ayarlarina
@@ -1156,9 +1187,15 @@ function renderUI(d){
     if(k2){ k2.classList.toggle('acik', bk2===1||bk2===3); k2.classList.toggle('hareket', bk2===2||bk2===3||bk2===4); k2.classList.toggle('hata', bk2===5); }
     const d1=$('#bahce-durum1'); if(d1) d1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
     const d2=$('#bahce-durum2'); if(d2) d2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
-    // Toggle butonu: 1/2/3 (acik/kilit aciliyor/aciliyor) "acik sayilir" -> buton "Kapat" gosterir
-    bahceAcikSayilirmi = (bk1===1||bk1===2||bk1===3);
-    const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceAcikSayilirmi ? 'Kapat' : 'Aç';
+    const dd1=$('#db-bahce-durum1'); if(dd1) dd1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
+    const dd2=$('#db-bahce-durum2'); if(dd2) dd2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
+    // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok:
+    // hareket halinde (kilit aciliyor/aciliyor/kapaniyor) -> "Dur"; tam acik -> "Kapat"; kapali/hata -> "Aç"
+    bahceHareketVar = (bk1===2||bk1===3||bk1===4||bk2===2||bk2===3||bk2===4);
+    bahceAcikSayilirmi = (bk1===1||bk2===1);
+    const bahceBtnMetin = bahceHareketVar ? 'Dur' : (bahceAcikSayilirmi ? 'Kapat' : 'Aç');
+    const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
+    const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;
   }
   $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
   { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
@@ -1371,7 +1408,7 @@ function bahceKapiKomut(durum){
   sendCommand(null, '/api/bahce_kapi?durum='+durum, '#bahce-kapi-sonuc');
 }
 function bahceKapiToggle(){
-  bahceKapiKomut(bahceAcikSayilirmi ? 'kapat' : 'ac');
+  bahceKapiKomut(bahceHareketVar ? 'dur' : (bahceAcikSayilirmi ? 'kapat' : 'ac'));
 }
 function toggleKonteynerLamba(){
   const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
@@ -1760,7 +1797,26 @@ function wifiKaydet(){
   const s=$('#staSSID').value || sel;
   if(!s){$('#wifi-sonuc').textContent='SSID gerekli';return;}
   api('/api/wifi?ssid='+encodeURIComponent(s)+'&sifre='+encodeURIComponent($('#staPASS').value))
-    .then(d=>{$('#wifi-sonuc').textContent=d.mesaj||''; setTimeout(guncelle,4000);});
+    .then(d=>{$('#wifi-sonuc').textContent=d.mesaj||''; setTimeout(guncelle,4000); wifiGecmisYukle();});
+}
+function togglePw(){
+  const i=$('#staPASS'); const b=$('#pwToggleBtn');
+  if(i.type==='password'){ i.type='text'; b.textContent='Gizle'; }
+  else { i.type='password'; b.textContent='Göster'; }
+}
+function wifiGecmisYukle(){
+  fetch('/api/wifi/gecmis').then(r=>r.json()).then(list=>{
+    const el=$('#wifi-gecmis-kutu'); if(!el) return;
+    if(!Array.isArray(list)||list.length===0){ el.innerHTML='<span style="color:var(--muted);font-size:12px">Kayıtlı ağ yok.</span>'; return; }
+    el.innerHTML = list.map(a=>'<div class="row" style="align-items:center"><span style="flex:1">'+a.ssid+'</span><button class="btn btn-primary" onclick="wifiGecmisBagla('+a.idx+')">Bağlan</button><button class="btn btn-danger" onclick="wifiGecmisSil('+a.idx+')">Sil</button></div>').join('');
+  }).catch(()=>{});
+}
+function wifiGecmisBagla(idx){
+  api('/api/wifi/gecmis_bagla?idx='+idx).then(d=>{ $('#wifi-sonuc').textContent=d.mesaj||''; setTimeout(guncelle,4000); wifiGecmisYukle(); });
+}
+function wifiGecmisSil(idx){
+  if(!confirm('Bu kayıtlı ağ silinsin mi?')) return;
+  api('/api/wifi/gecmis_sil?idx='+idx).then(()=>wifiGecmisYukle());
 }
 function wifiKaldir(){
   if(!confirm('Kayıtlı ağ kaldırılsın mı?')) return;
@@ -1768,6 +1824,7 @@ function wifiKaldir(){
     $('#wifi-sonuc').textContent=d.mesaj||'';
     $('#staSSID').value=''; $('#staPASS').value='';
     guncelle();
+    wifiGecmisYukle();
   });
 }
 function wifiScan(){
@@ -1786,6 +1843,29 @@ function wifiScan(){
 function restartSistem(){
   if(confirm('Yeniden başlatılsın mı?'))
     api('/api/restart').then(()=>{$('#wifi-sonuc').textContent='Yeniden başlatılıyor...';}).catch(()=>{});
+}
+// Yedekleme <a download> linkiyle yapılıyor (tarayıcı indirir + sunucu
+// aynı istekte SPIFFS'e de yazar, bkz handleAPI_AyarlarYedekle) - burada
+// sadece geri yükleme fonksiyonları var.
+function ayarlarCihazdanGeriYukle(){
+  if(!confirm('Cihazdaki en son yedekten geri yüklensin mi?')) return;
+  sendCommand(null, '/api/ayarlar/geri_yukle_cihaz', '#ayarlar-yedek-msg');
+}
+function ayarlarDosyadanGeriYukle(){
+  const el = $('#ayarlar-yedek-msg');
+  const f = $('#ayarlar-dosya').files[0];
+  if(!f){ el.textContent='Önce bir dosya seçin'; return; }
+  const r = new FileReader();
+  r.onload = function(){
+    fetch('/api/ayarlar/geri_yukle_dosya', {method:'POST', body:r.result})
+      .then(x=>x.json()).then(d=>{ el.textContent=(d.basarili?'OK ':'HATA ')+d.mesaj; })
+      .catch(()=>{ el.textContent='Geri yükleme hatası'; });
+  };
+  r.readAsText(f);
+}
+function ayarlarFabrikaDondur(){
+  if(!confirm('TUM Konteyner ayarlari (sensor hassasiyeti, siren, batarya/adaptor esikleri vb) fabrika degerlerine sifirlansin mi? Bu geri alinamaz.')) return;
+  sendCommand(null, '/api/ayarlar/fabrika', '#ayarlar-fabrika-msg');
 }
 // Ana guc erken-uyari merdiveni - tarayici bildirimi (2026-08-31). Sekme
 // acikken (arka planda bile) 24V ve alti her 0.5V basamakta tetiklenir.

@@ -20,6 +20,7 @@
 #include <math.h>
 #include <time.h>
 #include "config.h"
+#include "bahce_kapisi.h"
 #include "web_content.h" // OTOMATIK URETILIR - bkz scripts/gen_web_content.py
 
 // ============ WiFi AYARLARI (config.h) ============
@@ -116,12 +117,20 @@ Ayarlar ayar;
 
 // WiFi (STA) bilgileri - ayri EEPROM bolgesi, Ayarlar struct'indan bagimsiz
 // (bkz. config.h WIFI_EEPROM_ADDR aciklamasi)
+struct WifiGecmisKaydi { char ssid[32]; char sifre[32]; };
 struct WifiAyarlar {
   uint16_t magic;
   char ssid[32];
   char sifre[32];
+  uint16_t gecmisMagic;
+  WifiGecmisKaydi gecmis[WIFI_GECMIS_SAYISI];
 };
 WifiAyarlar wifiAyar;
+
+void wifiGecmisiTemizle() {
+  wifiAyar.gecmisMagic = WIFI_GECMIS_MAGIC;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) { wifiAyar.gecmis[i].ssid[0] = '\0'; wifiAyar.gecmis[i].sifre[0] = '\0'; }
+}
 
 void wifiAyarlariYukle() {
   EEPROM.begin(EEPROM_SIZE);
@@ -131,9 +140,18 @@ void wifiAyarlariYukle() {
     wifiAyar.magic = WIFI_EEPROM_MAGIC;
     wifiAyar.ssid[0] = '\0';
     wifiAyar.sifre[0] = '\0';
+    wifiGecmisiTemizle();
   } else {
     wifiAyar.ssid[31] = '\0';
     wifiAyar.sifre[31] = '\0';
+    // gecmis alanlari SONRADAN eklendi - eski (kucuk) EEPROM'dan yuklenen
+    // cihazlarda bu bayt(lar) gecersiz/rastgele olabilir, ayri magic ile
+    // dogrula (bkz config.h WIFI_GECMIS_MAGIC aciklamasi).
+    if (wifiAyar.gecmisMagic != WIFI_GECMIS_MAGIC) {
+      wifiGecmisiTemizle();
+    } else {
+      for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) { wifiAyar.gecmis[i].ssid[31] = '\0'; wifiAyar.gecmis[i].sifre[31] = '\0'; }
+    }
   }
 }
 
@@ -143,6 +161,48 @@ void wifiAyarlariKaydet() {
   bool ok = EEPROM.commit();
   EEPROM.end();
   DEBUG_PRINTF("[EEPROM] WiFi kaydedildi: %s (SSID=%s, sifreVar=%d)\n", ok ? "OK" : "HATA", wifiAyar.ssid, strlen(wifiAyar.sifre) > 0);
+}
+
+// Aktif ag DEGISTIRILMEDEN ONCE eski aktif agi (varsa) gecmise ekler -
+// "bagli oldugum aglar hafizada kalsin, listede gorunsun" (2026-09-08
+// kullanici talebi). Ayni SSID zaten gecmiste varsa once oradan silinir
+// (duplike kayit birikmesin), sonra en basa eklenir - en eski kayit
+// WIFI_GECMIS_SAYISI'ni asinca dusurulur.
+void wifiGecmiseEkle(const char* ssid, const char* sifre) {
+  if (strlen(ssid) == 0) return;
+  WifiGecmisKaydi yeni[WIFI_GECMIS_SAYISI];
+  strncpy(yeni[0].ssid, ssid, 31); yeni[0].ssid[31] = '\0'; strncpy(yeni[0].sifre, sifre, 31); yeni[0].sifre[31] = '\0';
+  int n = 1;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI && n < WIFI_GECMIS_SAYISI; i++) {
+    if (strcmp(wifiAyar.gecmis[i].ssid, ssid) == 0) continue; // duplike, atla
+    if (strlen(wifiAyar.gecmis[i].ssid) == 0) continue;
+    yeni[n] = wifiAyar.gecmis[i];
+    n++;
+  }
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (i < n) wifiAyar.gecmis[i] = yeni[i];
+    else { wifiAyar.gecmis[i].ssid[0] = '\0'; wifiAyar.gecmis[i].sifre[0] = '\0'; }
+  }
+}
+
+// idx'teki gecmis kaydini AKTIF ag yapar, eski aktif agi gecmise geri
+// koyar (basit takas) - "kayitli aglardan birine tikla, baglan" akisi.
+bool wifiGecmisiAktifYap(int idx) {
+  if (idx < 0 || idx >= WIFI_GECMIS_SAYISI || strlen(wifiAyar.gecmis[idx].ssid) == 0) return false;
+  char eskiSsid[32], eskiSifre[32];
+  strncpy(eskiSsid, wifiAyar.ssid, 32); strncpy(eskiSifre, wifiAyar.sifre, 32);
+  strncpy(wifiAyar.ssid, wifiAyar.gecmis[idx].ssid, 32);
+  strncpy(wifiAyar.sifre, wifiAyar.gecmis[idx].sifre, 32);
+  wifiAyar.gecmis[idx].ssid[0] = '\0'; wifiAyar.gecmis[idx].sifre[0] = '\0';
+  wifiGecmiseEkle(eskiSsid, eskiSifre);
+  wifiAyarlariKaydet();
+  return true;
+}
+
+void wifiGecmisiSil(int idx) {
+  if (idx < 0 || idx >= WIFI_GECMIS_SAYISI) return;
+  wifiAyar.gecmis[idx].ssid[0] = '\0'; wifiAyar.gecmis[idx].sifre[0] = '\0';
+  wifiAyarlariKaydet();
 }
 
 void varsayilanAyarlar() {
@@ -321,7 +381,7 @@ bool pirTetikleyici = false;
 // false ise). Buzzer PASIF oldugundan (kendi osilatoru yok) digitalWrite
 // yeterli degil - Nano'ya ozel TONE_PLAY komutu eklenip TEK SEFERLIK USB ile
 // reflash edildi (bkz nano_io main.cpp). pinKorumali ile bu pin de korunuyor.
-#define NANO_BUZZER_PIN 12
+// NANO_BUZZER_PIN artik config.h'da (bahce_kapisi.cpp de kullaniyor).
 #define PIR_DARBE_GECMISI_BOYUTU 8
 unsigned long pirDarbeGecmisi[PIR_DARBE_GECMISI_BOYUTU]; // en son darbelerin baslangic zamanlari (dairesel tampon)
 uint8_t pirDarbeGecmisiIndex = 0; // pirDarbeGecmisi'nde bir sonraki yazilacak slot
@@ -855,214 +915,6 @@ void rs485Gonder(const char* data) {
   digitalWrite(RS485_DE_PIN, LOW);
 }
 
-// ============ BAHÇE KAPISI (R413D08 Modbus RTU) ============
-// R413D08, mevcut Sudepo<->Konteyner RS485 hattina (yukaridaki swSerial) 3.
-// node olarak eklenir. Custom text protokolden farkli olarak burasi binary
-// Modbus RTU cercevesi gonderir - yanit BEKLENMEZ (fire-and-forget), gercek
-// sonuc limit switch/akim sensoruyle (Nano uzerinden) dogrulanir. Bkz
-// config.h BAHCE_* tanimlari, proje hafizasi project_bahce_kapisi_motor_gelecek_ozellik.
-uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
-  uint16_t crc = 0xFFFF;
-  for (uint8_t i = 0; i < len; i++) {
-    crc ^= buf[i];
-    for (uint8_t b = 0; b < 8; b++) {
-      if (crc & 1) { crc >>= 1; crc ^= 0xA001; }
-      else crc >>= 1;
-    }
-  }
-  return crc;
-}
-
-// Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
-void r413RoleYaz(uint8_t koilNo, bool acik) {
-  uint8_t frame[8];
-  frame[0] = R413D08_MODBUS_ADRES;
-  frame[1] = 0x05;
-  frame[2] = 0x00; frame[3] = koilNo;
-  frame[4] = acik ? 0xFF : 0x00; frame[5] = 0x00;
-  uint16_t crc = modbusCRC16(frame, 6);
-  frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
-  digitalWrite(RS485_DE_PIN, HIGH);
-  delayMicroseconds(100);
-  swSerial.write(frame, 8);
-  delay(2);
-  digitalWrite(RS485_DE_PIN, LOW);
-}
-
-// Nano'nun genel PIN_READ/ANALOG_READ komutlarina senkron (bloklayan) sarmalayici
-// - /pin/read endpoint'iyle ayni desen, kapi state machine'inden tekrar
-// kullanilabilmesi icin fonksiyona cikarildi.
-bool nanoDijitalOku(int pin, bool* okundu = nullptr) {
-  while (Serial.available()) Serial.read();
-  Serial.print("PIN_READ:"); Serial.println(pin);
-  unsigned long t = millis(); String r = ""; bool ok = false;
-  while (millis() - t < 300) {
-    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("PIN:") >= 0) { ok = true; break; } }
-    yield();
-  }
-  if (okundu) *okundu = ok;
-  if (!ok) return false;
-  int eq = r.indexOf('=');
-  return eq >= 0 ? (r.substring(eq + 1).toInt() != 0) : false;
-}
-
-int nanoAnalogOku(int pin) {
-  while (Serial.available()) Serial.read();
-  Serial.print("ANALOG_READ:"); Serial.println(pin);
-  unsigned long t = millis(); String r = ""; bool ok = false;
-  while (millis() - t < 300) {
-    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ANALOG:") >= 0) { ok = true; break; } }
-    yield();
-  }
-  if (!ok) return -1;
-  int eq = r.indexOf('=');
-  return eq >= 0 ? r.substring(eq + 1).toInt() : -1;
-}
-
-enum KapiDurum { KAPI_KAPALI, KAPI_ACIK, KAPI_KILIT_ACILIYOR, KAPI_HAREKET_AC, KAPI_HAREKET_KAPA, KAPI_HATA };
-const char* kapiDurumAdi(KapiDurum d) {
-  switch (d) {
-    case KAPI_KAPALI: return "kapali";
-    case KAPI_ACIK: return "acik";
-    case KAPI_KILIT_ACILIYOR: return "kilit_aciliyor";
-    case KAPI_HAREKET_AC: return "aciliyor";
-    case KAPI_HAREKET_KAPA: return "kapaniyor";
-    default: return "hata";
-  }
-}
-
-struct BahceKapisi {
-  KapiDurum durum = KAPI_KAPALI;  // gercek konum SADECE limit switch/alarm sensoru ile dogrulanir - kalici degil, boot'ta bilinmiyor sayilir
-  unsigned long hareketBaslangicMs = 0;
-  unsigned long kilitPulseBaslangicMs = 0;
-  unsigned long sonPollMs = 0;
-  uint8_t releA, releB, releKilit;
-  int acikPin, akimPin;
-  bool hataAsiriAkim = false;
-};
-BahceKapisi bahceKapi[2] = {
-  { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI1_RELE_A, BAHCE_KAPI1_RELE_B, BAHCE_KAPI1_KILIT_RELE, BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI1_AKIM_PIN, false },
-  { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI2_RELE_A, BAHCE_KAPI2_RELE_B, BAHCE_KAPI2_KILIT_RELE, BAHCE_KAPI2_ACIK_PIN, BAHCE_KAPI2_AKIM_PIN, false }
-};
-
-// "Kapalı" konumu icin ayri Nano sorgusu YOK - mevcut alarm kapi sensoru
-// (kapi1Acik/kapi2Acik, GET_STATUS ile zaten surekli taze) dogrudan kullanilir.
-// Bu sensor "kapi acik" algiladiginda true oldugundan, bahce kapisi
-// "kapali" durumu = !kapi1Acik/!kapi2Acik.
-bool kapiMevcutAlarmSensoruKapali(int i) { return i == 0 ? !kapi1Acik : !kapi2Acik; }
-
-void kapiMotorDurdur(BahceKapisi& k) {
-  r413RoleYaz(k.releA, false);
-  r413RoleYaz(k.releB, false);
-}
-
-void kapiTumRoleleriKapat() {
-  for (int i = 0; i < 2; i++) {
-    kapiMotorDurdur(bahceKapi[i]);
-    r413RoleYaz(bahceKapi[i].releKilit, false);
-  }
-}
-
-// Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
-// motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
-void kapiAcKomut(int i) {
-  BahceKapisi& k = bahceKapi[i];
-  if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
-  r413RoleYaz(k.releKilit, true);
-  k.kilitPulseBaslangicMs = millis();
-  k.hataAsiriAkim = false;
-  k.durum = KAPI_KILIT_ACILIYOR;
-}
-
-void kapiKapatKomut(int i) {
-  BahceKapisi& k = bahceKapi[i];
-  if (k.durum == KAPI_HAREKET_KAPA) return;
-  kapiMotorDurdur(k);
-  r413RoleYaz(k.releA, false);
-  r413RoleYaz(k.releB, true);
-  k.hareketBaslangicMs = millis();
-  k.hataAsiriAkim = false;
-  k.durum = KAPI_HAREKET_KAPA;
-}
-
-void kapiDurdurKomut(int i) {
-  BahceKapisi& k = bahceKapi[i];
-  kapiMotorDurdur(k);
-  r413RoleYaz(k.releKilit, false);
-  k.durum = KAPI_HATA;
-}
-
-void kapiPoll() {
-  unsigned long now = millis();
-  for (int i = 0; i < 2; i++) {
-    BahceKapisi& k = bahceKapi[i];
-    if (k.durum == KAPI_KILIT_ACILIYOR) {
-      if (now - k.kilitPulseBaslangicMs >= BAHCE_KILIT_PULSE_MS) {
-        r413RoleYaz(k.releKilit, false);  // kilit darbesi bitti, motoru baslat
-        r413RoleYaz(k.releB, false);
-        r413RoleYaz(k.releA, true);
-        k.hareketBaslangicMs = now;
-        k.durum = KAPI_HAREKET_AC;
-      }
-      continue;
-    }
-    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) continue;
-    if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
-    k.sonPollMs = now;
-
-    bool acikOk;
-    bool acikLimit = nanoDijitalOku(k.acikPin, &acikOk) == LOW;
-    bool kapaliLimit = kapiMevcutAlarmSensoruKapali(i);  // mevcut alarm kapi sensorunden, ekstra Nano sorgusu yok
-    int akimRaw = nanoAnalogOku(k.akimPin);
-    float akimAmper = (akimRaw >= 0) ? ((akimRaw - BAHCE_AKIM_SIFIR_RAW) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
-
-    bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
-    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > BAHCE_AKIM_ESIK_A;
-
-    if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
-      kapiMotorDurdur(k);
-      k.durum = KAPI_ACIK;
-    } else if (k.durum == KAPI_HAREKET_KAPA && kapaliLimit) {
-      kapiMotorDurdur(k);
-      k.durum = KAPI_KAPALI;
-    } else if (zamanAsimi || asiriAkim) {
-      kapiMotorDurdur(k);
-      k.hataAsiriAkim = asiriAkim;
-      k.durum = KAPI_HATA;
-      DEBUG_PRINTF("[KAPI%d] HATA: %s\n", i + 1, asiriAkim ? "asiri akim" : "zaman asimi");
-    }
-  }
-}
-
-// ============ ZIL BUTONU ============
-// Disarida buton, iceride (Nano/Sudepo) buzzer "ding-dong" calar - klasik
-// kapi zili. Motor hareket halindeyken kapiPoll() zaten sik Nano sorgusu
-// yaptigindan, cakismayi/asiri trafigi onlemek icin bu poll de ayni interval
-// mantigini kullanir ama BAGIMSIZ calisir (kapi hareketinden etkilenmez).
-void zilButonPoll() {
-  static unsigned long sonPollMs = 0;
-  static bool oncekiBasili = false;
-  unsigned long now = millis();
-  if (now - sonPollMs < BAHCE_ZIL_POLL_ARALIK_MS) return;
-  sonPollMs = now;
-  bool okundu = false;
-  bool basili = nanoDijitalOku(BAHCE_ZIL_BUTON_PIN, &okundu) == LOW;  // INPUT_PULLUP, basilinca LOW
-  if (!okundu) return;  // Nano yanit vermediyse bu turu atla, oncekiBasili DEGISTIRME
-  if (basili && !oncekiBasili) {
-    DEBUG_PRINTLN("[ZIL] basildi, ding-dong calinacak");
-    while (Serial.available()) Serial.read();
-    Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON1_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
-    unsigned long t = millis();
-    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
-    delay(BAHCE_ZIL_TON_SURE_MS + 30);
-    while (Serial.available()) Serial.read();
-    Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON2_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
-    t = millis();
-    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
-  }
-  oncekiBasili = basili;
-}
-
 // FIX: masterGonder() hem periyodik (1000ms) hem de poll isteğine yanıt olarak çalışır.
 // Periyodik gönderme, SoftwareSerial'in güvenilmez olduğu durumlarda yedek sağlar.
 // ESP32 poll'u kaçsa bile veri akışı devam eder.
@@ -1128,6 +980,69 @@ String ayarDegerAl(const String& veri, const String& anahtar) {
   return veri.substring(start, end);
 }
 
+// Tum ayarlari "k1=v1,k2=v2,..." formatinda tek satira serialize eder -
+// RS485 GET_AYARLAR (Kalburum/ESP32 Ayarlar sekmesi) VE web "Ayarlari
+// Bilgisayara Kaydet" yedeklemesi ORTAK KULLANIR (2026-09-08). Iki ayri
+// yerde ayni string'i elle yazip senkronizasyonu unutma riskini onler.
+String ayarlarToString() {
+  char buf[700];
+  snprintf(buf, sizeof(buf),
+    "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d,sirenGecikmeSaniye=%d,sirenChirpMs=%d,sirenBeklemeSaniye=%d,sirenAktifSaniye=%d,sirenMaxDakika=%d,moistureKontrolGunMask=%d,moistureKontrolBaslangicSaat=%d,moistureKontrolBaslangicDakika=%d,moistureKontrolBitisSaat=%d,moistureKontrolBitisDakika=%d",
+    ayar.bosMesafe, ayar.doluMesafe, ayar.depoKapasiteLitre, ayar.alarmSeviyeYuzde,
+    ayar.geceBaslangicSaat, ayar.geceBitisSaat, ayar.minDolumLitre, ayar.kacakEsikDakika,
+    ayar.depoYatay, ayar.moistureAutomatic, ayar.moistureThresholdLow, ayar.moistureThresholdHigh,
+    ayar.alarmTriggerGunduz, ayar.alarmTriggerGece, ayar.alarmMod, ayar.alarmSensorEtkin, ayar.alarmMaskSesli,
+    ayar.alarmMaskSessiz, ayar.alarmMaskOnayli, ayar.alarmOutputSesli, ayar.alarmOutputSessiz,
+    ayar.pirPencereSaniye, ayar.pirMinTetiklenme,
+    ayar.sirenGecikmeSaniye, ayar.sirenChirpMs, ayar.sirenBeklemeSaniye, ayar.sirenAktifSaniye, ayar.sirenMaxDakika,
+    ayar.moistureKontrolGunMask, ayar.moistureKontrolBaslangicSaat, ayar.moistureKontrolBaslangicDakika,
+    ayar.moistureKontrolBitisSaat, ayar.moistureKontrolBitisDakika);
+  return String(buf);
+}
+
+// ayarlarToString() formatindaki bir string'i ayristirip ayar struct'ina
+// uygular - SET_AYARLAR (RS485/ESP32) VE web "Yedekten Geri Yukle" ORTAK
+// KULLANIR. Kaydetme (ayarlariKaydet()) cagiran tarafin sorumlulugunda.
+void ayarlariStringdenUygula(const String& veri) {
+  String v;
+  v = ayarDegerAl(veri, "bosMesafe"); if (v.length()) ayar.bosMesafe = v.toFloat();
+  v = ayarDegerAl(veri, "doluMesafe"); if (v.length()) ayar.doluMesafe = v.toFloat();
+  v = ayarDegerAl(veri, "kapasite"); if (v.length()) ayar.depoKapasiteLitre = v.toFloat();
+  v = ayarDegerAl(veri, "alarmYuzde"); if (v.length()) ayar.alarmSeviyeYuzde = v.toFloat();
+  v = ayarDegerAl(veri, "geceBaslangic"); if (v.length()) ayar.geceBaslangicSaat = v.toInt();
+  v = ayarDegerAl(veri, "geceBitis"); if (v.length()) ayar.geceBitisSaat = v.toInt();
+  v = ayarDegerAl(veri, "minDolumLitre"); if (v.length()) ayar.minDolumLitre = v.toFloat();
+  v = ayarDegerAl(veri, "kacakEsikDakika"); if (v.length()) ayar.kacakEsikDakika = v.toInt();
+  v = ayarDegerAl(veri, "depoYatay"); if (v.length()) ayar.depoYatay = v.toInt();
+  v = ayarDegerAl(veri, "moistureAutomatic"); if (v.length()) ayar.moistureAutomatic = v.toInt() ? 1 : 0;
+  v = ayarDegerAl(veri, "moistureThresholdLow"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdLow = x; }
+  v = ayarDegerAl(veri, "moistureThresholdHigh"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdHigh = x; }
+  v = ayarDegerAl(veri, "triggerGunduz"); if (v.length()) ayar.alarmTriggerGunduz = v.toInt();
+  v = ayarDegerAl(veri, "triggerGece"); if (v.length()) ayar.alarmTriggerGece = v.toInt();
+  v = ayarDegerAl(veri, "alarmMod"); if (v.length()) {
+    int m = v.toInt();
+    if (m >= 1 && m <= 3) { ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false; alarmSusturuldu = false; }
+  }
+  v = ayarDegerAl(veri, "alarmSensorEtkin"); if (v.length()) ayar.alarmSensorEtkin = v.toInt();
+  v = ayarDegerAl(veri, "alarmMaskSesli"); if (v.length()) ayar.alarmMaskSesli = v.toInt();
+  v = ayarDegerAl(veri, "alarmMaskSessiz"); if (v.length()) ayar.alarmMaskSessiz = v.toInt();
+  v = ayarDegerAl(veri, "alarmMaskOnayli"); if (v.length()) ayar.alarmMaskOnayli = v.toInt();
+  v = ayarDegerAl(veri, "alarmOutputSesli"); if (v.length()) ayar.alarmOutputSesli = v.toInt();
+  v = ayarDegerAl(veri, "alarmOutputSessiz"); if (v.length()) ayar.alarmOutputSessiz = v.toInt();
+  v = ayarDegerAl(veri, "pirPencereSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.pirPencereSaniye = x; }
+  v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > PIR_DARBE_GECMISI_BOYUTU) x = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = x; }
+  v = ayarDegerAl(veri, "sirenGecikmeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.sirenGecikmeSaniye = x; }
+  v = ayarDegerAl(veri, "sirenChirpMs"); if (v.length()) { int x = v.toInt(); if (x < 50) x = 50; if (x > 5000) x = 5000; ayar.sirenChirpMs = x; }
+  v = ayarDegerAl(veri, "sirenBeklemeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenBeklemeSaniye = x; }
+  v = ayarDegerAl(veri, "sirenAktifSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenAktifSaniye = x; }
+  v = ayarDegerAl(veri, "sirenMaxDakika"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 30) x = 30; ayar.sirenMaxDakika = x; }
+  v = ayarDegerAl(veri, "moistureKontrolGunMask"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 0x7F) x = 0x7F; ayar.moistureKontrolGunMask = x; }
+  v = ayarDegerAl(veri, "moistureKontrolBaslangicSaat"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 23) x = 23; ayar.moistureKontrolBaslangicSaat = x; }
+  v = ayarDegerAl(veri, "moistureKontrolBaslangicDakika"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 59) x = 59; ayar.moistureKontrolBaslangicDakika = x; }
+  v = ayarDegerAl(veri, "moistureKontrolBitisSaat"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 23) x = 23; ayar.moistureKontrolBitisSaat = x; }
+  v = ayarDegerAl(veri, "moistureKontrolBitisDakika"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 59) x = 59; ayar.moistureKontrolBitisDakika = x; }
+}
+
 // ============ RS485 ALICI (Master komutlarını dinle) ============
 void rs485KomutDinle() {
   static String buffer;
@@ -1146,10 +1061,14 @@ void rs485KomutDinle() {
           masterGonder();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
-          // Konteyner/ESP32 tarafindaki fiziksel butondan gelir - iki kanat
-          // birlikte acilir (arac girisi icin ayri ayri tetiklemeye gerek yok).
+          // Konteyner/ESP32 web toggle'indan ya da fiziksel butona CIFT basisla
+          // gelir - iki kanat birlikte acilir.
           kapiAcKomut(0);
           kapiAcKomut(1);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI1_AC") {
+          // Fiziksel butona TEK basisla gelir - sadece sol kanat (Kapi 1) acilir.
+          kapiAcKomut(0);
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_KAPAT") {
           kapiKapatKomut(0);
@@ -1285,51 +1204,9 @@ void rs485KomutDinle() {
           // Kalburum (ESP32) Ayarlar sekmesinden bu Sudepo-zonu ayarlarini
           // gorup degistirebilsin diye - ESP8266 hala tek dogru kaynak/
           // yurutucu, ESP32 sadece okuyup RS485 ile geri yaziyor.
-          char buf[540];
-          snprintf(buf, sizeof(buf),
-            "bosMesafe=%.1f,doluMesafe=%.1f,kapasite=%.0f,alarmYuzde=%.0f,geceBaslangic=%d,geceBitis=%d,minDolumLitre=%.0f,kacakEsikDakika=%d,depoYatay=%d,moistureAutomatic=%d,moistureThresholdLow=%d,moistureThresholdHigh=%d,triggerGunduz=%d,triggerGece=%d,alarmMod=%d,alarmSensorEtkin=%d,alarmMaskSesli=%d,alarmMaskSessiz=%d,alarmMaskOnayli=%d,alarmOutputSesli=%d,alarmOutputSessiz=%d,pirPencereSaniye=%d,pirMinTetiklenme=%d,sirenGecikmeSaniye=%d,sirenChirpMs=%d,sirenBeklemeSaniye=%d,sirenAktifSaniye=%d,sirenMaxDakika=%d",
-            ayar.bosMesafe, ayar.doluMesafe, ayar.depoKapasiteLitre, ayar.alarmSeviyeYuzde,
-            ayar.geceBaslangicSaat, ayar.geceBitisSaat, ayar.minDolumLitre, ayar.kacakEsikDakika,
-            ayar.depoYatay, ayar.moistureAutomatic, ayar.moistureThresholdLow, ayar.moistureThresholdHigh,
-            ayar.alarmTriggerGunduz, ayar.alarmTriggerGece, ayar.alarmMod, ayar.alarmSensorEtkin, ayar.alarmMaskSesli,
-            ayar.alarmMaskSessiz, ayar.alarmMaskOnayli, ayar.alarmOutputSesli, ayar.alarmOutputSessiz,
-            ayar.pirPencereSaniye, ayar.pirMinTetiklenme,
-            ayar.sirenGecikmeSaniye, ayar.sirenChirpMs, ayar.sirenBeklemeSaniye, ayar.sirenAktifSaniye, ayar.sirenMaxDakika);
-          response = "ACK:AYARLAR=" + String(buf);
+          response = "ACK:AYARLAR=" + ayarlarToString();
         } else if (komut.startsWith("SET_AYARLAR=")) {
-          String veri = komut.substring(12);
-          String v;
-          v = ayarDegerAl(veri, "bosMesafe"); if (v.length()) ayar.bosMesafe = v.toFloat();
-          v = ayarDegerAl(veri, "doluMesafe"); if (v.length()) ayar.doluMesafe = v.toFloat();
-          v = ayarDegerAl(veri, "kapasite"); if (v.length()) ayar.depoKapasiteLitre = v.toFloat();
-          v = ayarDegerAl(veri, "alarmYuzde"); if (v.length()) ayar.alarmSeviyeYuzde = v.toFloat();
-          v = ayarDegerAl(veri, "geceBaslangic"); if (v.length()) ayar.geceBaslangicSaat = v.toInt();
-          v = ayarDegerAl(veri, "geceBitis"); if (v.length()) ayar.geceBitisSaat = v.toInt();
-          v = ayarDegerAl(veri, "minDolumLitre"); if (v.length()) ayar.minDolumLitre = v.toFloat();
-          v = ayarDegerAl(veri, "kacakEsikDakika"); if (v.length()) ayar.kacakEsikDakika = v.toInt();
-          v = ayarDegerAl(veri, "depoYatay"); if (v.length()) ayar.depoYatay = v.toInt();
-          v = ayarDegerAl(veri, "moistureAutomatic"); if (v.length()) ayar.moistureAutomatic = v.toInt() ? 1 : 0;
-          v = ayarDegerAl(veri, "moistureThresholdLow"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdLow = x; }
-          v = ayarDegerAl(veri, "moistureThresholdHigh"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 100) x = 100; ayar.moistureThresholdHigh = x; }
-          v = ayarDegerAl(veri, "triggerGunduz"); if (v.length()) ayar.alarmTriggerGunduz = v.toInt();
-          v = ayarDegerAl(veri, "triggerGece"); if (v.length()) ayar.alarmTriggerGece = v.toInt();
-          v = ayarDegerAl(veri, "alarmMod"); if (v.length()) {
-            int m = v.toInt();
-            if (m >= 1 && m <= 3) { ayar.alarmMod = m; alarmOnayBekliyor = false; alarmOnaylandi = false; alarmOnaySadeceLamba = false; alarmSusturuldu = false; }
-          }
-          v = ayarDegerAl(veri, "alarmSensorEtkin"); if (v.length()) ayar.alarmSensorEtkin = v.toInt();
-          v = ayarDegerAl(veri, "alarmMaskSesli"); if (v.length()) ayar.alarmMaskSesli = v.toInt();
-          v = ayarDegerAl(veri, "alarmMaskSessiz"); if (v.length()) ayar.alarmMaskSessiz = v.toInt();
-          v = ayarDegerAl(veri, "alarmMaskOnayli"); if (v.length()) ayar.alarmMaskOnayli = v.toInt();
-          v = ayarDegerAl(veri, "alarmOutputSesli"); if (v.length()) ayar.alarmOutputSesli = v.toInt();
-          v = ayarDegerAl(veri, "alarmOutputSessiz"); if (v.length()) ayar.alarmOutputSessiz = v.toInt();
-          v = ayarDegerAl(veri, "pirPencereSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.pirPencereSaniye = x; }
-          v = ayarDegerAl(veri, "pirMinTetiklenme"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > PIR_DARBE_GECMISI_BOYUTU) x = PIR_DARBE_GECMISI_BOYUTU; ayar.pirMinTetiklenme = x; }
-          v = ayarDegerAl(veri, "sirenGecikmeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 0) x = 0; if (x > 120) x = 120; ayar.sirenGecikmeSaniye = x; }
-          v = ayarDegerAl(veri, "sirenChirpMs"); if (v.length()) { int x = v.toInt(); if (x < 50) x = 50; if (x > 5000) x = 5000; ayar.sirenChirpMs = x; }
-          v = ayarDegerAl(veri, "sirenBeklemeSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenBeklemeSaniye = x; }
-          v = ayarDegerAl(veri, "sirenAktifSaniye"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 120) x = 120; ayar.sirenAktifSaniye = x; }
-          v = ayarDegerAl(veri, "sirenMaxDakika"); if (v.length()) { int x = v.toInt(); if (x < 1) x = 1; if (x > 30) x = 30; ayar.sirenMaxDakika = x; }
+          ayarlariStringdenUygula(komut.substring(12));
           ayarlariKaydet();
           response = "ACK:SET_AYARLAR";
         }
@@ -1933,10 +1810,49 @@ void handleSetTime() {
   }
   server.send(200, "application/json", "{\"mesaj\":\"" + m + "\",\"basarili\":" + String(b?"true":"false") + "}");
 }
-void handleGetSettings() {
+// handleGetSettings (form doldurma) VE /ayarlar/yedekle (dosyaya indirme)
+// ORTAK KULLANIR - alan adlari handleSaveSettings'in bekledigi query
+// parametre adlariyla BIREBIR AYNI olmali (yedek dosyasi geri yuklenirken
+// ayni adlarla /ayarlar/kaydet'e POST edilir, bkz web/app.js).
+String ayarlarJSON() {
   String j = "{";
   j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + "}";
-  server.send(200, "application/json", j);
+  return j;
+}
+void handleGetSettings() {
+  server.send(200, "application/json", ayarlarJSON());
+}
+// 2026-09-08 kullanici talebi: ayarlari bilgisayara dosya olarak kaydedip
+// (yedek) sonradan geri yukleyebilme. Indirme: mevcut ayarlarJSON() +
+// Content-Disposition ile tarayici otomatik dosya olarak kaydeder. Geri
+// yukleme icin ayri bir endpoint YOK - web/app.js bu JSON'u okuyup ayni
+// alan adlariyla mevcut /ayarlar/kaydet'e POST eder (handleSaveSettings).
+void handleAyarlarYedekle() {
+  server.sendHeader("Content-Disposition", "attachment; filename=sudepo_ayarlar.json");
+  server.send(200, "application/json", ayarlarJSON());
+}
+// TUM ayarlari (kalibrasyon, alarm, siren, nem - varsayilanAyarlar() ile
+// AYNI kapsam) kod-ici sabit varsayilanlara dondurur - "fabrika ayarlarina
+// don" (2026-09-08 kullanici talebi, her iki cihazda da olsun). WiFi bilgisi
+// (ayri EEPROM bolgesi) ETKILENMEZ.
+void handleAyarlarFabrikaDondur() {
+  varsayilanAyarlar();
+  ayarlariKaydet();
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Tum ayarlar fabrika degerlerine sifirlandi\"}");
+}
+// Nem kontrolu ayarlarini (esikler + haftalik pencere) kod-ici sabit
+// varsayilanlara dondurur - "fabrika ayarlarina don" (2026-09-08 kullanici
+// talebi). Diger ayar gruplarina (alarm/siren/tank vb) DOKUNMAZ.
+void handleNemFabrikaAyarlari() {
+  ayar.moistureThresholdLow = 40;
+  ayar.moistureThresholdHigh = 70;
+  ayar.moistureKontrolGunMask = 0;
+  ayar.moistureKontrolBaslangicSaat = MOISTURE_KONTROL_BASLANGIC_SAAT_VARSAYILAN;
+  ayar.moistureKontrolBaslangicDakika = MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN;
+  ayar.moistureKontrolBitisSaat = MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN;
+  ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
+  ayarlariKaydet();
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Nem ayarlari fabrika degerlerine sifirlandi\"}");
 }
 void handleSaveSettings() {
   if (server.hasArg("bosMesafe")) ayar.bosMesafe = server.arg("bosMesafe").toFloat();
@@ -2118,6 +2034,37 @@ void handleWifiDurum() {
   bool b = (WiFi.status() == WL_CONNECTED);
   server.send(200, "application/json", "{\"tanimli\":" + String(strlen(wifiAyar.ssid)>0?"true":"false") + ",\"ssid\":\"" + String(wifiAyar.ssid) + "\",\"bagli\":" + String(b?"true":"false") + ",\"ip\":\"" + (b?WiFi.localIP().toString():"-") + "\",\"sifreVar\":" + String(strlen(wifiAyar.sifre)>0?"true":"false") + "}");
 }
+// Kayitli WiFi gecmisini listeler - SADECE SSID doner, sifreler cihazda
+// kalir (istemciye asla gonderilmez, "gecmis_bagla" sunucu tarafinda
+// kendi sakladigi sifreyi kullanir).
+void handleWifiGecmisListe() {
+  String j = "[";
+  bool ilk = true;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (strlen(wifiAyar.gecmis[i].ssid) == 0) continue;
+    if (!ilk) j += ",";
+    ilk = false;
+    j += "{\"idx\":" + String(i) + ",\"ssid\":\"" + jsonKacir(String(wifiAyar.gecmis[i].ssid)) + "\"}";
+  }
+  j += "]";
+  server.send(200, "application/json", j);
+}
+void handleWifiGecmisBagla() {
+  if (!server.hasArg("idx")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"idx eksik\"}"); return; }
+  int idx = server.arg("idx").toInt();
+  if (!wifiGecmisiAktifYap(idx)) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Kayit bulunamadi\"}"); return; }
+  // handleWifiKaydet'teki restart FIX ile AYNI gerekce - canli ag degistirme
+  // yerine temiz bir yeniden baslatma.
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(wifiAyar.ssid) + " agina baglanmak icin yeniden baslatiliyor\"}");
+  server.client().flush();
+  delay(500);
+  ESP.restart();
+}
+void handleWifiGecmisSil() {
+  if (!server.hasArg("idx")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"idx eksik\"}"); return; }
+  wifiGecmisiSil(server.arg("idx").toInt());
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Silindi\"}");
+}
 void handleWifiKaydet() {
   String ssid = "";
   String pw = "";
@@ -2130,13 +2077,17 @@ void handleWifiKaydet() {
   // If no SSID provided at all, reject the request
   if (!server.hasArg("ssid") && !server.hasArg("s")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"ssid eksik\"}"); return; }
 
-  // Empty SSID => remove saved WiFi
+  // Empty SSID => remove saved WiFi (2026-09-08: gecmise ekleyerek kaldir -
+  // "bagli oldugum aglar hafizada kalsin" istegi, tamamen kaybolmasin)
   if (ssid.length() == 0) {
+    wifiGecmiseEkle(wifiAyar.ssid, wifiAyar.sifre);
     wifiAyar.ssid[0]='\0'; wifiAyar.sifre[0]='\0'; wifiAyarlariKaydet(); WiFi.disconnect();
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaldirildi\"}");
     return;
   }
 
+  // Farkli bir aga geciliyorsa eski aktif ag gecmise eklenir (kaybolmasin)
+  if (strcmp(wifiAyar.ssid, ssid.c_str()) != 0) wifiGecmiseEkle(wifiAyar.ssid, wifiAyar.sifre);
   ssid.toCharArray(wifiAyar.ssid, 32);
   // FIX: Sifre bos birakildiysa eski kayitli sifre korunur (silinmez).
   // Ayrica bozuk DEBUG_PRINTF satiri duzeltildi.
@@ -2145,9 +2096,17 @@ void handleWifiKaydet() {
   }
   wifiAyarlariKaydet();
   DEBUG_PRINTF("[WIFI] Kaydedilen SSID: %s, sifreVar=%d\n", wifiAyar.ssid, strlen(wifiAyar.sifre) > 0);
-  WiFi.disconnect(); delay(100);
-  WiFi.begin(wifiAyar.ssid, wifiAyar.sifre);
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi\"}");
+  // FIX (kullanici sikayeti, 2026-09-08: "baglan-kaydet dedigimde durum
+  // yazilari refresh olmuyor, ancak reset atinca degisiyor"): STA zaten
+  // baska bir aga baglanmisken WiFi.disconnect()+WiFi.begin() ile CANLI
+  // ag degistirmek ESP8266 WiFi surucusunde bilinen bir sorun - radyo bazen
+  // duzgun yeniden iliskilenmiyor, sadece temiz bir ESP.restart() sonrasi
+  // yeni SSID'ye gercekten baglaniyor (bkz handleRestart yorumu, ayni
+  // gecikme/flush deseni). Kayittan hemen sonra kendini yeniden baslatir.
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi, yeniden baslatiliyor\"}");
+  server.client().flush();
+  delay(500);
+  ESP.restart();
 }
 
 void handleWifiScan() {
@@ -2479,6 +2438,9 @@ void setup() {
   server.on("/events", handleSSE);
   server.on("/olc", handleMeasure); server.on("/durum", handleStatus); server.on("/zaman", handleTime); server.on("/ayarla", handleSetTime);
   server.on("/ayarlar", HTTP_GET, handleGetSettings); server.on("/ayarlar/kaydet", handleSaveSettings);
+  server.on("/ayarlar/yedekle", HTTP_GET, handleAyarlarYedekle);
+  server.on("/nem/fabrika", handleNemFabrikaAyarlari);
+  server.on("/ayarlar/fabrika", handleAyarlarFabrikaDondur);
   server.on("/kayit/liste", handleKayitListesi); server.on("/kayit/ekle", handleKayitEkle); server.on("/kayit/guncelle", handleKayitGuncelle); server.on("/kayit/sil", handleKayitSil); server.on("/kayit/csv", handleKayitCSV); server.on("/kc", handleKayitCSV); server.on("/kayit/temizle", handleKayitTemizle);
   server.on("/role/ayarla", handleRoleAyarla); server.on("/role/panic", handleRolePanic);
   server.on("/alarm/sustur", handleAlarmSustur); server.on("/alarm/onayla", handleAlarmOnayla); server.on("/alarm/onayla_lamba", handleAlarmOnaylaLamba);
@@ -2487,6 +2449,9 @@ void setup() {
   server.on("/role/polarite", handleRolePolarite);
   server.on("/wifi/durum", handleWifiDurum); server.on("/wifi/kaydet", handleWifiKaydet);
   server.on("/wifi/scan", handleWifiScan);
+  server.on("/wifi/gecmis", handleWifiGecmisListe);
+  server.on("/wifi/gecmis_bagla", handleWifiGecmisBagla);
+  server.on("/wifi/gecmis_sil", handleWifiGecmisSil);
   server.on("/lamba", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt(); // Buffer temizle, komutu gönder, ACK bekle (max 300ms)
   while (Serial.available()) Serial.read();
   Serial.println(y ? "LAMBA_ON" : "LAMBA_OFF");

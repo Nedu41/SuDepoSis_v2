@@ -95,14 +95,21 @@
 <tr><th>Nano Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
 <tr><td>D0 (RX)</td><td>TX (D10)</td><td>1</td><td>ESP → Nano komut (470Ω direnç)</td></tr>
 <tr><td>D1 (TX)</td><td>RX (D9)</td><td>3</td><td>Nano → ESP durum</td></tr>
-<tr><td>D2</td><td>—</td><td>—</td><td>Kapı 1 sensör girişi (INPUT_PULLUP)</td></tr>
-<tr><td>D3</td><td>—</td><td>—</td><td>Kapı 2 sensör girişi (INPUT_PULLUP)</td></tr>
-<tr><td>D4</td><td>—</td><td>—</td><td>Alarm rölesi (OUTPUT, NC - LOW=aktif)</td></tr>
+<tr><td>D2</td><td>—</td><td>—</td><td>Kapı 1 tam kapalı switch (INPUT_PULLUP)</td></tr>
+<tr><td>D3</td><td>—</td><td>—</td><td>Kapı 2 tam kapalı switch (INPUT_PULLUP)</td></tr>
+<tr><td>D4</td><td>—</td><td>—</td><td>Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)</td></tr>
 <tr><td>D5</td><td>—</td><td>—</td><td>Nem rölesi (OUTPUT)</td></tr>
 <tr><td>D6</td><td>—</td><td>—</td><td>PIR hareket sensörü girişi (INPUT, HIGH=hareket)</td></tr>
-<tr><td>D7-D12</td><td>—</td><td>—</td><td>Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)</td></tr>
+<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
+<tr><td>D8, D11</td><td>—</td><td>—</td><td>Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)</td></tr>
+<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
+<tr><td>D10</td><td>—</td><td>—</td><td>Bahçe Kapısı zil butonu (INPUT_PULLUP, basılınca LOW)</td></tr>
+<tr><td>D12</td><td>—</td><td>—</td><td>Pasif buzzer (TONE_PLAY/TONE_STOP) — açılış melodisi, PIR ön-uyarı bipi, zil</td></tr>
 <tr><td>D13</td><td>—</td><td>—</td><td>Depo iç lamba rölesi (OUTPUT, sadece lamba)</td></tr>
-<tr><td>A0-A5</td><td>—</td><td>—</td><td>Yedek GPIO (analog + digital I/O)</td></tr>
+<tr><td>A0</td><td>—</td><td>—</td><td>Toprak nem sensörü (analog)</td></tr>
+<tr><td>A1</td><td>—</td><td>—</td><td>Bahçe Kapı 1 motor akım sensörü (ACS712 5A)</td></tr>
+<tr><td>A2</td><td>—</td><td>—</td><td>Bahçe Kapı 2 motor akım sensörü (ACS712 5A)</td></tr>
+<tr><td>A3-A5</td><td>—</td><td>—</td><td>Yedek GPIO</td></tr>
 <tr><td>A6-A7</td><td>—</td><td>—</td><td>Yedek (sadece analog input)</td></tr>
 <tr><td>5V</td><td>5V</td><td>—</td><td>5V güç (USB veya ayrı)</td></tr>
 <tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
@@ -114,6 +121,22 @@
 <li><code>PIN_READ:<pin></code> — input pin oku (yanıt: PIN:6=1)</li>
 <li><code>PIN_READ_ALL</code> — tüm pinleri oku (D2-D13 + A0-A5)</li>
 </ul>
+</div>
+
+<div class="section">
+<h2>Modül 4b: R413D08 (8CH RS485/Modbus RTU Röle — Bahçe Kapısı Motor Kontrolü)</h2>
+<p>Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
+<p><strong>Pozisyon algılama:</strong> Tam açık = Nano D7/D9. Kapalı = Nano D2/D3 (Modül 4 tablosu).</p>
+<table>
+<tr><th>R413D08 Kanal</th><th>Fonksiyon</th></tr>
+<tr><td>1</td><td>Kapı 1 motor rölesi A (açma yönü)</td></tr>
+<tr><td>2</td><td>Kapı 1 motor rölesi B (kapama yönü)</td></tr>
+<tr><td>3</td><td>Kapı 2 motor rölesi A (açma yönü)</td></tr>
+<tr><td>4</td><td>Kapı 2 motor rölesi B (kapama yönü)</td></tr>
+<tr><td>5</td><td>Ortak elektrikli solenoid kilit (darbeli, 1sn) — iki kapı için TEK kilit, kanatlar ortada birleşince kilitlenir</td></tr>
+<tr><td>6-8</td><td>Kullanılmıyor</td></tr>
+</table>
+<p class="no-print" style="color:var(--accent)">Henüz sahaya kurulmadı (2026-09-07 planlandı) — komutlar donanım bağlanınca çalışır.</p>
 </div>
 
 <div class="section">
@@ -129,13 +152,14 @@
 </div>
 
 <div class="section">
-<h2>Modül 6: Röle Modülü (Alarm Rölesi + Nem Rölesi, 5V bobin)</h2>
-<p><strong>2026-08-26:</strong> Tüm röle bobinleri 5V — Alarm Rölesi ve Nem Rölesi. Nem rölesi tetiklenince sulama <strong>30 dakika</strong> sürüyor.</p>
+<h2>Modül 6: Alarm Sireni (12V, IRF520 MOSFET) + Nem Rölesi (5V bobin)</h2>
+<p><strong>2026-09-08:</strong> Alarm sireni artık röle değil — IRF520 MOSFET modülü ile doğrudan <strong>12V</strong> anahtarlanıyor (low-side switch, HIGH=aktif). Nem rölesi değişmedi (5V bobin). Nem rölesi tetiklenince sulama <strong>30 dakika</strong> sürüyor.</p>
 <table>
 <tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
-<tr><td>Nano D4</td><td>GPIO</td><td>Alarm rölesi tetikleme (5V bobin, NC - LOW=aktif)</td></tr>
-<tr><td>Röle COM</td><td>Cihaz +</td><td>Alarm cihazı</td></tr>
-<tr><td>Röle NO</td><td>Cihaz +</td><td>Güç devresi</td></tr>
+<tr><td>Nano D4</td><td>GPIO</td><td>IRF520 SIG (logic seviye, HIGH=aktif)</td></tr>
+<tr><td>IRF520 V+</td><td>12V hattı</td><td>Siren güç girişi (yerel 5V buck'ı bypass eder)</td></tr>
+<tr><td>IRF520 OUT</td><td>Siren +</td><td>Anahtarlanan taraf</td></tr>
+<tr><td>Siren −</td><td>GND</td><td>Ortak dönüş</td></tr>
 <tr><td>Nano D5</td><td>GPIO</td><td>Nem rölesi tetikleme (5V bobin) — tetiklenince 30dk sulama</td></tr>
 </table>
 </div>
@@ -151,18 +175,18 @@
 <tr><td>DS1307 RTC</td><td>3.3V</td><td>~1mA</td><td>ESP8266 3V3 pini</td><td>CR2032 yedekli — ana güç kesilse de saat çalışmaya devam eder</td></tr>
 <tr><td>Toprak Nem Sensörü</td><td>3.3-5V</td><td>~5-20mA (DOĞRULA)</td><td>Yerel 3.3V/5V hattı</td><td>Sensör tipine göre değişir</td></tr>
 <tr><td>PIR (HC-SR501)</td><td>5V</td><td>~50-65mA</td><td>Yerel 5V hattı</td><td>Kullanıcı doğruladı (2026-08-26)</td></tr>
-<tr><td>Alarm Rölesi (bobin)</td><td>5V</td><td>~70-90mA</td><td>Yerel 5V hattı</td><td>Kullanıcı doğruladı — tüm röle bobinleri 5V</td></tr>
+<tr><td>Alarm Sireni</td><td>12V (doğrudan, buck bypass)</td><td>DOĞRULA</td><td>12V hattından doğrudan (IRF520 ile), yerel 5V buck'a girmez</td><td>2026-09-08: Röle değil, IRF520 MOSFET — 12V doğrudan anahtarlanıyor</td></tr>
 <tr><td>Nem Rölesi (bobin)</td><td>5V</td><td>~70-90mA</td><td>Yerel 5V hattı</td><td>Tetiklenince 30dk sulama süresi</td></tr>
 <tr><td>Depo Lambası (5V Power LED)</td><td>5V</td><td>~200-400mA (DOĞRULA)</td><td>Yerel 5V hattı, Nano D13 MOSFET ile anahtarlanır</td><td>Röle değil, MOSFET — kullanıcı doğruladı (2026-08-26). MOSFET modülü: 400W/15A (2026-08-28)</td></tr>
 </table>
-<p style="color:var(--muted); font-size:0.9em">Akım değerleri tipik datasheet/piyasa değerleridir, "DOĞRULA" işaretli olanlar sahada ölçülmedi. Tüm cihazlar 5V — Sudepo zonunda ayrı bir 12V dağıtımı yok, 12V sadece 20m hat üzerinde taşınıp yerel buck ile 5V'a çevriliyor.</p>
+<p style="color:var(--muted); font-size:0.9em">Akım değerleri tipik datasheet/piyasa değerleridir, "DOĞRULA" işaretli olanlar sahada ölçülmedi. 2026-09-08: Alarm sireni hariç tüm cihazlar 5V — siren artık IRF520 ile 12V hattından doğrudan besleniyor (yerel buck'ı bypass eder), geri kalan yükler yine tek bir yerel buck ile 5V'a çevriliyor.</p>
 </div>
 
 <div class="section">
 <h2>Sudepo Besleme Hattı (20m, Ev Yedek Akü Bankasından)</h2>
 <p><strong>2026-08-26 kararı:</strong> Sudepo zonu, Konteyner'i besleyen aynı 3×12V paralel yedek akü bankasından 20m'lik bir hatla beslenecek. RS485 (A/B) haberleşme hattı zaten mevcut/ayrı kablo üzerinden gidiyor — bu güç hattı buna ek, sadece güç taşıyor.</p>
 <p><strong>Yöntem — "çift perli" CAT5:</strong> CAT5 kablonun 4 çiftinden (8 tel) 2 çifti (4 tel) + kutbuna, diğer 2 çifti (4 tel) − kutbuna paralel bağlanarak tek kalın iletken gibi kullanılıyor. Bu, tek bir çift kullanmaya göre direnci 4'e katlıyor (1/4'üne düşürüyor).</p>
-<p><strong>2026-08-26 güncelleme:</strong> Tüm Sudepo yükleri 5V olduğundan (röle bobinleri + PIR + lamba dahil), 12V hattı sadece kablo boyunca taşınıp Sudepo'da TEK bir yerel buck ile 5V'a çevriliyor — 12V'un yerel dağıtımı yok, akım bütçesi öncekinden çok daha düşük.</p>
+<p><strong>2026-08-26 güncelleme:</strong> Sudepo yükleri 5V olduğundan (röle bobinleri + PIR + lamba dahil), 12V hattı kablo boyunca taşınıp Sudepo'da TEK bir yerel buck ile 5V'a çevriliyor. <strong>2026-09-08 istisna:</strong> Alarm sireni artık IRF520 MOSFET ile 12V hattından doğrudan besleniyor (buck'ı bypass eder) — aşağıdaki tablodaki "en kötü durum" akımı bu nedenle sirenin gerçek çekişi ölçülene kadar DOĞRULA işaretlidir.</p>
 <table>
 <tr><th>Hesap</th><th>Değer</th></tr>
 <tr><td>24AWG tek tel direnci</td><td>~0.0842 Ω/m</td></tr>
@@ -170,7 +194,8 @@
 <tr><td>Gidiş-dönüş toplam direnç</td><td>~0.84 Ω</td></tr>
 <tr><td>Toplam 5V yük — bekleme</td><td>~250mA @5V ≈ 1.25W → 12V hatta ~0.12A (buck ~85% verim)</td></tr>
 <tr><td>Toplam 5V yük — sulama (nem rölesi 30dk)</td><td>~340mA @5V ≈ 1.7W → 12V hatta ~0.17A</td></tr>
-<tr><td>Toplam 5V yük — en kötü durum (lamba+alarm+nem rölesi+elektronik tepe)</td><td>~940mA @5V ≈ 4.7W → 12V hatta ~0.46A</td></tr>
+<tr><td>Toplam 5V yük — en kötü durum (lamba+nem rölesi+elektronik tepe, siren hariç)</td><td>~870mA @5V ≈ 4.35W → 12V hatta ~0.43A (buck ~85% verim)</td></tr>
+<tr><td>+ Alarm Sireni (12V doğrudan, buck'a girmez)</td><td>DOĞRULA — sahada ölçülüp bu satıra eklenmeli</td></tr>
 <tr><td>Gerilim düşümü — bekleme (~0.12A)</td><td>~0.10V (uçta ~11.9V)</td></tr>
 <tr><td>Gerilim düşümü — sulama (~0.17A)</td><td>~0.14V (uçta ~11.86V)</td></tr>
 <tr><td>Gerilim düşümü — en kötü durum (~0.46A)</td><td>~0.39V (uçta ~11.6V)</td></tr>
@@ -218,7 +243,7 @@ RX (D9)  → D1 (TX)
 GND      → GND
 5V       → 5V (opsiyonel)
 
-Nano D4 → Alarm Rölesi IN (5V bobin)
+Nano D4 → IRF520 SIG (Alarm Sireni, 12V doğrudan anahtarlanır)
 Nano D5 → Nem Rölesi IN (5V bobin, tetiklenince 30dk sulama)
 Nano D13 → Depo Lambası MOSFET gate (5V power LED)
 Nano D2 → Kapı1 sensör
