@@ -174,6 +174,9 @@
 // edilecek, altyapı önceden hazırlanıyor. Bkz proje hafızası
 // project_bahce_kapisi_motor_gelecek_ozellik.
 //
+// Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle
+// AYNI kural - bkz nano_io/config.h DOOR1_PIN/DOOR2_PIN).
+//
 // "Kapalı" pozisyonu için YENİ switch gerekmiyor: mevcut depo alarm kapı
 // sensörleri (DOOR1_PIN=D2/DOOR2_PIN=D3, nano_io config.h) zaten bu iki
 // kanadın üzerinde - ESP8266 tarafında kapi1Acik/kapi2Acik olarak sürekli
@@ -189,10 +192,10 @@
 // toplam 2) - Nano'nun yedek GPIO'larında (bkz project_nano_yedek_pin_hazir_altyapi).
 // Akım sensörleri de Nano analog girişlerinde. Bu pinler pinKorumali() ile
 // genel /pin/* API'sinden korunuyor.
-#define BAHCE_KAPI1_ACIK_PIN    7   // D7  - Kapı1 tam açık limit switch (INPUT_PULLUP, tetiklenince LOW)
-#define BAHCE_KAPI2_ACIK_PIN    9   // D9  - Kapı2 tam açık limit switch
-#define BAHCE_KAPI1_AKIM_PIN    15  // A1  - Kapı1 motor akım sensörü (ACS712 5A)
-#define BAHCE_KAPI2_AKIM_PIN    16  // A2  - Kapı2 motor akım sensörü (ACS712 5A)
+#define BAHCE_KAPI1_ACIK_PIN    7   // D7  - Kapı1 (SOL) tam açık limit switch (INPUT_PULLUP, tetiklenince LOW)
+#define BAHCE_KAPI2_ACIK_PIN    9   // D9  - Kapı2 (SAĞ) tam açık limit switch
+#define BAHCE_KAPI1_AKIM_PIN    15  // A1  - Kapı1 (SOL) motor akım sensörü (ACS712 5A)
+#define BAHCE_KAPI2_AKIM_PIN    16  // A2  - Kapı2 (SAĞ) motor akım sensörü (ACS712 5A)
 
 // R413D08 (8CH RS485/Modbus RTU röle) - mevcut Sudepo<->Konteyner RS485
 // hattına (swSerial, RS485_TX_PIN/RX_PIN) 3. node olarak eklenir. DİKKAT:
@@ -205,10 +208,10 @@
 // çekilir) - AÇIK: A=ON,B=OFF | KAPALI: A=OFF,B=ON | DUR: A=OFF,B=OFF
 // (iki terminal de GND'de = fren/durma, kısa devre riski yok). MOSFET
 // H-köprüsü YERİNE bilinçli olarak seçildi (bkz proje hafızası).
-#define BAHCE_KAPI1_RELE_A  0  // R413D08 kanal 1
-#define BAHCE_KAPI1_RELE_B  1  // R413D08 kanal 2
-#define BAHCE_KAPI2_RELE_A  2  // R413D08 kanal 3
-#define BAHCE_KAPI2_RELE_B  3  // R413D08 kanal 4
+#define BAHCE_KAPI1_RELE_A  0  // R413D08 kanal 1 - Kapı1 (SOL)
+#define BAHCE_KAPI1_RELE_B  1  // R413D08 kanal 2 - Kapı1 (SOL)
+#define BAHCE_KAPI2_RELE_A  2  // R413D08 kanal 3 - Kapı2 (SAĞ)
+#define BAHCE_KAPI2_RELE_B  3  // R413D08 kanal 4 - Kapı2 (SAĞ)
 // TEK solenoid kilit, iki kapıda ORTAK (2026-09-08, kullanıcı talebi) - kilit
 // kanatlar ortada BİRLEŞTİĞİNDE devreye girer, kapı başına ayrı kilide gerek
 // yok. Herhangi bir kanat açılmadan önce bu ortak kilit darbeyle açılır.

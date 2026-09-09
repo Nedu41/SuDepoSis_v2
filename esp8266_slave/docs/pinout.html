@@ -95,20 +95,20 @@
 <tr><th>Nano Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
 <tr><td>D0 (RX)</td><td>TX (D10)</td><td>1</td><td>ESP → Nano komut (470Ω direnç)</td></tr>
 <tr><td>D1 (TX)</td><td>RX (D9)</td><td>3</td><td>Nano → ESP durum</td></tr>
-<tr><td>D2</td><td>—</td><td>—</td><td>Kapı 1 tam kapalı switch (INPUT_PULLUP)</td></tr>
-<tr><td>D3</td><td>—</td><td>—</td><td>Kapı 2 tam kapalı switch (INPUT_PULLUP)</td></tr>
+<tr><td>D2</td><td>—</td><td>—</td><td>Kapı 1 (SOL) tam kapalı switch (INPUT_PULLUP)</td></tr>
+<tr><td>D3</td><td>—</td><td>—</td><td>Kapı 2 (SAĞ) tam kapalı switch (INPUT_PULLUP)</td></tr>
 <tr><td>D4</td><td>—</td><td>—</td><td>Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)</td></tr>
 <tr><td>D5</td><td>—</td><td>—</td><td>Nem rölesi (OUTPUT)</td></tr>
 <tr><td>D6</td><td>—</td><td>—</td><td>PIR hareket sensörü girişi (INPUT, HIGH=hareket)</td></tr>
-<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
+<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
 <tr><td>D8, D11</td><td>—</td><td>—</td><td>Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)</td></tr>
-<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
+<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
 <tr><td>D10</td><td>—</td><td>—</td><td>Bahçe Kapısı zil butonu (INPUT_PULLUP, basılınca LOW)</td></tr>
 <tr><td>D12</td><td>—</td><td>—</td><td>Pasif buzzer (TONE_PLAY/TONE_STOP) — açılış melodisi, PIR ön-uyarı bipi, zil</td></tr>
 <tr><td>D13</td><td>—</td><td>—</td><td>Depo iç lamba rölesi (OUTPUT, sadece lamba)</td></tr>
 <tr><td>A0</td><td>—</td><td>—</td><td>Toprak nem sensörü (analog)</td></tr>
-<tr><td>A1</td><td>—</td><td>—</td><td>Bahçe Kapı 1 motor akım sensörü (ACS712 5A)</td></tr>
-<tr><td>A2</td><td>—</td><td>—</td><td>Bahçe Kapı 2 motor akım sensörü (ACS712 5A)</td></tr>
+<tr><td>A1</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) motor akım sensörü (ACS712 5A)</td></tr>
+<tr><td>A2</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) motor akım sensörü (ACS712 5A)</td></tr>
 <tr><td>A3-A5</td><td>—</td><td>—</td><td>Yedek GPIO</td></tr>
 <tr><td>A6-A7</td><td>—</td><td>—</td><td>Yedek (sadece analog input)</td></tr>
 <tr><td>5V</td><td>5V</td><td>—</td><td>5V güç (USB veya ayrı)</td></tr>
@@ -125,14 +125,14 @@
 
 <div class="section">
 <h2>Modül 4b: R413D08 (8CH RS485/Modbus RTU Röle — Bahçe Kapısı Motor Kontrolü)</h2>
-<p>Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
-<p><strong>Pozisyon algılama:</strong> Tam açık = Nano D7/D9. Kapalı = Nano D2/D3 (Modül 4 tablosu).</p>
+<p>Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle aynı kural). R413D08 kapı tarafına monte edilir (ESP8266 panosuyla arası 5cm), Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
+<p><strong>Pozisyon algılama:</strong> Tam açık = Nano D7 (SOL) / D9 (SAĞ). Kapalı = Nano D2 (SOL) / D3 (SAĞ) (Modül 4 tablosu).</p>
 <table>
 <tr><th>R413D08 Kanal</th><th>Fonksiyon</th></tr>
-<tr><td>1</td><td>Kapı 1 motor rölesi A (açma yönü)</td></tr>
-<tr><td>2</td><td>Kapı 1 motor rölesi B (kapama yönü)</td></tr>
-<tr><td>3</td><td>Kapı 2 motor rölesi A (açma yönü)</td></tr>
-<tr><td>4</td><td>Kapı 2 motor rölesi B (kapama yönü)</td></tr>
+<tr><td>1</td><td>Kapı 1 (SOL) motor rölesi A (açma yönü)</td></tr>
+<tr><td>2</td><td>Kapı 1 (SOL) motor rölesi B (kapama yönü)</td></tr>
+<tr><td>3</td><td>Kapı 2 (SAĞ) motor rölesi A (açma yönü)</td></tr>
+<tr><td>4</td><td>Kapı 2 (SAĞ) motor rölesi B (kapama yönü)</td></tr>
 <tr><td>5</td><td>Ortak elektrikli solenoid kilit (darbeli, 1sn) — iki kapı için TEK kilit, kanatlar ortada birleşince kilitlenir</td></tr>
 <tr><td>6-8</td><td>Kullanılmıyor</td></tr>
 </table>
@@ -246,8 +246,8 @@ GND      → GND
 Nano D4 → IRF520 SIG (Alarm Sireni, 12V doğrudan anahtarlanır)
 Nano D5 → Nem Rölesi IN (5V bobin, tetiklenince 30dk sulama)
 Nano D13 → Depo Lambası MOSFET gate (5V power LED)
-Nano D2 → Kapı1 sensör
-Nano D3 → Kapı2 sensör
+Nano D2 → Kapı1 (SOL) sensör
+Nano D3 → Kapı2 (SAĞ) sensör
 </pre>
 </div>
 </body>
