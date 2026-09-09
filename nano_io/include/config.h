@@ -11,13 +11,17 @@
 // ============================================================
 // PIN HARİTASI (v2 - 2026 planı)
 // D0/D1  → ESP8266 seri haberleşme
-// D2/D3  → Kapı sensörleri (INPUT_PULLUP)
+// D2/D3  → Kapı sensörleri (INPUT_PULLUP) - Kapı1=SOL, Kapı2=SAĞ
 // D4     → Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)
 // D5     → Nem rölesi (OUTPUT)
+// D7     → Bahçe Kapı1 (SOL) tam açık switch (genel /pin/* API, pinKorumali())
 // D8     → Yedek (eski durum LED)
+// D9     → Bahçe Kapı2 (SAĞ) tam açık switch (genel /pin/* API, pinKorumali())
+// D10    → Bahçe Kapısı zil butonu (genel /pin/* API, pinKorumali())
+// D12    → Pasif buzzer (TONE_PLAY/TONE_STOP) - açılış melodisi, PIR ön-uyarı, zil
 // D13    → Depo iç lamba rölesi (OUTPUT, sadece lamba)
-// D6,D7,D9,D10,D11,D12 → Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)
-// A0-A5  → Yedek GPIO (analog + digital I/O)
+// D6,D11 → Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)
+// A0-A5  → Yedek GPIO (analog + digital I/O) - A1/A2 Bahçe Kapı1(SOL)/Kapı2(SAĞ) akım sensörü
 // A6-A7  → Yedek (sadece analog input)
 // ============================================================
 
