@@ -1,0 +1,54 @@
+"LMM0GG(SJEOWFSUFS
+NMLS`oepeAkilli O -Gr d nverter
+
+1.6kW | 3kW
+
+ebekeden Baimsiz     ebeke Balantisi     Çok Aamali        Tam Sinüs Dalga  LCD Ekran      Wi-Fi üzerinden
+   Kullanicilar çin                   Akilli arj Tasarimi                                  gerçek zamanli
+                                                                                       izleme desteine sahip
+
+                                      · Tam s nüs dalgali solar nverter.
+                                      · Çiki güç faktörü 1,0
+                                      · Yüksek PV g r  voltaji aralii (30-400VDC)
+                                      · Zorlu ortamlar ç n dah l toz önleme k t .
+                                      · P l ömrünü opt m ze etmek ç n akilli p l arj fonks yonu
+MODEL                                 NML 1.6kW                              NML 3kW
+
+Nominal Güç                                2000VA/1600W                         3200VA/3000W
+AC GR GERLM
+Voltaj                                                                        230VAC
+Seçilebilir Voltaj Aralii             × eeîS[S× /[S
+Frekans Aralii
+AC ÇIKI                                                     OO~îOEîîî
+AC Gerilim Regülasyonu
+Ani Güç (Surge Power)                                    230VAC±5%
+Verimlilik (Zirve) PV'den nvertöre
+Verimlilik (Zirve) Aküden nvertöre    4000VA                                 6400VA
+Transfer Zamani
+AKÜ VE AC ARJ CHAZI                                      98%
+Akü Gerilimi
+Yüzer arj Gerilimi                                       94%
+Airi arj Korumasi
+Maksimum AC arj Akimi                 eeîS[S/[S
+GÜNE ARJ CHAZI
+Maksimum PV Dizi Gücü                  12VDC                                 24VDC
+MPPT Aralii @ Çalima Gerilimi         13.5VDC                                27VDC
+Maksimum PV Dizi Açik Devre Gerilimi   16VDC                                 33VDC
+Maksimum arj Akimi
+FZKSEL                                                                  60A
+Boyutlar DGY(mm)
+Net Airlik (kg)                       2000W                                  3000W
+letiim Arayüzü
+ÇALIMA ORTAMI                                            30-400VDC
+Nem                                                        400VDC
+Çalima Sicaklii                                               80A
+
+                                                         357*273*95
+
+                                      4                                      5
+
+                                                         RS232/WIFI
+
+                                              îs
+                                                     -10 to 50C°
+
