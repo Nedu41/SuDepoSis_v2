@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.SuDepoMonitor" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#0d1117</item>
+        <item name="android:windowBackground">#0d1117</item>
+    </style>
+</resources>
