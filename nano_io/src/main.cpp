@@ -32,13 +32,13 @@ unsigned long door2_last_change_ms = 0;
 // ama Nano guncellenemez. Bu ayari calisma zamaninda (seri komutla, EEPROM'a
 // yazarak) degistirilebilir hale getirerek bu sorunu bir daha yasamiyoruz.
 #define EEPROM_ADDR_RELAY_POL   0
-// NOT: RELAY_ACTIVE varsayilani HIGH'dan LOW'a duzeltildiginde (NC role
-// kablolamasiyla eslessin diye) bu magic bump edildi (eski: 0xA5). Aksi
-// halde daha once bu Nano'da calismis herhangi bir firmware EEPROM'a HIGH
-// yazmis olabilir ve relayPolariteYukle() yeni varsayilani hic gormeden
-// eski (yanlis) degeri okumaya devam ederdi.
-#define EEPROM_MAGIC_RELAY_POL  0xA6
-uint8_t relayAktifSeviye = RELAY_ACTIVE; // varsayilan: config.h'daki (LOW - NC role)
+// NOT: 2026-09-08 - D4 rolesi NC role'den IRF520 MOSFET'e degisti, varsayilan
+// tekrar HIGH oldu (bkz config.h). Bu magic bump edildi (eski: 0xA5, 0xA6).
+// Aksi halde saha Nano'sunda ONCEKI firmware'in EEPROM'a yazdigi LOW (role
+// donanimina ozel) degeri relayPolariteYukle() yeni varsayilani hic gormeden
+// okumaya devam ederdi.
+#define EEPROM_MAGIC_RELAY_POL  0xA7
+uint8_t relayAktifSeviye = RELAY_ACTIVE; // varsayilan: config.h'daki (HIGH - IRF520 MOSFET)
 
 void relayPolariteYukle() {
   if (EEPROM.read(EEPROM_ADDR_RELAY_POL) == EEPROM_MAGIC_RELAY_POL) {
@@ -132,11 +132,11 @@ void readInputs() {
   }
 }
 
-// NOT: Role artik SADECE ESP8266'nin RELAY_ON/RELAY_OFF komutlarıyla
+// NOT: Siren (D4) artik SADECE ESP8266'nin RELAY_ON/RELAY_OFF komutlarıyla
 // kontrol edilir (bkz handleSerialCommand). Eskiden burada kapı durumuna
 // gore rolenin kendi basina karar veren bir updateRelay() vardi - bu,
 // ESP8266'nin alarm modu/susturma/PIR/kacak/panik mantigini tamamen
-// bypass ediyordu (kapı acikken "sustur" komutu gonderilse bile role
+// bypass ediyordu (kapı acikken "sustur" komutu gonderilse bile cikis
 // bir sonraki loop'ta tekrar acikiyordu). Karar tamamen ESP8266'da.
 
 // ============================================================

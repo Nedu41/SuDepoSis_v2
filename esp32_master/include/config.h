@@ -408,6 +408,7 @@
 // MPPT icin degerlendirilip serbest birakilmisti (bkz proje hafizasi mppt-rs232-pi30).
 #define BAHCE_KAPI_BUTON_PIN 47
 #define BAHCE_KAPI_BUTON_COOLDOWN_MS 3000 // ACIL_BUTON_COOLDOWN ile ayni mantik - RS485'i art arda bloke etmesin
+#define BAHCE_KAPI_CIFT_BASIS_PENCERE_MS 450 // bu sure icinde 2. basis gelirse "cift basis" sayilir (bkz bahceKapiButonPoll)
 
 // Tetik animasyonu (2026-08-25, kullanici talebi): GAZ HARIC (patlayici gaz
 // icin gecikme guvenlik riski, eskisi gibi aninda/surekli kalir) her alarm

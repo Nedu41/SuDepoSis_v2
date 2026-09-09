@@ -20,6 +20,7 @@
 #include <Wire.h>
 
 #include "../include/config.h"
+#include "../include/bahce_kapisi.h"
 
 void irAliciBaslat(); // asagida "IR KUMANDA - HAM KENAR YAKALAMA" bolumunde tanimli
 
@@ -45,6 +46,67 @@ void wifiCredYukle() {
   savedSSID = wifiPrefs.getString("ssid", "");
   savedPass = wifiPrefs.getString("pass", "");
   wifiPrefs.end();
+}
+
+// 2026-09-08 kullanici talebi: "bagli oldugum wifi aglari hafizada kalsin,
+// listede gorunsun" - aktif agin (savedSSID/savedPass) DISINDA, daha once
+// baglanilmis aglarin kisa gecmisi. ESP8266'daki wifiGecmis* ile AYNI
+// mantik/isimlendirme, burada NVS (Preferences) uzerinde tutulur.
+#define WIFI_GECMIS_SAYISI 2
+String wifiGecmisSsid[WIFI_GECMIS_SAYISI];
+String wifiGecmisPass[WIFI_GECMIS_SAYISI];
+
+void wifiGecmisYukle() {
+  wifiPrefs.begin("wifi", true);
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    wifiGecmisSsid[i] = wifiPrefs.getString(("h" + String(i) + "s").c_str(), "");
+    wifiGecmisPass[i] = wifiPrefs.getString(("h" + String(i) + "p").c_str(), "");
+  }
+  wifiPrefs.end();
+}
+void wifiGecmisKaydet() {
+  wifiPrefs.begin("wifi", false);
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    wifiPrefs.putString(("h" + String(i) + "s").c_str(), wifiGecmisSsid[i]);
+    wifiPrefs.putString(("h" + String(i) + "p").c_str(), wifiGecmisPass[i]);
+  }
+  wifiPrefs.end();
+}
+// ssid zaten gecmiste varsa once oradan cikarilir (duplike birikmesin),
+// sonra en basa eklenir - en eski kayit WIFI_GECMIS_SAYISI'ni asinca dusurulur.
+void wifiGecmiseEkle(const String& ssid, const String& pass) {
+  if (ssid.length() == 0) return;
+  String yeniSsid[WIFI_GECMIS_SAYISI], yeniPass[WIFI_GECMIS_SAYISI];
+  yeniSsid[0] = ssid; yeniPass[0] = pass;
+  int n = 1;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI && n < WIFI_GECMIS_SAYISI; i++) {
+    if (wifiGecmisSsid[i].length() == 0 || wifiGecmisSsid[i] == ssid) continue;
+    yeniSsid[n] = wifiGecmisSsid[i]; yeniPass[n] = wifiGecmisPass[i]; n++;
+  }
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (i < n) { wifiGecmisSsid[i] = yeniSsid[i]; wifiGecmisPass[i] = yeniPass[i]; }
+    else { wifiGecmisSsid[i] = ""; wifiGecmisPass[i] = ""; }
+  }
+  wifiGecmisKaydet();
+}
+// idx'teki gecmis kaydini AKTIF ag yapar, eski aktif agi gecmise geri
+// koyar (basit takas) - "kayitli aglardan birine tikla, baglan" akisi.
+// wifiCredKaydet() asagida bu fonksiyondan SONRA tanimli oldugu icin ileri
+// bildirim gerekir.
+void wifiCredKaydet(const String& ssid, const String& pass);
+bool wifiGecmisiAktifYap(int idx) {
+  if (idx < 0 || idx >= WIFI_GECMIS_SAYISI || wifiGecmisSsid[idx].length() == 0) return false;
+  String eskiSsid = savedSSID, eskiPass = savedPass;
+  String yeniSsid = wifiGecmisSsid[idx], yeniPass = wifiGecmisPass[idx];
+  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = "";
+  wifiGecmiseEkle(eskiSsid, eskiPass);
+  wifiCredKaydet(yeniSsid, yeniPass);
+  return true;
+}
+void wifiGecmisiSil(int idx) {
+  if (idx < 0 || idx >= WIFI_GECMIS_SAYISI) return;
+  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = "";
+  wifiGecmisKaydet();
 }
 
 void wifiCredKaydet(const String& ssid, const String& pass) {
@@ -478,6 +540,11 @@ String nano_id = "UNKNOWN";
 
 unsigned long last_rs485_update_ms = 0;
 unsigned long last_mqtt_publish_ms = 0;
+
+// bahce_kapisi.cpp'nin NanoIOStatus'un tam tanimina ihtiyaci olmadan (encapsulation)
+// kapi durumlarini okuyabilmesi icin kucuk getter'lar.
+uint8_t bahceKapi1DurumAl() { return nanoStatus.bahce_kapi1_durum; }
+uint8_t bahceKapi2DurumAl() { return nanoStatus.bahce_kapi2_durum; }
 
 // ============================================================
 // KONTEYNER DONANIMI (IR kumanda, alarm LED, ikinci PIR, kapi reed)
@@ -2469,6 +2536,86 @@ void adaptorEsikKaydet(float kesme, float bagla) {
   ayarPrefs.end();
 }
 
+// ===== Konteyner Ayarlari Yedekleme/Geri Yukleme (2026-09-08 kullanici
+// talebi: "aynisini ESP32 tarafi icin de yap") - ESP8266'nin tersine
+// Konteyner ayarlari tek bir struct/EEPROM DEGIL, her grubun kendi NVS
+// (Preferences) anahtarinda tutuluyor - bu yuzden RS485 GET_AYARLAR/
+// SET_AYARLAR gibi tek string yerine ArduinoJson kullanilir, her alan
+// asagida MEVCUT *Yukle()/*Kaydet() fonksiyonlarinin NVS anahtariyla
+// BIREBIR ESLESIR (bkz yukaridaki tanimlar).
+void konteynerAyarlariniJsonaYaz(JsonDocument& doc) {
+  doc["k_pir_tut"] = konteynerPirTutmaSaniye;
+  doc["k_pir_onay"] = konteynerPirOnaySaniye;
+  doc["k_swan_tut"] = konteynerSwanTutmaSaniye;
+  doc["k_swan_onay"] = konteynerSwanOnaySaniye;
+  doc["k_pir_en"] = konteynerPirEtkin;
+  doc["k_kapi_en"] = konteynerKapiEtkin;
+  doc["k_swan_en"] = konteynerSwanEtkin;
+  doc["k_duman_en"] = konteynerDumanEtkin;
+  doc["k_gaz_en"] = konteynerGazEtkin;
+  doc["k_gaz_esik"] = konteynerGazEsikVolt;
+  doc["k_duman_esik"] = konteynerDumanEsikVolt;
+  doc["k_alarm_en"] = konteynerAlarmEtkin;
+  doc["k_sr_gec"] = konteynerSirenGecikmeSaniye;
+  doc["k_sr_atis"] = konteynerSirenAtisMs;
+  doc["k_sr_arlk"] = konteynerSirenAralikSaniye;
+  doc["k_sr_max"] = konteynerSirenMaxDakika;
+  doc["k_msk_ses"] = konteynerMaskSesli;
+  doc["k_out_ses"] = konteynerOutputSesli;
+  doc["k_msk_ssz"] = konteynerMaskSessiz;
+  doc["k_out_ssz"] = konteynerOutputSessiz;
+  doc["k_msk_ony"] = konteynerMaskOnayli;
+  doc["bat_aktif"] = bateryaKorumaAktif;
+  doc["bat_kesme"] = bateryaKesmeVolt;
+  doc["bat_geri"] = bateryaGeriYuklemeVolt;
+  doc["tg_aktif"] = telegramBildirimAktif;
+  doc["ag_esik1"] = anaGucEsik1Volt;
+  doc["ag_esik2"] = anaGucEsik2Volt;
+  doc["ag_esik3"] = anaGucEsik3Volt;
+  doc["ad_kesme"] = adaptorKesmeVolt;
+  doc["ad_bagla"] = adaptorBaglaVolt;
+}
+
+// doc'taki alanlari HER GRUBUN kendi *Kaydet() fonksiyonuyla uygular -
+// eksik/gecersiz bir alan varsa (orn. eski/kismi bir yedek dosyasi) "|"
+// operatoru MEVCUT calisma-zamani degerini varsayilan olarak kullanir,
+// o grup degismeden kalir.
+void konteynerAyarlariniJsondanUygula(JsonDocument& doc) {
+  konteynerPirAyarKaydet(doc["k_pir_tut"] | konteynerPirTutmaSaniye, doc["k_pir_onay"] | konteynerPirOnaySaniye);
+  konteynerSwanAyarKaydet(doc["k_swan_tut"] | konteynerSwanTutmaSaniye, doc["k_swan_onay"] | konteynerSwanOnaySaniye);
+  konteynerSensorAktifKaydet(doc["k_pir_en"] | konteynerPirEtkin, doc["k_kapi_en"] | konteynerKapiEtkin, doc["k_swan_en"] | konteynerSwanEtkin, doc["k_duman_en"] | konteynerDumanEtkin, doc["k_gaz_en"] | konteynerGazEtkin);
+  konteynerGazAyarKaydet(doc["k_gaz_esik"] | konteynerGazEsikVolt);
+  konteynerDumanAyarKaydet(doc["k_duman_esik"] | konteynerDumanEsikVolt);
+  konteynerAlarmAyarKaydet(doc["k_alarm_en"] | konteynerAlarmEtkin);
+  konteynerSirenAyarKaydet(doc["k_sr_gec"] | konteynerSirenGecikmeSaniye, doc["k_sr_atis"] | konteynerSirenAtisMs, doc["k_sr_arlk"] | konteynerSirenAralikSaniye, doc["k_sr_max"] | konteynerSirenMaxDakika);
+  konteynerModSenaryoKaydet(doc["k_msk_ses"] | konteynerMaskSesli, doc["k_out_ses"] | konteynerOutputSesli, doc["k_msk_ssz"] | konteynerMaskSessiz, doc["k_out_ssz"] | konteynerOutputSessiz, doc["k_msk_ony"] | konteynerMaskOnayli);
+  bateryaAyarlariKaydet(doc["bat_aktif"] | bateryaKorumaAktif, doc["bat_kesme"] | bateryaKesmeVolt, doc["bat_geri"] | bateryaGeriYuklemeVolt);
+  telegramAyarKaydet(doc["tg_aktif"] | telegramBildirimAktif);
+  anaGucEsikKaydet(doc["ag_esik1"] | anaGucEsik1Volt, doc["ag_esik2"] | anaGucEsik2Volt, doc["ag_esik3"] | anaGucEsik3Volt);
+  adaptorEsikKaydet(doc["ad_kesme"] | adaptorKesmeVolt, doc["ad_bagla"] | adaptorBaglaVolt);
+}
+
+// TUM Konteyner ayarlarini kod-ici sabit varsayilanlara dondurur - "fabrika
+// ayarlarina don" (2026-09-08 kullanici talebi, ESP8266 tarafiyla AYNI
+// ozellik). Degerler her *Yukle() fonksiyonundaki varsayilanlarla BIREBIR
+// AYNI olmali (bkz yukaridaki tanimlar) - burada elle tekrarlandi cunku
+// Preferences bos oldugunda zaten bu degerlere dusuyor, ama var olan bir
+// kaydi ELLE bu degerlere donduren ayri bir yol yoktu.
+void konteynerAyarlariniFabrikayaDondur() {
+  konteynerPirAyarKaydet(5, 10);
+  konteynerSwanAyarKaydet(0, 0);
+  konteynerSensorAktifKaydet(true, true, true, true, true);
+  konteynerGazAyarKaydet(2.0f);
+  konteynerDumanAyarKaydet(1.5f);
+  konteynerAlarmAyarKaydet(true);
+  konteynerSirenAyarKaydet(10, 300, 3, 2);
+  konteynerModSenaryoKaydet(15, 3, 15, 2, 15);
+  bateryaAyarlariKaydet(false, 23.0, 25.0);
+  telegramAyarKaydet(true);
+  anaGucEsikKaydet(ANA_GUC_ESIK1_V, ANA_GUC_ESIK2_V, ANA_GUC_ESIK3_V);
+  adaptorEsikKaydet(ANA_GUC_ADAPTOR_KESME_V, ANA_GUC_ADAPTOR_BAGLA_V);
+}
+
 void adaptorReleGuncelle() {
   if (!anaGucData.read_ok) return; // veri bayat/yok: son durumu koru
 
@@ -2529,27 +2676,6 @@ void acilButonPoll() {
       Serial.println("[ACIL_BUTON] panikTetikle() cagriliyor...");
       bool ok = panikTetikle(panicActive, reply); // sadece basma aninda (basma->birakma degil) tetikle
       Serial.printf("[ACIL_BUTON] panikTetikle sonucu: rs485_ok=%d panicActive=%d panic_mode=%d\n", ok, panicActive, alarmStatus.panic_mode);
-    }
-  }
-}
-
-// Fiziksel Bahce Kapisi Acma Butonu (GPIO47, INPUT_PULLUP, aktif-LOW) - ACIL_BUTON
-// ile AYNI kenar-debounce + cooldown deseni. Motor/role mantigi ESP8266/Sudepo
-// tarafinda oldugundan burada sadece RS485 uzerinden "MASTER:BAHCE_KAPI_AC"
-// komutu gonderilir, iki kanat da birlikte acilir (bkz esp8266_slave rs485KomutDinle).
-void bahceKapiButonPoll() {
-  static bool oncekiBasili = false;
-  static unsigned long sonDegisimMs = 0;
-  static unsigned long sonTetikMs = 0;
-  bool basili = (digitalRead(BAHCE_KAPI_BUTON_PIN) == LOW);
-  if (basili != oncekiBasili && millis() - sonDegisimMs > 50) {
-    sonDegisimMs = millis();
-    oncekiBasili = basili;
-    if (basili && millis() - sonTetikMs > BAHCE_KAPI_BUTON_COOLDOWN_MS) {
-      sonTetikMs = millis();
-      String reply;
-      bool ok = rs485_send_wait_ack("MASTER:BAHCE_KAPI_AC\n", reply, 1000, 3);
-      Serial.printf("[BAHCE_KAPI_BUTON] ac komutu gonderildi, sonuc=%d\n", ok);
     }
   }
 }
@@ -3508,7 +3634,7 @@ bool esp8266KayitGeriYukle() {
     delay(30);
   }
   f.close();
-  if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1500, 5)) {
+   if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1500, 5)) {
     hepsiOk = false;
     if (kayitGeriYuklemeHata.length() == 0) kayitGeriYuklemeHata = "RESTORE_BITIR yanit vermedi";
   }
@@ -3530,6 +3656,50 @@ void handleAPI_KayitGeriYukle() {
 void handleAPI_KayitYedekDurum() {
   bool varMi = SPIFFS.exists(KAYIT_BACKUP_DOSYASI);
   server.send(200, "application/json", "{\"varMi\":" + String(varMi ? "true" : "false") + ",\"dosya\":\"" + String(KAYIT_BACKUP_DOSYASI) + "\",\"sonYedek\":\"" + jsonKacir(sonYedekZamanStr) + "\"}");
+}
+
+// ===== Konteyner Ayarlari Yedekleme/Geri Yukleme HTTP uclari =====
+#define AYARLAR_BACKUP_DOSYASI "/ayarlar_backup.json"
+// Tek tikla HEM cihazin kendi flash'ina (SPIFFS) kaydeder HEM tarayiciya
+// indirir (Content-Disposition) - web_ui.h'de bir <a download> linki olarak
+// cagirilir, boylece kullanicinin bilgisayarina da bir kopya duser.
+void handleAPI_AyarlarYedekle() {
+  DynamicJsonDocument doc(1024);
+  konteynerAyarlariniJsonaYaz(doc);
+  String j; serializeJson(doc, j);
+  File f = SPIFFS.open(AYARLAR_BACKUP_DOSYASI, "w");
+  if (f) { f.print(j); f.close(); }
+  server.sendHeader("Content-Disposition", "attachment; filename=konteyner_ayarlar.json");
+  server.send(200, "application/json", j);
+}
+// Cihazin kendi hafizasindaki (SPIFFS) en son yedekten geri yukler - dosya
+// yuklemeye gerek yok, tek tikla eski ayarlara donus icin.
+void handleAPI_AyarlarGeriYukleCihaz() {
+  File f = SPIFFS.open(AYARLAR_BACKUP_DOSYASI, "r");
+  if (!f) { server.send(404, "application/json", "{\"basarili\":false,\"mesaj\":\"Cihazda kayitli yedek yok\"}"); return; }
+  DynamicJsonDocument doc(1024);
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Yedek dosyasi bozuk\"}"); return; }
+  konteynerAyarlariniJsondanUygula(doc);
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Cihazdaki yedekten geri yuklendi\"}");
+}
+// Kullanicinin bilgisayarindan sectigi bir yedek dosyasini (POST body =
+// dosya icerigi) uygular - ayrica cihazin kendi yedegini de gunceller
+// (bundan sonra "Cihazdaki Yedekten Geri Yukle" bu dosyayi kullanir).
+void handleAPI_AyarlarFabrikaDondur() {
+  konteynerAyarlariniFabrikayaDondur();
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Tum Konteyner ayarlari fabrika degerlerine sifirlandi\"}");
+}
+void handleAPI_AyarlarGeriYukleDosya() {
+  if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Veri yok\"}"); return; }
+  DynamicJsonDocument doc(1024);
+  DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Gecersiz JSON\"}"); return; }
+  konteynerAyarlariniJsondanUygula(doc);
+  File f = SPIFFS.open(AYARLAR_BACKUP_DOSYASI, "w");
+  if (f) { serializeJson(doc, f); f.close(); }
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Dosyadan geri yuklendi\"}");
 }
 
 // Bilgiler sekmesindeki "Sudepo Su Akisi Kayitlari" - RS485 uzerinden yeni
@@ -3838,33 +4008,6 @@ bool lambaAyarla(bool acik, String& reply) {
     last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
   }
   return ok;
-}
-
-// Bahce kapisi (arac girisi) - motor/rolelerin kendisi ESP8266/Sudepo
-// tarafinda (R413D08 uzerinden), burada sadece komut iletilir. Gercek durum
-// (acik/kapali/hareket halinde) bir sonraki GET_STATUS ile BAHCE1/BAHCE2
-// alanindan gelir (bkz parse_esp8266_data) - burada varsayimsal atama YOK.
-bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
-  String cmd = "MASTER:BAHCE_KAPI_" + String(aksiyon) + "\n";
-  bool ok = rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
-  if (ok) last_rs485_update_ms = millis();
-  return ok;
-}
-
-void handleAPI_BahceKapi() {
-  if (!server.hasArg("durum")) {
-    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
-    return;
-  }
-  String durum = server.arg("durum");
-  const char* aksiyon = durum == "ac" ? "AC" : (durum == "kapat" ? "KAPAT" : (durum == "dur" ? "DUR" : nullptr));
-  if (!aksiyon) {
-    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum ac/kapat/dur olmali\"}");
-    return;
-  }
-  String reply;
-  bool ok = bahceKapiKomutGonder(aksiyon, reply);
-  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Komut gonderildi" : "Sudepo yanit vermedi") + "\"}");
 }
 
 void handleAPI_Lamba() {
@@ -4681,20 +4824,60 @@ void handleAPI_Wifi() {
   String ssid = server.arg("ssid");
   String sifre = server.hasArg("sifre") ? server.arg("sifre") : "";
 
-  // Bos SSID -> kayitli agi kaldir, varsayilana don
+  // Bos SSID -> kayitli agi kaldir, varsayilana don (2026-09-08: kaldirilan
+  // ag gecmise eklenir, "hafizada kalsin" istegi - tamamen kaybolmasin)
   if (ssid.length() == 0) {
+    wifiGecmiseEkle(savedSSID, savedPass);
     wifiCredKaydet("", "");
     WiFi.disconnect();
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaldirildi\"}");
     return;
   }
 
+  // Farkli bir aga geciliyorsa eski aktif ag gecmise eklenir (kaybolmasin)
+  if (savedSSID != ssid) wifiGecmiseEkle(savedSSID, savedPass);
   wifiCredKaydet(ssid, sifre);
   DEBUG_PRINT("[WiFi] Kaydedilen SSID: "); DEBUG_PRINTLN(ssid);
-  WiFi.disconnect();
-  delay(100);
-  WiFi.begin(ssid.c_str(), sifre.c_str());
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi, baglaniliyor\"}");
+  // FIX (kullanici sikayeti, 2026-09-08: "baglan-kaydet dedigimde durum
+  // yazilari refresh olmuyor, ancak reset atinca degisiyor"): STA zaten
+  // baska bir aga baglanmisken WiFi.disconnect()+WiFi.begin() ile CANLI ag
+  // degistirmek guvenilir degil (ESP8266 tarafinda AYNI sikayet/duzeltme,
+  // bkz esp8266_slave handleWifiKaydet) - kayittan hemen sonra guvenliRestart()
+  // ile temiz bir yeniden baslatma yapilir, yeni SSID boot'ta denenir.
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi, yeniden baslatiliyor\"}");
+  server.client().flush();
+  delay(500);
+  guvenliRestart();
+}
+
+// Kayitli WiFi gecmisini listeler - SADECE SSID doner, sifreler cihazda
+// kalir (istemciye asla gonderilmez).
+void handleAPI_WifiGecmisListe() {
+  String j = "[";
+  bool ilk = true;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (wifiGecmisSsid[i].length() == 0) continue;
+    if (!ilk) j += ",";
+    ilk = false;
+    j += "{\"idx\":" + String(i) + ",\"ssid\":\"" + jsonKacir(wifiGecmisSsid[i]) + "\"}";
+  }
+  j += "]";
+  server.send(200, "application/json", j);
+}
+void handleAPI_WifiGecmisBagla() {
+  if (!server.hasArg("idx")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"idx eksik\"}"); return; }
+  int idx = server.arg("idx").toInt();
+  if (!wifiGecmisiAktifYap(idx)) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"Kayit bulunamadi\"}"); return; }
+  // handleAPI_Wifi'deki restart FIX ile AYNI gerekce.
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + savedSSID + " agina baglanmak icin yeniden baslatiliyor\"}");
+  server.client().flush();
+  delay(500);
+  guvenliRestart();
+}
+void handleAPI_WifiGecmisSil() {
+  if (!server.hasArg("idx")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"idx eksik\"}"); return; }
+  wifiGecmisiSil(server.arg("idx").toInt());
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Silindi\"}");
 }
 
 void handleAPI_WifiScan() {
@@ -4785,9 +4968,16 @@ void setupWebServer() {
   server.on("/api/panic", handleAPI_Panic);
   server.on("/api/wifi", handleAPI_Wifi);
   server.on("/api/wifi/scan", handleAPI_WifiScan);
+  server.on("/api/wifi/gecmis", handleAPI_WifiGecmisListe);
+  server.on("/api/wifi/gecmis_bagla", handleAPI_WifiGecmisBagla);
+  server.on("/api/wifi/gecmis_sil", handleAPI_WifiGecmisSil);
   server.on("/api/restart", handleAPI_Restart);
   server.on("/api/sudepo_ayarlar", handleAPI_SudepoAyarlarGetir);
   server.on("/api/sudepo_ayarlar/kaydet", handleAPI_SudepoAyarlarKaydet);
+  server.on("/api/ayarlar/yedekle", HTTP_GET, handleAPI_AyarlarYedekle);
+  server.on("/api/ayarlar/geri_yukle_cihaz", handleAPI_AyarlarGeriYukleCihaz);
+  server.on("/api/ayarlar/geri_yukle_dosya", HTTP_POST, handleAPI_AyarlarGeriYukleDosya);
+  server.on("/api/ayarlar/fabrika", handleAPI_AyarlarFabrikaDondur);
   server.on("/api/ir/liste", handleAPI_IrListe);
   server.on("/api/ir/ogren_baslat", handleAPI_IrOgrenBaslat);
   server.on("/api/ir/ogren_durum", handleAPI_IrOgrenDurum);
@@ -4824,6 +5014,7 @@ void wifi_connect() {
   // ESP8266'daki gibi: AP her zaman acik (STA basarisiz olsa da paneline
   // erisim kaybolmasin), STA kayitli ag varsa ona baglanir.
   wifiCredYukle();
+  wifiGecmisYukle();
   bool ozelAg = savedSSID.length() > 0;
 
   DEBUG_PRINTLN("[WiFi] Connecting...");
@@ -4861,15 +5052,20 @@ void wifi_connect() {
     wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
   }
 
-  int attempts = 0;
-  unsigned long start_ms = millis();
-  while (wifiMulti.run() != WL_CONNECTED && attempts < 20) {
-    if (millis() - start_ms > 100) {  // 100ms per attempt (no blocking)
-      DEBUG_PRINT(".");
-      attempts++;
-      start_ms = millis();
-      yield();  // ESP32 diğer görevleri yapsın
-    }
+  // FIX (kullanici sikayeti, 2026-09-08: "flasliyorum ama web sayfa
+  // acilmiyor, aga baglanamiyor"): "20 deneme x 100ms = azami 2sn" varsayimi
+  // YANLISTI - wifiMulti.run() menzil disi/erisilemez bir SSID icin TEK
+  // BASINA birkac saniye surebiliyor (tarama+baglanma denemesi), bu yuzden
+  // asil sure "20 x run() suresi" olup DAKIKALARCA surebiliyordu - o sure
+  // boyunca setup() web sunucusunu (setupWebServer/server.begin()) HENUZ
+  // CAGIRMADIGI icin AP acik olsa bile sayfa hic acilmiyordu. Artik GERCEK
+  // duvar-saati ile sinirlanir (azami ~4sn) - STA o sürede baglanamazsa
+  // setup() devam eder, wifiReconnectPoll() (loop() icinde) arka planda
+  // denemeye devam eder.
+  unsigned long wifiBaslangicMs = millis();
+  while (wifiMulti.run() != WL_CONNECTED && millis() - wifiBaslangicMs < 4000) {
+    DEBUG_PRINT(".");
+    yield();
   }
 
   // Statik IP sadece varsayilan/birincil ag (WIFI_SSID) icin gecerli - hem

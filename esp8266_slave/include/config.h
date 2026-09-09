@@ -31,6 +31,10 @@
 // ===== Depo Lambası (Nano kontrolü) =====
 #define LAMBA_PIN D13          // xxx - Depo iç lamba rölesi (Nano tetikler)
 
+// Nano D12 - pasif buzzer (TONE_PLAY/TONE_STOP). PIR ön-uyarı bipi, zil
+// (bahce_kapisi.cpp) ve /buzzer/test endpoint'i tarafından ortak kullanılır.
+#define NANO_BUZZER_PIN 12
+
 // ===== PIR Sensörü =====
 // Artik ayri PIN_READ komutuyla degil, Nano'nun GET_STATUS yanitindaki
 // "PIR=" alaniyla dogrudan okunuyor (bkz nano_io PIR_PIN, config.h).
@@ -87,6 +91,14 @@
 // WiFi agi/sifre SILINMEZ - iki bolge birbirinden bagimsiz surumlenir.
 #define WIFI_EEPROM_ADDR 256
 #define WIFI_EEPROM_MAGIC 0x5731  // 'W1'
+// 2026-09-08: aktif agin DISINDA, daha once baglanilmis aglarin kisa
+// gecmisi (kullanici talebi: "bagli oldugum aglar hafizada kalsin, listede
+// gorunsun"). YENI ALAN - struct'in EN SONUNA eklendi, ayri bir magic ile
+// (moistureKontrolMagic ile AYNI gerekce) eski/kucuk EEPROM'dan yuklenen
+// cihazlarda gecerliligi dogrulanir. 2 kayit x 64 bayt = 128 bayt, WiFi
+// bolgesinin (256 bayt) icinde bolca marj birakir.
+#define WIFI_GECMIS_SAYISI 2
+#define WIFI_GECMIS_MAGIC 0x5732  // 'W2'
 
 // ===== Alarm Tetikleyicileri (Bitmask) =====
 #define ALARM_TRIGGER_KAPI1      0x01  // Bit 0: Sol kapı
@@ -197,8 +209,10 @@
 #define BAHCE_KAPI1_RELE_B  1  // R413D08 kanal 2
 #define BAHCE_KAPI2_RELE_A  2  // R413D08 kanal 3
 #define BAHCE_KAPI2_RELE_B  3  // R413D08 kanal 4
-#define BAHCE_KAPI1_KILIT_RELE  4  // R413D08 kanal 5 - elektrikli solenoid kilit (darbeli)
-#define BAHCE_KAPI2_KILIT_RELE  5  // R413D08 kanal 6
+// TEK solenoid kilit, iki kapıda ORTAK (2026-09-08, kullanıcı talebi) - kilit
+// kanatlar ortada BİRLEŞTİĞİNDE devreye girer, kapı başına ayrı kilide gerek
+// yok. Herhangi bir kanat açılmadan önce bu ortak kilit darbeyle açılır.
+#define BAHCE_KILIT_RELE  4  // R413D08 kanal 5
 
 // "Kapalı" limit switch bilgisi artik mevcut alarm kapi sensorunden geldiginden
 // (yukaridaki not), bu switch'e ulasilamadan (orn. kilit/mekanik arizasi)
