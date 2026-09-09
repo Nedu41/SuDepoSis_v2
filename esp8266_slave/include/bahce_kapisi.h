@@ -17,12 +17,17 @@ struct BahceKapisi {
   uint8_t releA, releB, releKilit;
   int acikPin, akimPin;
   bool hataAsiriAkim = false;
+  bool birlikte = false;  // bu hareket iki kanadin BIRLIKTE komutuyla mi baslatildi (bkz kapiAcKomut/kapiKapatKomut)
 };
 extern BahceKapisi bahceKapi[2];
 
 void kapiTumRoleleriKapat();
-void kapiAcKomut(int i);
-void kapiKapatKomut(int i);
+// birlikte=true: asiri akimda SADECE bu kanat degil, DIGER kanat da (hareket
+// halindeyse) ayni ters yone alinir - iki kanat birlikte acilip/kapanirken
+// biri sikisirsa ikisi de geri doner. Tek kanat komutunda (birlikte=false,
+// varsayilan) sadece o kanat etkilenir.
+void kapiAcKomut(int i, bool birlikte = false);
+void kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
 void kapiPoll();
 void zilButonPoll();
