@@ -411,5 +411,16 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 (bu dosyaya gerçek şifre asla yazılmaz) &nbsp;|&nbsp; <strong>OTA Portu:</strong> 3232</p>
 </div>
 
+<div class="section" id="standartlar">
+<h2>Standartlar ve Uyumluluk</h2>
+<table>
+<tr><th>Standart</th><th>Nerede</th><th>Uyum Durumu</th></tr>
+<tr><td>EIA/TIA-485 (RS485)</td><td>ESP32↔ESP8266↔R413D08 hattı (MAX485)</td><td>Multi-drop bus (A-A, B-B paralel, ortak GND) doğru kurulu. Kısa hat (~10m) nedeniyle 120Ω terminasyon takılı değil — gerekirse hattın iki ucuna eklenir, ara node'lara (R413D08) EKLENMEZ.</td></tr>
+<tr><td>Modbus RTU</td><td>R413D08 röle kontrolü (esp8266_slave/src/bahce_kapisi.cpp)</td><td>Fonksiyon kodu 0x05 (Write Single Coil), CRC16 doğru hesaplanıyor. Fire-and-forget (yanıt beklenmez) — gerçek sonuç limit switch/akım sensörüyle doğrulanır, standart Modbus request-response değil, bilinçli sapma.</td></tr>
+<tr><td>UL 325 (Gate Operator Entrapment Protection) — prensip</td><td>Bahçe kapısı motor kontrolü (esp8266_slave/src/bahce_kapisi.cpp kapiPoll)</td><td>Resmi sertifikasyon YOK — sadece "engel algılanınca dur değil ters yöne dön" tasarım prensibi uygulanıyor (aşırı akımda otomatik ters yön, çift kanat eşleştirilmiş hareketlerde biri sıkışırsa ikisi de geri döner).</td></tr>
+<tr><td>T568A/T568B (Ethernet kablo pin sırası)</td><td>Saha CAT5 kabloları</td><td>UYULMUYOR — CAT5 kablo sadece fiziksel ortam olarak kullanılıyor, pin sırası Ethernet değil özel güç/sinyal ataması (bkz "Saha CAT5 Kablo Standardı" bölümü). Ethernet cihazına asla takılmamalı.</td></tr>
+</table>
+</div>
+
 </body>
 </html>
