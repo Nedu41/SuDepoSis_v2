@@ -1062,17 +1062,18 @@ void rs485KomutDinle() {
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
           // Konteyner/ESP32 web toggle'indan ya da fiziksel butona CIFT basisla
-          // gelir - iki kanat birlikte acilir.
-          kapiAcKomut(0);
-          kapiAcKomut(1);
+          // gelir - iki kanat birlikte acilir. birlikte=true: biri sikisirsa
+          // digeri de ayni ters yone alinir (bkz kapiPoll).
+          kapiAcKomut(0, true);
+          kapiAcKomut(1, true);
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI1_AC") {
           // Fiziksel butona TEK basisla gelir - sadece sol kanat (Kapi 1) acilir.
-          kapiAcKomut(0);
+          kapiAcKomut(0, false);
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_KAPAT") {
-          kapiKapatKomut(0);
-          kapiKapatKomut(1);
+          kapiKapatKomut(0, true);
+          kapiKapatKomut(1, true);
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_DUR") {
           kapiDurdurKomut(0);

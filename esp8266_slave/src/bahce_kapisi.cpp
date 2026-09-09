@@ -106,17 +106,18 @@ void kapiTumRoleleriKapat() {
 
 // Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
 // motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
-void kapiAcKomut(int i) {
+void kapiAcKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
   r413RoleYaz(k.releKilit, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.birlikte = birlikte;
   k.durum = KAPI_KILIT_ACILIYOR;
 }
 
-void kapiKapatKomut(int i) {
+void kapiKapatKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_KAPA) return;
   kapiMotorDurdur(k);
@@ -124,7 +125,18 @@ void kapiKapatKomut(int i) {
   r413RoleYaz(k.releB, true);
   k.hareketBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.birlikte = birlikte;
   k.durum = KAPI_HAREKET_KAPA;
+}
+
+// Motoru dogrudan verilen yone alir (kilit-darbe sekansi YOK) - sadece
+// zaten hareket halindeki bir kanadi aninda ters yone almak icin (bkz
+// kapiPoll asiri akim guvenligi).
+static void kapiYoneAyarla(BahceKapisi& k, KapiDurum yon, unsigned long now) {
+  if (yon == KAPI_HAREKET_AC) { r413RoleYaz(k.releB, false); r413RoleYaz(k.releA, true); }
+  else { r413RoleYaz(k.releA, false); r413RoleYaz(k.releB, true); }
+  k.hareketBaslangicMs = now;
+  k.durum = yon;
 }
 
 void kapiDurdurKomut(int i) {
@@ -187,11 +199,22 @@ void kapiPoll() {
         // sikismis nesneyi ters yone almayi geciktirir.
         k.hataAsiriAkim = true;
         KapiDurum tersYon = (k.durum == KAPI_HAREKET_KAPA) ? KAPI_HAREKET_AC : KAPI_HAREKET_KAPA;
-        if (tersYon == KAPI_HAREKET_AC) { r413RoleYaz(k.releB, false); r413RoleYaz(k.releA, true); }
-        else { r413RoleYaz(k.releA, false); r413RoleYaz(k.releB, true); }
-        k.hareketBaslangicMs = now;
-        k.durum = tersYon;
+        kapiYoneAyarla(k, tersYon, now);
         DEBUG_PRINTF("[KAPI%d] ASIRI AKIM - ters yone aliniyor (%s)\n", i + 1, kapiDurumAdi(tersYon));
+
+        // Kullanici talebi: iki kanat BIRLIKTE komutuyla hareket ediyorsa
+        // (cift basis/BAHCE_KAPI_AC/KAPAT), biri sikisinca SADECE o kanat
+        // degil DIGER kanat da ayni ters yone alinir - orn. kapanirken
+        // birini elle tutup durdurursan ikisi de geri acilir. Tek kanat
+        // komutunda (birlikte=false) sadece bu kanat etkilenir.
+        if (k.birlikte) {
+          BahceKapisi& diger = bahceKapi[1 - i];
+          if ((diger.durum == KAPI_HAREKET_AC || diger.durum == KAPI_HAREKET_KAPA) && !diger.hataAsiriAkim) {
+            diger.hataAsiriAkim = true;
+            kapiYoneAyarla(diger, tersYon, now);
+            DEBUG_PRINTF("[KAPI%d] eslesmis kanat da ters yone aliniyor (%s)\n", 2 - i, kapiDurumAdi(tersYon));
+          }
+        }
       }
     } else if (zamanAsimi) {
       kapiMotorDurdur(k);
