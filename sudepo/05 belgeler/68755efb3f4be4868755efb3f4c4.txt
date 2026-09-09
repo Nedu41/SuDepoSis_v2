@@ -1,0 +1,42 @@
+                                     3 KW PWM 24V SSTEM
+
+1. Öncelikle cihazin kapali olduunu kontrol edin.
+2. Daha sonra akü balantisini yapin
+3. nverter aküyü tanimladiktan sonra (1 dk) panel - ebeke - çiki balantilari yapilabilir.
+4. Cihaz açma kapama dümesi açikken çiki klemenslerinde elektrik olduu için kapali konumda
+
+    balanmasina dikkat edilmeli.
+5. Kablolarda enerji varken kesinlikle cihazin kasasina temas ettirmeyiniz.
+6. Montaji sökerken ÖNCE cihazi kapatip, EN SON akü balantilarini sökünüz.
+7. Montaj yerinin iletken olmamasina ve fanlarin önünün açik olmasina dikkat edin.
+8. Serin ortamda çalimasini tavsiye ederiz.
+
+MONTAJ YAPILDIKTAN SONRA AYAR PARAMETRELER
+
+Menu için ENTER veya MENÜ tuuna uzun basip yön tulariyla ilerleyebiliriz.
+
+· BATARYA TIPI _ 05 : AGN                _ JEL AKÜ
+
+                    : FLD                _ SULU AKÜ
+
+                    : LIB                _ LITYUM
+
+                    : USE                _ ÖZEL Seçenekler çin
+
+· ÇIKI ÖNCELK _ 01  : USB                _ EBEKE / SOLAR / BATARYA
+                    : SBU                _ SOLAR / BATARYA / batarya 12. parametreye düünce
+                    : SUB                EBEKE _ SOLAR / EBEKE / BATARYA
+
+· AKÜ ARJ ÖNCELK_ 16 : CSO               _ Önce SOLAR yoksa EBEKE
+                                  : SNU  _ Hem SOLAR Hem EBEKE
+                                         _Sadece SOLAR
+                                  : OSO
+
+· AKÜ MAX ARJ AKIMI_ 2:                  _JEL AKÜ ÇN AKÜ KAPASTESNN
+                                         %20 S OLARAK AYARLANIR
+                                         _LTYUM ÇN DATASHEET DEER
+                                         GEÇERLDR.
+
+ Panel toplam gücü inverter maksimum DC/PV input güç deerini amamali.
+ Panel balantisi toplam voltaj deeri inverter çalima/operating voltaj deeri araliinda olmali.
+
