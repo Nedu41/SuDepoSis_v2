@@ -172,7 +172,7 @@
 <tr><td>OUT</td><td>Kapı1: Nano A1 / Kapı2: Nano A2</td><td>Analog çıkış, 185mV/A hassasiyet (5A modül), sıfır noktası ~2.5V (ham ADC ~512, DOĞRULA — sahada kalibre edilmeli)</td></tr>
 <tr><td>IP+ / IP- (vida terminalleri)</td><td>İlgili kapı motorunun güç hattı (SERİ)</td><td>Motor besleme kablosunun ÜZERİNDEN kesilip bu iki terminale bağlanır — motoru besleyen tek bir teli sensörün içinden geçirin</td></tr>
 </table>
-<p class="no-print" style="color:var(--accent)">Kalibrasyon gerekiyor: `BAHCE_AKIM_SIFIR_RAW` (0A'deki ham ADC okuması) ve `BAHCE_AKIM_ESIK_A` (sıkışma eşiği) sahada gerçek motor akımıyla ölçülüp config.h'de güncellenmeli — şu an teorik/varsayılan değerler.</p>
+<p class="no-print" style="color:var(--accent)">Kalibrasyon web arayüzünden yapılır (Ayarlar > Bahçe Kapısı > ACS712 kalibrasyonu) — Kapı1 ve Kapı2 için AYRI sıfır nokta + sıkışma eşiği (her modülün kendi üretim toleransı olduğundan), config.h'de sabit değil. Motor çalışırken gerçek akım ölçülüp girilmeli, şu an ikisi de varsayılan (512 / 4.0A).</p>
 </div>
 
 <div class="section">
