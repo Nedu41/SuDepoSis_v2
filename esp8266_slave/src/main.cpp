@@ -112,6 +112,18 @@ struct Ayarlar {
   uint8_t moistureKontrolBaslangicDakika;
   uint8_t moistureKontrolBitisSaat;
   uint8_t moistureKontrolBitisDakika;
+  // Bahce kapisi ACS712 akim sensoru kalibrasyonu (2026-09-10, struct'in EN
+  // SONUNA eklendi - yukaridaki YENI ALAN yorumlariyla ayni gerekce). Eskiden
+  // config.h'de sabitti (BAHCE_AKIM_SIFIR_RAW/BAHCE_AKIM_ESIK_A), motor
+  // baglandiginda sahada kalibre edilebilmesi icin web'den ayarlanabilir
+  // yapildi.
+  // Her ACS712 modulunun kendi uretim toleransi var (sifir noktasi farkli
+  // olabilir), bu yuzden kapi basina AYRI kalibrasyon (2026-09-10, kullanici
+  // talebi).
+  uint16_t bahceAkim1SifirRaw;  // Kapi1 (SOL) 0A'deki ham ADC okumasi (varsayilan 512)
+  uint16_t bahceAkim2SifirRaw;  // Kapi2 (SAG) 0A'deki ham ADC okumasi (varsayilan 512)
+  float bahceAkim1EsikA;        // Kapi1 sikisma/asiri akim esigi, Amper (varsayilan 4.0)
+  float bahceAkim2EsikA;        // Kapi2 sikisma/asiri akim esigi, Amper (varsayilan 4.0)
 };
 Ayarlar ayar;
 
@@ -247,6 +259,10 @@ void varsayilanAyarlar() {
   ayar.moistureKontrolBaslangicDakika = MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN;
   ayar.moistureKontrolBitisSaat = MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN;
   ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
+  ayar.bahceAkim1SifirRaw = 512;
+  ayar.bahceAkim2SifirRaw = 512;
+  ayar.bahceAkim1EsikA = 4.0;
+  ayar.bahceAkim2EsikA = 4.0;
 }
 
 void ayarlariKaydet() {
@@ -294,6 +310,24 @@ void ayarlariYukle() {
       ayar.moistureKontrolBaslangicDakika = MOISTURE_KONTROL_BASLANGIC_DAKIKA_VARSAYILAN;
       ayar.moistureKontrolBitisSaat = MOISTURE_KONTROL_BITIS_SAAT_VARSAYILAN;
       ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
+      ayarlariKaydet();
+    }
+    // bahceAkimSifirRaw/bahceAkimEsikA struct'a SONRADAN eklendi (2026-09-10) -
+    // eski (kucuk) EEPROM blob'undan yuklenen cihazlarda bu alanlar
+    // gecersiz/rastgele gelir (sahada gorulen bug: sifirRaw=25856,
+    // esikA=~2.8e29 gibi). isnan/isinf de kontrol edilir - rastgele baytlar
+    // float olarak NaN/Inf olusturabilir, bu da basit araligin disinda
+    // KALMAYABILIR (NaN ile her karsilastirma false doner).
+    bool akimGecersiz = ayar.bahceAkim1SifirRaw > 1023 || ayar.bahceAkim2SifirRaw > 1023 ||
+                         isnan(ayar.bahceAkim1EsikA) || isinf(ayar.bahceAkim1EsikA) ||
+                         isnan(ayar.bahceAkim2EsikA) || isinf(ayar.bahceAkim2EsikA) ||
+                         ayar.bahceAkim1EsikA < 0.1 || ayar.bahceAkim1EsikA > 20.0 ||
+                         ayar.bahceAkim2EsikA < 0.1 || ayar.bahceAkim2EsikA > 20.0;
+    if (akimGecersiz) {
+      ayar.bahceAkim1SifirRaw = 512;
+      ayar.bahceAkim2SifirRaw = 512;
+      ayar.bahceAkim1EsikA = 4.0;
+      ayar.bahceAkim2EsikA = 4.0;
       ayarlariKaydet();
     }
   }
@@ -1817,12 +1851,17 @@ void handleSetTime() {
 // ayni adlarla /ayarlar/kaydet'e POST edilir, bkz web/app.js).
 String ayarlarJSON() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + ",\"bahceAkim1SifirRaw\":" + String(ayar.bahceAkim1SifirRaw) + ",\"bahceAkim2SifirRaw\":" + String(ayar.bahceAkim2SifirRaw) + ",\"bahceAkim1EsikA\":" + String(ayar.bahceAkim1EsikA, 1) + ",\"bahceAkim2EsikA\":" + String(ayar.bahceAkim2EsikA, 1) + "}";
   return j;
 }
 void handleGetSettings() {
   server.send(200, "application/json", ayarlarJSON());
 }
+// bahce_kapisi.cpp icin kopru - struct Ayarlar'in tanimi burada (main.cpp'de)
+// oldugundan, extern struct yerine basit getter fonksiyonlariyla erisim
+// sagliyoruz (bkz bahce_kapisi.h).
+uint16_t bahceAkimSifirRawGetir(int kapiIndex) { return kapiIndex == 0 ? ayar.bahceAkim1SifirRaw : ayar.bahceAkim2SifirRaw; }
+float bahceAkimEsikAGetir(int kapiIndex) { return kapiIndex == 0 ? ayar.bahceAkim1EsikA : ayar.bahceAkim2EsikA; }
 // 2026-09-08 kullanici talebi: ayarlari bilgisayara dosya olarak kaydedip
 // (yedek) sonradan geri yukleyebilme. Indirme: mevcut ayarlarJSON() +
 // Content-Disposition ile tarayici otomatik dosya olarak kaydeder. Geri
@@ -1900,6 +1939,10 @@ void handleSaveSettings() {
   if (server.hasArg("moistureKontrolBaslangicDakika")) { int v = server.arg("moistureKontrolBaslangicDakika").toInt(); if (v < 0) v = 0; if (v > 59) v = 59; ayar.moistureKontrolBaslangicDakika = v; }
   if (server.hasArg("moistureKontrolBitisSaat")) { int v = server.arg("moistureKontrolBitisSaat").toInt(); if (v < 0) v = 0; if (v > 23) v = 23; ayar.moistureKontrolBitisSaat = v; }
   if (server.hasArg("moistureKontrolBitisDakika")) { int v = server.arg("moistureKontrolBitisDakika").toInt(); if (v < 0) v = 0; if (v > 59) v = 59; ayar.moistureKontrolBitisDakika = v; }
+  if (server.hasArg("bahceAkim1SifirRaw")) { int v = server.arg("bahceAkim1SifirRaw").toInt(); if (v < 0) v = 0; if (v > 1023) v = 1023; ayar.bahceAkim1SifirRaw = v; }
+  if (server.hasArg("bahceAkim2SifirRaw")) { int v = server.arg("bahceAkim2SifirRaw").toInt(); if (v < 0) v = 0; if (v > 1023) v = 1023; ayar.bahceAkim2SifirRaw = v; }
+  if (server.hasArg("bahceAkim1EsikA")) { float v = server.arg("bahceAkim1EsikA").toFloat(); if (v < 0.1) v = 0.1; if (v > 20) v = 20; ayar.bahceAkim1EsikA = v; }
+  if (server.hasArg("bahceAkim2EsikA")) { float v = server.arg("bahceAkim2EsikA").toFloat(); if (v < 0.1) v = 0.1; if (v > 20) v = 20; ayar.bahceAkim2EsikA = v; }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
 }
