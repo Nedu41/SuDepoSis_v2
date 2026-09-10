@@ -216,10 +216,10 @@ void kapiPoll() {
     bool acikLimit = nanoDijitalOku(k.acikPin, &acikOk) == LOW;
     bool kapaliLimit = kapiMevcutAlarmSensoruKapali(i);  // mevcut alarm kapi sensorunden, ekstra Nano sorgusu yok
     int akimRaw = nanoAnalogOku(k.akimPin);
-    float akimAmper = (akimRaw >= 0) ? ((akimRaw - BAHCE_AKIM_SIFIR_RAW) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
+    float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
-    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > BAHCE_AKIM_ESIK_A;
+    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
       kapiMotorDurdur(k);

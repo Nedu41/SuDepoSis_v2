@@ -236,13 +236,11 @@
 #define BAHCE_MAX_HAREKET_MS 20000UL
 
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
-// BAHCE_AKIM_SIFIR_RAW: 0A'de sensörün ham ADC okuması (teorik ~512, SAHADA
-// KALİBRE ET - motor bağlı değilken/dururken ölçülüp buraya girilmeli).
+// Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
+// web arayüzünden (Ayarlar > Bahçe Kapısı) ayarlanabilir - bkz struct
+// Ayarlar (bahceAkimSifirRaw/bahceAkimEsikA), main.cpp. Burada sadece
+// sensörün donanımsal hassasiyeti (mV/A) sabit kalıyor.
 #define ACS712_MV_PER_AMP 185.0
-#define BAHCE_AKIM_SIFIR_RAW 512
-// Bu akımın üzerinde "sıkışma/zorlanma" kabul edilip motor durdurulur -
-// silecek motorunun normal çalışma akımına göre SAHADA KALİBRE ET.
-#define BAHCE_AKIM_ESIK_A 4.0
 
 // Zil butonu (2026-09-07): dışarıda buton, içeride (Nano/Sudepo) buzzer
 // "ding-dong" çalar - klasik kapı zili, motor/limit switch ile aynı Nano'ya

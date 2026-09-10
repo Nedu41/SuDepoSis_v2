@@ -41,4 +41,9 @@ void zilButonPoll();
 // bagli/adresi dogruysa yanit doner, yoksa bos doner (2026-09-10 tezgah testi).
 String r413DurumSorgula();
 
+// main.cpp'deki struct Ayarlar icin kopru - web'den ayarlanabilir, kapi
+// basina AYRI ACS712 kalibrasyonu (kapiIndex: 0=Kapi1, 1=Kapi2).
+uint16_t bahceAkimSifirRawGetir(int kapiIndex);
+float bahceAkimEsikAGetir(int kapiIndex);
+
 #endif

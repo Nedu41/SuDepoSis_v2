@@ -163,6 +163,19 @@
 </div>
 
 <div class="section">
+<h2>Modül 4d: ACS712 5A Akım Sensörü (×2, Motor Sıkışma Tespiti)</h2>
+<p><strong>Önemli prensip:</strong> VCC/GND/OUT sinyal pinleri Nano'ya gider, ama <strong>IP+/IP- vida terminalleri motorun güç hattına SERİ bağlanır</strong> (paralel DEĞİL) — sensör motora giden akımın tamamının kendi içinden geçmesiyle ölçüm yapar. IP+/IP-'nin hangi ucu + hangi ucu - olduğu önemli değildir (yön ters olursa okuma negatif çıkar, kod `fabs()` ile mutlak değer alıyor).</p>
+<table>
+<tr><th>ACS712 Pin</th><th>Bağlı Olduğu</th><th>Açıklama</th></tr>
+<tr><td>VCC</td><td>Nano 5V</td><td>Besleme</td></tr>
+<tr><td>GND</td><td>Nano GND</td><td>Ortak referans</td></tr>
+<tr><td>OUT</td><td>Kapı1: Nano A1 / Kapı2: Nano A2</td><td>Analog çıkış, 185mV/A hassasiyet (5A modül), sıfır noktası ~2.5V (ham ADC ~512, DOĞRULA — sahada kalibre edilmeli)</td></tr>
+<tr><td>IP+ / IP- (vida terminalleri)</td><td>İlgili kapı motorunun güç hattı (SERİ)</td><td>Motor besleme kablosunun ÜZERİNDEN kesilip bu iki terminale bağlanır — motoru besleyen tek bir teli sensörün içinden geçirin</td></tr>
+</table>
+<p class="no-print" style="color:var(--accent)">Kalibrasyon gerekiyor: `BAHCE_AKIM_SIFIR_RAW` (0A'deki ham ADC okuması) ve `BAHCE_AKIM_ESIK_A` (sıkışma eşiği) sahada gerçek motor akımıyla ölçülüp config.h'de güncellenmeli — şu an teorik/varsayılan değerler.</p>
+</div>
+
+<div class="section">
 <h2>Modül 5: Depo Lambası (5V Power LED, MOSFET)</h2>
 <p><strong>2026-08-26:</strong> Röle değil, doğrudan MOSFET anahtarlama — lamba artık 5V power LED. <strong>2026-08-28:</strong> MOSFET modülü 400W/15A olan.</p>
 <table>
