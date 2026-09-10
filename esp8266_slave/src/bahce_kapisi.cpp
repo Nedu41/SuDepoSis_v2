@@ -42,13 +42,20 @@ uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
   return crc;
 }
 
-// Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
+// R413D08'e OZGU "Control command" cercevesi (fonksiyon 0x06) - standart
+// Modbus "Write Single Coil" (0x05) DEGIL, R413D08 onu desteklemiyor.
+// koilNo 0-tabanli kanal (0-7) alir, cerceve icinde 1-tabanli register'a
+// (0x0001-0x0008) cevrilir. Komut kodu 0x01=Ac, 0x02=Kapat (0xFF/0x00
+// standart Modbus coil kodlamasi DEGIL). 2026-09-10'da resmi komut
+// dokumanindan (github.com/microrobotics/R413D08) dogrulandi - eskiden
+// yanlislikla standart Write Single Coil formati kullaniliyordu, R413D08
+// bu yuzden hicbir komuta tepki vermiyordu.
 void r413RoleYaz(uint8_t koilNo, bool acik) {
   uint8_t frame[8];
   frame[0] = R413D08_MODBUS_ADRES;
-  frame[1] = 0x05;
-  frame[2] = 0x00; frame[3] = koilNo;
-  frame[4] = acik ? 0xFF : 0x00; frame[5] = 0x00;
+  frame[1] = 0x06;
+  frame[2] = 0x00; frame[3] = koilNo + 1;
+  frame[4] = acik ? 0x01 : 0x02; frame[5] = 0x00;
   uint16_t crc = modbusCRC16(frame, 6);
   frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
   digitalWrite(RS485_DE_PIN, HIGH);
@@ -56,6 +63,43 @@ void r413RoleYaz(uint8_t koilNo, bool acik) {
   swSerial.write(frame, 8);
   delay(2);
   digitalWrite(RS485_DE_PIN, LOW);
+}
+
+// GECICI TEST (bkz bahce_kapisi.h): fire-and-forget DEGIL, gercekten yanit
+// bekler. R413D08'in RS485/adres seviyesinde canli olup olmadigini rol
+// modulunden BAGIMSIZ dogrulamak icin.
+String r413DurumSorgula() {
+  uint8_t frame[8];
+  frame[0] = R413D08_MODBUS_ADRES;
+  frame[1] = 0x03;
+  frame[2] = 0x00; frame[3] = 0x01;  // baslangic register 0x0001 (kanal 1)
+  frame[4] = 0x00; frame[5] = 0x08;  // 8 kanal oku
+  uint16_t crc = modbusCRC16(frame, 6);
+  frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
+
+  while (swSerial.available()) swSerial.read();  // eski cop varsa temizle
+  digitalWrite(RS485_DE_PIN, HIGH);
+  delayMicroseconds(100);
+  swSerial.write(frame, 8);
+  swSerial.flush();
+  delayMicroseconds(100);
+  digitalWrite(RS485_DE_PIN, LOW);
+
+  String hex = "";
+  unsigned long t = millis();
+  int n = 0;
+  while (millis() - t < 300) {
+    if (swSerial.available()) {
+      int b = swSerial.read();
+      if (b < 0x10) hex += "0";
+      hex += String(b, HEX);
+      hex += " ";
+      n++;
+      t = millis();  // her byte'ta zaman asimini yenile, hizli okusun
+    }
+    yield();
+  }
+  return hex;
 }
 
 // Nano'nun genel PIN_READ/ANALOG_READ komutlarina senkron (bloklayan) sarmalayici.

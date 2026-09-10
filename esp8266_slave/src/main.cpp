@@ -2570,6 +2570,20 @@ void setup() {
     server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"durum\":\"" + r + "\"}");
   });
   server.on("/rs485/debug", []() { String j = "{\"sonMsj\":\"" + sonRS485AlinanMsj + "\",\"yas_ms\":" + String(millis() - sonRS485AlinanMs) + ",\"lamba\":" + String(lambaAcik ? "true" : "false") + ",\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + "}"; server.send(200, "application/json", j); });
+  server.on("/rs485/r413_test", []() {
+    String yanit = r413DurumSorgula();
+    bool geldi = yanit.length() > 0;
+    server.send(200, "application/json", "{\"basarili\":" + String(geldi ? "true" : "false") + ",\"yanit_hex\":\"" + yanit + "\",\"mesaj\":\"" + String(geldi ? "R413D08 yanit verdi - haberlesme/adres dogru" : "Yanit yok - RS485 A/B baglantisi veya Modbus adresi kontrol edilmeli") + "\"}");
+  });
+  server.on("/rs485/r413_write_test", []() {
+    if (!server.hasArg("ch")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"ch parametresi eksik (0-7)\"}"); return; }
+    int ch = server.arg("ch").toInt();
+    bool acik = !server.hasArg("durum") || server.arg("durum") != "0";
+    r413RoleYaz(ch, acik);
+    delay(50);
+    String yanit = r413DurumSorgula();
+    server.send(200, "application/json", "{\"basarili\":" + String(yanit.length() > 0 ? "true" : "false") + ",\"gonderilen_kanal\":" + String(ch) + ",\"gonderilen_durum\":\"" + String(acik ? "ac" : "kapa") + "\",\"okunan_yanit_hex\":\"" + yanit + "\"}");
+  });
   server.on("/ota", handleOTAUpdate);
   server.on("/ota/github", handleOTAGithub);
   server.on("/restart", handleRestart);

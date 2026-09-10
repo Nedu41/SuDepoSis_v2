@@ -21,6 +21,9 @@ struct BahceKapisi {
 };
 extern BahceKapisi bahceKapi[2];
 
+// Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
+void r413RoleYaz(uint8_t koilNo, bool acik);
+
 void kapiTumRoleleriKapat();
 // birlikte=true: asiri akimda SADECE bu kanat degil, DIGER kanat da (hareket
 // halindeyse) ayni ters yone alinir - iki kanat birlikte acilip/kapanirken
@@ -31,5 +34,11 @@ void kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
 void kapiPoll();
 void zilButonPoll();
+
+// GECICI TEST: R413D08'e Modbus fonksiyon 0x03 (durum oku, kanal 1-8) gonderir
+// ve RS485 hattindan yanit gelip gelmedigini bekler - normal r413RoleYaz()'in
+// aksine fire-and-forget DEGIL, gercekten cevap var mi kontrol eder. R413D08
+// bagli/adresi dogruysa yanit doner, yoksa bos doner (2026-09-10 tezgah testi).
+String r413DurumSorgula();
 
 #endif
