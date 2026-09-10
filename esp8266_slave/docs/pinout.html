@@ -147,6 +147,7 @@
 <tr><td>Ch5</td><td>Ortak elektrikli solenoid kilit (darbeli, 1sn) — iki kapı için TEK kilit, kanatlar ortada birleşince kilitlenir</td><td>IN5</td></tr>
 <tr><td>Ch6-Ch8</td><td>Kullanılmıyor</td><td>IN6-IN8</td></tr>
 </table>
+<p><strong>Motor bağlantısı (2 röle "reversing" devresi, H-köprüsü DEĞİL):</strong> Her motor için A/B röle çiftinin NO'ları ortak 12V hattına, NC'leri ortak GND'ye, COM'ları motorun 2 ucuna bağlanır. AÇIK=A ON/B OFF (uç1=12V/uç2=GND), KAPALI=A OFF/B ON (ters polarite), DUR=ikisi OFF (uç1=uç2=GND, gerilimsiz). Referans: <a href="https://mechatrofice.com/circuits/relay-dc-motor-driver">mechatrofice.com/circuits/relay-dc-motor-driver</a>.</p>
 <p><strong>Güvenlik:</strong> Aşırı akımda (sıkışma) motor sadece durmaz, UL 325 prensibine göre ters yöne alınır — eşleştirilmiş (çift kanat) komutlarda biri sıkışırsa ikisi de geri döner (bkz bahce_kapisi.cpp kapiPoll). Standart uyumluluk detayları için <a href="../../esp32_master/docs/pinout.html#standartlar">esp32_master/docs/pinout.html → Standartlar ve Uyumluluk</a>.</p>
 <p class="no-print" style="color:var(--accent)">Henüz sahaya kurulmadı (2026-09-07 planlandı) — komutlar donanım bağlanınca çalışır.</p>
 </div>
