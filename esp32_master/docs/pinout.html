@@ -295,7 +295,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td><span class="swatch" style="background:#fb8c00"></span>Turuncu + Turuncu/Beyaz (birleştirilmiş)</td><td>+12V</td><td>—</td></tr>
 <tr><td><span class="swatch" style="background:#1e88e5"></span>Mavi + Mavi/Beyaz (birleştirilmiş)</td><td>+5V</td><td>10/100 Ethernet'te kullanılmayan "boş" çift, veri hattıyla hiç çakışmaz</td></tr>
 <tr><td><span class="swatch" style="background:#43a047"></span>Yeşil + Yeşil/Beyaz (birleştirilmiş)</td><td>GND (ortak, hem 12V hem 5V için)</td><td>IEC elektrik renk kodunda yeşil-sarı = toprak/nötr referansı — mnemonic olarak tutarlı</td></tr>
-<tr><td><span class="swatch" style="background:#6d4c33"></span>Kahve + Kahve/Beyaz (birleştirilmiş)</td><td>Sinyal</td><td>—</td></tr>
+<tr><td><span class="swatch" style="background:#6d4c33"></span>Kahve + Kahve/Beyaz (birleştirilmiş)</td><td>Sinyal (tek sinyal ise); RS485 A/B gerekiyorsa Kahve=A, Kahve/Beyaz=B (differential pair)</td><td>—</td></tr>
 </table>
 <p style="font-size:13px;color:var(--muted)"><b>Devrede olan/güncellenen kablolar:</b> Swan PIR saha kablosu (7m) bu standarda göre güncellendi — bkz yukarıdaki CN5 → "Swan PIR Saha Kablosu" tablosu (fiziksel sonlandırma değişikliği saha işi olarak bekliyor). <b>İstisna:</b> Sudepo'nun 20m güç hattı bu standarttan önce döşendiği için farklı bir çift eşlemesi kullanıyor, geriye dönük uygulanmadı — bkz <a href="../../esp8266_slave/docs/pinout.html">esp8266_slave/docs/pinout.html</a>.</p>
 </div>
@@ -322,6 +322,9 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>MQ6 (gaz sensörü)</td><td>5V (tipik, ısıtıcı elemanı için)</td><td>~150mA (ısıtıcı açık), ~5mA (kapalı)</td><td>Yedek akü → 5V hattı, GPIO16 → IRF520 MOSFET modülü ile anahtarlanır</td><td>DOĞRULA — modülün üzerindeki etikete bak</td></tr>
 <tr><td>GP2Y10 (duman/toz sensörü) — CN1</td><td>5V (Sharp datasheet)</td><td>~20mA (LED darbe tepe), &lt;1mA (ort.)</td><td>Yedek akü → 5V hattı, LED kontrol pini (Pin3) GPIO18'e doğrudan bağlı (MOSFET yok)</td><td>~320µs darbe/2sn periyot, düşük duty-cycle</td></tr>
 <tr><td>Yedek Akü ADC gerilim bölücü</td><td>Ölçtüğü hat: ~12V (akü bankası)</td><td>~0.1mA (bölücü sızıntısı)</td><td>—</td><td>Bölücü çıkışı ESP32 GPIO2/ADC1'e 3.3V altında kalacak şekilde ölçeklenir</td></tr>
+<tr><td>R413D08 (8CH RS485/Modbus Röle) — Bahçe Kapısı</td><td>5V DC</td><td>~15-20mA (bekleme), ~70-90mA/aktif röle (DOĞRULA)</td><td>Yedek akü → 5V hattı (henüz kablo çekilmedi)</td><td>RS485 A/B ortak hatta (MAX485) 3. node olarak bağlanır, Modbus adresi 1 — kanal detayları için <a href="../../esp8266_slave/docs/pinout.html">esp8266_slave/docs/pinout.html → Modül 4b</a></td></tr>
+<tr><td>ACS712 5A (kapı motor akım sensörü ×2)</td><td>5V</td><td>~10-13mA (her biri)</td><td>Yedek akü → 5V hattı</td><td>Nano A1 (SOL) / A2 (SAĞ) — sıkışma/aşırı akım tespiti için</td></tr>
+<tr><td>Bahçe Kapısı Motorları (×2, SOL/SAĞ)</td><td>DOĞRULA (muhtemelen 12V veya 24V DC)</td><td>DOĞRULA</td><td>DOĞRULA — henüz karar verilmedi</td><td>R413D08 üzerinden 2 röleyle yön kontrolü (AÇIK=A ON/B OFF, KAPALI=A OFF/B ON) — motor modeli/gerilimi sahada netleşince güncellenecek</td></tr>
 <tr><td>Ana 24V hat (solar/MPPT akü bankası)</td><td>24V (2x12V seri)</td><td>Pompaya bağlı, ayrı sistem</td><td>Güneş paneli + MPPT</td><td>Artık güvenlik cihazlarını BESLEMİYOR — sadece sulama pompası ve MPPT/şarj devresi bu hatta</td></tr>
 <tr><td>Yedek akü bankası</td><td>~12V (3x12V paralel, ~60Ah)</td><td>—</td><td>Şarj: PWM solar şarj kontrolcü (Schulzz)</td><td>2026-08-25'ten itibaren TÜM güvenlik cihazlarının ana kaynağı</td></tr>
 </table>
