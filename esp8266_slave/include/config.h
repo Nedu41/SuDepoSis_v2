@@ -101,8 +101,11 @@
 #define WIFI_GECMIS_MAGIC 0x5732  // 'W2'
 
 // ===== Alarm Tetikleyicileri (Bitmask) =====
-#define ALARM_TRIGGER_KAPI1      0x01  // Bit 0: Sol kapı
-#define ALARM_TRIGGER_KAPI2      0x02  // Bit 1: Sağ kapı
+// Bit 0 ve 1 (eski ALARM_TRIGGER_KAPI1/KAPI2) 2026-09-12'de KALDIRILDI:
+// besledikleri Nano D2/D3 aslında bahçe kapısının tam-kapalı limit
+// switch'leri, depo kapı sensörü değil. Depoda ayrı bir kapı sensörü yok.
+// Bit numaraları BİLEREK kaydırılmadı - EEPROM'daki eski maskelerin kalan
+// tetikleyicileri yanlış yorumlanmasın (0x01/0x02 artık hiç okunmuyor).
 #define ALARM_TRIGGER_PIR        0x04  // Bit 2: PIR sensörü (hareket)
 #define ALARM_TRIGGER_SU_SEVIYE  0x08  // Bit 3: Su seviyesi düşük
 #define ALARM_TRIGGER_KACAK      0x10  // Bit 4: Kaçak algılama
@@ -174,19 +177,14 @@
 // edilecek, altyapı önceden hazırlanıyor. Bkz proje hafızası
 // project_bahce_kapisi_motor_gelecek_ozellik.
 //
-// Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle
-// AYNI kural - bkz nano_io/config.h DOOR1_PIN/DOOR2_PIN).
+// Kapı1 = SOL kanat, Kapı2 = SAĞ kanat.
 //
-// "Kapalı" pozisyonu için YENİ switch gerekmiyor: mevcut depo alarm kapı
-// sensörleri (DOOR1_PIN=D2/DOOR2_PIN=D3, nano_io config.h) zaten bu iki
-// kanadın üzerinde - ESP8266 tarafında kapi1Acik/kapi2Acik olarak sürekli
-// taze tutuluyor (nanoPoll/GET_STATUS). Bahçe kapısı "kapalı" durumu için
-// bunlar DOĞRUDAN kullanılıyor (kapı açıldığında bu sensör true olur, yani
-// "kapalı" = !kapi1Acik) - ekstra Nano sorgusu gerekmez.
-// DİKKAT: Bu paylaşım nedeniyle motorla kapı açılınca kapi1Acik/kapi2Acik
-// true olur - alarm sistemi bunu ALARM_TRIGGER_KAPI1/2 olarak algılar. Motorla
-// açılış sırasında bu tetikleyicinin bypass edilmesi ayrıca ele alınmalı
-// (henüz YAPILMADI - bkz proje hafızası project_bahce_kapisi_motor_gelecek_ozellik).
+// "Tam kapalı" pozisyonu Nano D2/D3 limit switch'lerinden okunur
+// (nano_io/config.h DOOR1_PIN/DOOR2_PIN). Bunlar SADECE bahçe kapısına ait -
+// depo alarm kapı sensörü DEĞİLDİR (2026-09-12 kullanıcı düzeltmesi; eskiden
+// çift amaçlı sanılıyordu ve motorla açılış yanlış alarm tetikliyordu).
+// ESP8266 tarafında bahceKapi1TamKapali/bahceKapi2TamKapali olarak her
+// GET_STATUS'ta taze tutulur - ekstra Nano sorgusu gerekmez.
 //
 // Sadece "tam açık" pozisyonu için YENİ limit switch var (kanat başı 1,
 // toplam 2) - Nano'nun yedek GPIO'larında (bkz project_nano_yedek_pin_hazir_altyapi).

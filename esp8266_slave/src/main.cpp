@@ -403,7 +403,11 @@ WiFiClient sseClient;
 bool sseAktif = false;
 
 // ============ NANO VERISI ============
-bool kapi1Acik = false, kapi2Acik = false;
+// Nano D2/D3 = BAHCE KAPISI kanatlarinin "tam kapali" limit switch'leri
+// (2026-09-12 kullanici duzeltmesi). Depo alarm kapi sensoru DEGIL - alarm
+// mantiginda KULLANILMAZ, sadece bahce kapisi motorunun "kapandi mi"
+// tespitini besler (bkz bahce_kapisi.cpp kapiPoll).
+bool bahceKapi1TamKapali = false, bahceKapi2TamKapali = false;
 bool pirAcik = false;           // PIR sensörü hareket algısı (ham deger)
 // pirTetikleyici, pencere icinde en az ayar.pirMinTetiklenme kez ayri darbe
 // olursa true olur (bkz nanoStatusAyristir).
@@ -484,9 +488,11 @@ String simdikiYilAy() {
 // burada RTC YEREL (I2C DS1307) oldugundan RS485 gecikme riski yok - zaman
 // dogrudan simdikiZamanStr() ile aninda okunabilir, ayri bir onbellek
 // gerekmez. Son 5 kayit RAM'de, tumu LittleFS'e (/alarm_log.csv) kalici.
+// Dizi indeksi = bit numarasi. Bit 0/1 (eski Sol/Sag Kapi) kaldirildi ama
+// yerleri korunuyor - kalan tetikleyicilerin bitleri kaymasin (bkz config.h).
 #define ALARM_TRIGGER_TETIKLEYICI_ADET 6
 const char* ALARM_TETIKLEYICI_ADLARI[ALARM_TRIGGER_TETIKLEYICI_ADET] = {
-  "Sol Kapi", "Sag Kapi", "PIR", "Su Seviyesi", "Kacak", "Sensor Hatasi"
+  "-", "-", "PIR", "Su Seviyesi", "Kacak", "Sensor Hatasi"
 };
 String alarmTetikleyenMetniStr(uint8_t mask, bool panik) {
   if (panik) return "Panik (elle acildi)";
@@ -623,8 +629,10 @@ void nanoStatusAyristir(const String& yanit) {
   bool ilkBaglanti = !nanoBaglantiVar;
   nanoBaglantiVar = true;
   if (ilkBaglanti) melodiIstegiBekliyor = true; // bkz nanoMelodiPoll
-      kapi1Acik          = (yanit.indexOf("D0=1") >= 0);
-      kapi2Acik          = (yanit.indexOf("D1=1") >= 0);
+      // Nano D2/D3 INPUT_PULLUP: kanat tam kapali konumdayken switch'e basilir
+      // ve LOW okunur (D0=0), yani "D0=1" = kanat tam kapali DEGIL.
+      bahceKapi1TamKapali = (yanit.indexOf("D0=1") < 0);
+      bahceKapi2TamKapali = (yanit.indexOf("D1=1") < 0);
       // PIR artik ayri bir PIN_READ komutuyla degil, GET_STATUS yanitinin
       // kendisinden okunuyor - iki ayri komutu ayni pencerede art arda
       // gondermenin yol actigi zamanlama/kesilme sorunlari ortadan kalkti.
@@ -974,8 +982,10 @@ void masterGonder() {
     "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
-    kapi1Acik ? 1 : 0,
-    kapi2Acik ? 1 : 0,
+    // K1/K2 tel formati ve polaritesi BILEREK degistirilmedi (1 = kanat tam
+    // kapali degil) - kartlardan biri guncellenemezse ters okuma olmasin.
+    bahceKapi1TamKapali ? 0 : 1,
+    bahceKapi2TamKapali ? 0 : 1,
     roleFizikselDurum ? 1 : 0,
     lambaAcik ? 1 : 0,
     nanoBaglantiVar ? 1 : 0,
@@ -1570,8 +1580,8 @@ String durumJson() {
   j += "\"alarm\":" + String(alarmAktif ? "true" : "false") + ",";
   j += "\"sensorHata\":" + String(sensorHatasi ? "true" : "false") + ",";
   j += "\"gece\":" + String(geceModuMu() ? "true" : "false") + ",";
-  j += "\"kapi1Acik\":" + String(kapi1Acik ? "true" : "false") + ",";
-  j += "\"kapi2Acik\":" + String(kapi2Acik ? "true" : "false") + ",";
+  j += "\"bahceKapi1TamKapali\":" + String(bahceKapi1TamKapali ? "true" : "false") + ",";
+  j += "\"bahceKapi2TamKapali\":" + String(bahceKapi2TamKapali ? "true" : "false") + ",";
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
@@ -2795,12 +2805,10 @@ void loop() {
       uint8_t mask = zamanMask & modMask & ayar.alarmSensorEtkin;
       bool triggerActive = false;
       uint8_t tetikleyenMask = 0;
-      // Bahce kapisi motorla kontrol edilirken (acik/aciliyor/kilit aciliyor/
-      // kapaniyor/hata) bu sensor ayni zamanda "kapi acik" okur - bilerek
-      // yapilan bir hareketi yanlis alarm/telegram bildirimine cevirmemek
-      // icin bu durumda tetikleyici bypass edilir (bkz config.h BAHCE_* notu).
-      if ((mask & ALARM_TRIGGER_KAPI1) && kapi1Acik && bahceKapi[0].durum == KAPI_KAPALI) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI1; }
-      if ((mask & ALARM_TRIGGER_KAPI2) && kapi2Acik && bahceKapi[1].durum == KAPI_KAPALI) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KAPI2; }
+      // 2026-09-12: Kapi tetikleyicileri (eski bit 0/1) KALDIRILDI - besledikleri
+      // Nano D2/D3 aslinda bahce kapisinin tam-kapali limit switch'leri, depo
+      // kapi sensoru degil. Depoda ayri bir kapi sensoru yok, bu yuzden
+      // tetikleyici sensorsuz kalmisti (bkz config.h ALARM_TRIGGER_* notu).
       if ((mask & ALARM_TRIGGER_PIR) && pirTetikleyici) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_PIR; }
       if ((mask & ALARM_TRIGGER_SU_SEVIYE) && alarmAktif) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_SU_SEVIYE; }
       if ((mask & ALARM_TRIGGER_KACAK) && kacakAlarmi) { triggerActive = true; tetikleyenMask |= ALARM_TRIGGER_KACAK; }
@@ -2973,7 +2981,9 @@ void loop() {
     }
     pirOncekiDurum = pirAcik;
 
-    bool kapiTankVar = alarmSistemiAcik && (kapi1Acik || kapi2Acik || sonYuzde >= 99.0);
+    // 2026-09-12: kapi kismi kaldirildi (Nano D2/D3 bahce kapisi limit switch'i,
+    // depo kapi sensoru degil) - geriye sadece tank dolulugu kaldi.
+    bool kapiTankVar = alarmSistemiAcik && sonYuzde >= 99.0;
     if (kapiTankVar && (simdiBuzzerMs - kapiTankSonBipMs >= KAPI_TANK_BIP_ARALIK_MS)) {
       buzzerChirpBekliyor = true;
       kapiTankSonBipMs = simdiBuzzerMs;
