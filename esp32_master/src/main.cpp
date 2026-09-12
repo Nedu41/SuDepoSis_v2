@@ -440,6 +440,8 @@ struct NanoIOStatus {
   // BIREBIR ayni sira: 0=kapali,1=acik,2=kilit_aciliyor,3=aciliyor,4=kapaniyor,5=hata
   uint8_t bahce_kapi1_durum = 0;
   uint8_t bahce_kapi2_durum = 0;
+  float bahce_kapi1_akim = 0.0;  // ACS712 5A, sadece motor hareket halindeyken >0 (bkz esp8266_slave bahce_kapisi.cpp)
+  float bahce_kapi2_akim = 0.0;
   String status = "OK";
   unsigned long last_update_ms = 0;
   // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
@@ -2139,6 +2141,10 @@ void parse_esp8266_data(String payload) {
       nanoStatus.bahce_kapi1_durum = (uint8_t)value.toInt();
     } else if (key == "BAHCE2") {
       nanoStatus.bahce_kapi2_durum = (uint8_t)value.toInt();
+    } else if (key == "BAHCE1A") {
+      nanoStatus.bahce_kapi1_akim = value.toFloat();
+    } else if (key == "BAHCE2A") {
+      nanoStatus.bahce_kapi2_akim = value.toFloat();
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -3235,6 +3241,8 @@ String durumJson() {
   doc["nano"]["lamp"] = nanoStatus.lamp_on;
   doc["nano"]["bahce_kapi1"] = nanoStatus.bahce_kapi1_durum;
   doc["nano"]["bahce_kapi2"] = nanoStatus.bahce_kapi2_durum;
+  doc["nano"]["bahce_kapi1_akim"] = nanoStatus.bahce_kapi1_akim;
+  doc["nano"]["bahce_kapi2_akim"] = nanoStatus.bahce_kapi2_akim;
 
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;
