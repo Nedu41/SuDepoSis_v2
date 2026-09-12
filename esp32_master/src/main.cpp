@@ -445,6 +445,12 @@ struct NanoIOStatus {
   uint8_t bahce_kapi2_durum = 0;
   float bahce_kapi1_akim = 0.0;  // ACS712 5A, sadece motor hareket halindeyken >0 (bkz esp8266_slave bahce_kapisi.cpp)
   float bahce_kapi2_akim = 0.0;
+  // RS485 BSW bitmask alanindan (bkz esp8266_slave masterGonder)
+  bool bahce_kapi1_tam_acik = false;
+  bool bahce_kapi2_tam_acik = false;
+  bool bahce_zil = false;
+  bool bahce_kilit = false;
+  bool bahce_sw_taze = false;   // false = limit switch okumasi bayat, konum BILINMIYOR
   String status = "OK";
   unsigned long last_update_ms = 0;
   // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
@@ -2147,6 +2153,13 @@ void parse_esp8266_data(String payload) {
       nanoStatus.bahce_kapi1_akim = value.toFloat();
     } else if (key == "BAHCE2A") {
       nanoStatus.bahce_kapi2_akim = value.toFloat();
+    } else if (key == "BSW") {
+      uint8_t m = (uint8_t)value.toInt();
+      nanoStatus.bahce_kapi1_tam_acik = (m & 1);
+      nanoStatus.bahce_kapi2_tam_acik = (m & 2);
+      nanoStatus.bahce_zil            = (m & 4);
+      nanoStatus.bahce_kilit          = (m & 8);
+      nanoStatus.bahce_sw_taze        = (m & 16);
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -3237,6 +3250,11 @@ String durumJson() {
   doc["nano"]["bahce_kapi2"] = nanoStatus.bahce_kapi2_durum;
   doc["nano"]["bahce_kapi1_akim"] = nanoStatus.bahce_kapi1_akim;
   doc["nano"]["bahce_kapi2_akim"] = nanoStatus.bahce_kapi2_akim;
+  doc["nano"]["bahce_kapi1_tam_acik"] = nanoStatus.bahce_kapi1_tam_acik;
+  doc["nano"]["bahce_kapi2_tam_acik"] = nanoStatus.bahce_kapi2_tam_acik;
+  doc["nano"]["bahce_zil"] = nanoStatus.bahce_zil;
+  doc["nano"]["bahce_kilit"] = nanoStatus.bahce_kilit;
+  doc["nano"]["bahce_sw_taze"] = nanoStatus.bahce_sw_taze;
 
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;

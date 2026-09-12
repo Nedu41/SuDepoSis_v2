@@ -11,6 +11,7 @@
 
 extern SoftwareSerial swSerial;   // main.cpp - RS485 hatti (custom protokol + Modbus paylasimli)
 extern bool bahceKapi1TamKapali, bahceKapi2TamKapali; // main.cpp - Nano D2/D3 tam-kapali limit switch'leri
+extern bool nanoBaglantiVar;      // main.cpp - Nano ile seri haberlesme canli mi
 
 const char* kapiDurumAdi(KapiDurum d) {
   switch (d) {
@@ -22,6 +23,14 @@ const char* kapiDurumAdi(KapiDurum d) {
     default: return "hata";
   }
 }
+
+// Nano'dan PIN_READ_ALL ile toplu okunan bahce kapisi girisleri (bkz
+// bahceNanoPoll). Limit switch'ler INPUT_PULLUP: basili/tetiklenmis = LOW.
+bool bahceKapi1TamAcik = false, bahceKapi2TamAcik = false;
+bool bahceZilBasili = false;
+unsigned long bahceZilSonCalmaMs = 0;
+unsigned long bahceSwSonBasariliMs = 0;  // 0 = Nano'dan hic gecerli okuma alinmadi
+bool bahceKilitAktif = false;            // solenoid kilit KOMUT durumu (geri besleme sensoru yok)
 
 // releKilit iki kapida da AYNI kanali (BAHCE_KILIT_RELE) gosterir - tek
 // ortak solenoid kilit, kapi basina ayri kilit YOK (bkz config.h).
@@ -102,21 +111,9 @@ String r413DurumSorgula() {
   return hex;
 }
 
-// Nano'nun genel PIN_READ/ANALOG_READ komutlarina senkron (bloklayan) sarmalayici.
-static bool nanoDijitalOku(int pin, bool* okundu = nullptr) {
-  while (Serial.available()) Serial.read();
-  Serial.print("PIN_READ:"); Serial.println(pin);
-  unsigned long t = millis(); String r = ""; bool ok = false;
-  while (millis() - t < 300) {
-    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("PIN:") >= 0) { ok = true; break; } }
-    yield();
-  }
-  if (okundu) *okundu = ok;
-  if (!ok) return false;
-  int eq = r.indexOf('=');
-  return eq >= 0 ? (r.substring(eq + 1).toInt() != 0) : false;
-}
-
+// Nano'nun genel ANALOG_READ komutuna senkron (bloklayan) sarmalayici.
+// Dijital karsiligi (PIN_READ) artik kullanilmiyor - tum dijital girisler
+// tek seferde PIN_READ_ALL ile okunuyor (bkz bahceNanoPoll).
 static int nanoAnalogOku(int pin) {
   while (Serial.available()) Serial.read();
   Serial.print("ANALOG_READ:"); Serial.println(pin);
@@ -135,6 +132,13 @@ static int nanoAnalogOku(int pin) {
 // orada bahceKapi1/2TamKapali'ya yaziyor. Ekstra Nano trafigi olmadan taze.
 static bool kapiTamKapaliMi(int i) { return i == 0 ? bahceKapi1TamKapali : bahceKapi2TamKapali; }
 
+// Kilit rolesine her yazim buradan gecer - komut durumu (bahceKilitAktif)
+// tek noktada guncel kalsin, web/RS485 gostergesi gercegi yansitsin.
+static void kilitYaz(BahceKapisi& k, bool aktif) {
+  r413RoleYaz(k.releKilit, aktif);
+  bahceKilitAktif = aktif;
+}
+
 static void kapiMotorDurdur(BahceKapisi& k) {
   r413RoleYaz(k.releA, false);
   r413RoleYaz(k.releB, false);
@@ -144,7 +148,7 @@ static void kapiMotorDurdur(BahceKapisi& k) {
 void kapiTumRoleleriKapat() {
   for (int i = 0; i < 2; i++) {
     kapiMotorDurdur(bahceKapi[i]);
-    r413RoleYaz(bahceKapi[i].releKilit, false);
+    kilitYaz(bahceKapi[i], false);
   }
 }
 
@@ -154,7 +158,7 @@ void kapiAcKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
-  r413RoleYaz(k.releKilit, true);
+  kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
   k.birlikte = birlikte;
@@ -190,7 +194,7 @@ void kapiDurdurKomut(int i) {
   // yanlislikla HATA'ya cekmesin.
   if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA && k.durum != KAPI_KILIT_ACILIYOR) return;
   kapiMotorDurdur(k);
-  r413RoleYaz(k.releKilit, false);
+  kilitYaz(k, false);
   k.durum = KAPI_HATA;
 }
 
@@ -200,7 +204,7 @@ void kapiPoll() {
     BahceKapisi& k = bahceKapi[i];
     if (k.durum == KAPI_KILIT_ACILIYOR) {
       if (now - k.kilitPulseBaslangicMs >= BAHCE_KILIT_PULSE_MS) {
-        r413RoleYaz(k.releKilit, false);  // kilit darbesi bitti, motoru baslat
+        kilitYaz(k, false);  // kilit darbesi bitti, motoru baslat
         r413RoleYaz(k.releB, false);
         r413RoleYaz(k.releA, true);
         k.hareketBaslangicMs = now;
@@ -212,9 +216,13 @@ void kapiPoll() {
     if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
     k.sonPollMs = now;
 
-    bool acikOk;
-    bool acikLimit = nanoDijitalOku(k.acikPin, &acikOk) == LOW;
-    bool kapaliLimit = kapiTamKapaliMi(i);  // GET_STATUS'tan taze gelir, ekstra Nano sorgusu yok
+    // Limit switch'ler icin burada AYRI sorgu YOK - "tam acik" bahceNanoPoll'un
+    // PIN_READ_ALL'undan, "tam kapali" GET_STATUS'tan taze geliyor. Veri
+    // bayatsa (Nano yanit vermiyorsa) limit'e gore karar VERILMEZ, hareket
+    // yalnizca zaman asimi/asiri akim ile biter.
+    bool acikOk = (bahceSwSonBasariliMs != 0) && (now - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
+    bool acikLimit = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
+    bool kapaliLimit = nanoBaglantiVar && kapiTamKapaliMi(i);
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
     if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
@@ -269,31 +277,64 @@ void kapiPoll() {
   }
 }
 
-// ============ ZIL BUTONU ============
-// Disarida buton, iceride (Nano/Sudepo) buzzer "ding-dong" calar - klasik
-// kapi zili. Motor hareket halindeyken kapiPoll() zaten sik Nano sorgusu
-// yaptigindan, cakismayi/asiri trafigi onlemek icin bu poll de ayni interval
-// mantigini kullanir ama BAGIMSIZ calisir (kapi hareketinden etkilenmez).
-void zilButonPoll() {
+// ============ BAHCE KAPISI GIRIS POLL'U (limit switch'ler + zil) ============
+// Nano'nun PIN_READ_ALL komutu D2-D13'u TEK turda dondurur - eskiden burada
+// sadece zil butonu icin ayri bir PIN_READ yapiliyordu, ayni tur sayisiyla
+// artik "tam acik" limit switch'leri de okunuyor (ek Nano trafigi YOK).
+// Ayni gerekce GET_STATUS'a PIR eklenirken de gecerliydi: tek istekte tum
+// durum, art arda komutlarin yol actigi zamanlama sorunlari olmadan.
+// Kapi hareket halindeyken daha sik okunur (limit switch'i gec gorup motoru
+// fazla surmemek icin).
+static int pinDegerAyikla(const String& r, int pin) {
+  int idx = r.indexOf("," + String(pin) + "=");
+  if (idx < 0) return -1;
+  int esit = r.indexOf('=', idx);
+  return (esit >= 0) ? r.substring(esit + 1, esit + 2).toInt() : -1;
+}
+
+void bahceNanoPoll() {
   static unsigned long sonPollMs = 0;
   static bool oncekiBasili = false;
   unsigned long now = millis();
-  if (now - sonPollMs < BAHCE_ZIL_POLL_ARALIK_MS) return;
+  bool hareketVar = false;
+  for (int i = 0; i < 2; i++) {
+    KapiDurum d = bahceKapi[i].durum;
+    if (d == KAPI_HAREKET_AC || d == KAPI_HAREKET_KAPA || d == KAPI_KILIT_ACILIYOR) hareketVar = true;
+  }
+  if (now - sonPollMs < (hareketVar ? BAHCE_POLL_ARALIK_MS : BAHCE_ZIL_POLL_ARALIK_MS)) return;
   sonPollMs = now;
-  bool okundu = false;
-  bool basili = nanoDijitalOku(BAHCE_ZIL_BUTON_PIN, &okundu) == LOW;  // INPUT_PULLUP, basilinca LOW
-  if (!okundu) return;  // Nano yanit vermediyse bu turu atla, oncekiBasili DEGISTIRME
+
+  while (Serial.available()) Serial.read();
+  Serial.println("PIN_READ_ALL");
+  unsigned long t = millis(); String r = ""; bool okundu = false;
+  while (millis() - t < 300) {
+    if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("PIN:") >= 0) { okundu = true; break; } }
+    yield();
+  }
+  if (!okundu) return;  // Nano yanit vermediyse eski degerleri KORU, oncekiBasili DEGISTIRME
+
+  int a1 = pinDegerAyikla(r, BAHCE_KAPI1_ACIK_PIN);
+  int a2 = pinDegerAyikla(r, BAHCE_KAPI2_ACIK_PIN);
+  int z  = pinDegerAyikla(r, BAHCE_ZIL_BUTON_PIN);
+  if (a1 < 0 || a2 < 0 || z < 0) return;  // yanit bozuk/eksik - yine eski degerler gecerli
+  bahceKapi1TamAcik = (a1 == 0);  // INPUT_PULLUP: tetiklenince LOW
+  bahceKapi2TamAcik = (a2 == 0);
+  bahceSwSonBasariliMs = now;
+
+  bool basili = (z == 0);
+  bahceZilBasili = basili;
   if (basili && !oncekiBasili) {
+    bahceZilSonCalmaMs = now;
     DEBUG_PRINTLN("[ZIL] basildi, ding-dong calinacak");
     while (Serial.available()) Serial.read();
     Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON1_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
-    unsigned long t = millis();
-    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
+    unsigned long tz = millis();
+    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } yield(); }
     delay(BAHCE_ZIL_TON_SURE_MS + 30);
     while (Serial.available()) Serial.read();
     Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON2_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
-    t = millis();
-    while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); if (r.indexOf("ACK") >= 0) break; } yield(); }
+    tz = millis();
+    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } yield(); }
   }
   oncekiBasili = basili;
 }

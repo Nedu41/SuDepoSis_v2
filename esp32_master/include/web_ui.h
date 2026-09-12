@@ -86,6 +86,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .bahce-sim .kanat.sag{right:6%;transform-origin:right center;transform:translateY(-50%) rotate(0deg)}
 .bahce-sim .kanat.sol.acik{transform:translateY(-50%) rotate(-72deg)}
 .bahce-sim .kanat.sag.acik{transform:translateY(-50%) rotate(72deg)}
+/* Iki limit switch'in de basili olmadigi ARA konum - kanat ne tam kapali ne
+   tam acik. Konum switch'lerden okunur, komut durumundan DEGIL. */
+.bahce-sim .kanat.sol.ara{transform:translateY(-50%) rotate(-36deg)}
+.bahce-sim .kanat.sag.ara{transform:translateY(-50%) rotate(36deg)}
 .bahce-sim .kanat.hareket{animation:bahceKanatNabiz 1s ease-in-out infinite}
 .bahce-sim .kanat.hata{background:var(--danger)}
 @keyframes bahceKanatNabiz{0%,100%{filter:brightness(1)}50%{filter:brightness(1.5)}}
@@ -262,6 +266,14 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
         <span>Kapı 1: <b id="bahce-durum1" style="color:var(--text)">-</b> <span id="bahce-akim1" style="color:var(--accent)"></span></span>
         <span>Kapı 2: <b id="bahce-durum2" style="color:var(--text)">-</b> <span id="bahce-akim2" style="color:var(--accent)"></span></span>
+      </div>
+      <div class="row" style="justify-content:center;gap:10px;row-gap:6px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-top:8px">
+        <span><span class="led" id="bahce-sw-k1"></span> K1 Kapalı</span>
+        <span><span class="led" id="bahce-sw-a1"></span> K1 Açık</span>
+        <span><span class="led" id="bahce-sw-k2"></span> K2 Kapalı</span>
+        <span><span class="led" id="bahce-sw-a2"></span> K2 Açık</span>
+        <span><span class="led" id="bahce-kilit-led"></span> Kilit</span>
+        <span><span class="led" id="bahce-zil-led"></span> Zil</span>
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
@@ -1179,23 +1191,63 @@ function renderUI(d){
   // Her buton her zaman taze sunucu verisiyle guncellenir - eskiden busySet
   // ile "islemde" butonlar atlaniyordu, bu da tepkinin gec/tikanik hissi
   // vermesine neden oluyordu (kullanici bildirdi), kaldirildi.
-  { // Bahce kapisi simulasyonu - esp8266_slave KapiDurum enum: 0=kapali,1=acik,2=kilit_aciliyor,3=aciliyor,4=kapaniyor,5=hata
+  { // Bahce kapisi simulasyonu - KONUM SADECE LIMIT SWITCH'LERDEN okunur.
+    // durum enum'u (0=kapali,1=acik,2=kilit_aciliyor,3=aciliyor,4=kapaniyor,
+    // 5=hata) sadece NIYET/komut bilgisidir: komut gonderilir gonderilmez
+    // "aciliyor"a gecer, kanat fiziksel olarak kimildamamis olsa bile. Eskiden
+    // animasyon buna bakiyordu ve motor hic donmese de kanatlar aciliyormus
+    // gibi gorunuyordu - simulasyon artik switch'i yalanlamaz.
     const bahceEtiket={0:'Kapalı',1:'Açık',2:'Kilit Açılıyor',3:'Açılıyor',4:'Kapanıyor',5:'HATA'};
-    const bk1 = esp8266Ok ? (d.nano.bahce_kapi1||0) : -1, bk2 = esp8266Ok ? (d.nano.bahce_kapi2||0) : -1;
-    const k1=$('#bahce-kanat1'), k2=$('#bahce-kanat2');
-    if(k1){ k1.classList.toggle('acik', bk1===1||bk1===3); k1.classList.toggle('hareket', bk1===2||bk1===3||bk1===4); k1.classList.toggle('hata', bk1===5); }
-    if(k2){ k2.classList.toggle('acik', bk2===1||bk2===3); k2.classList.toggle('hareket', bk2===2||bk2===3||bk2===4); k2.classList.toggle('hata', bk2===5); }
-    const d1=$('#bahce-durum1'); if(d1) d1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
-    const d2=$('#bahce-durum2'); if(d2) d2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
-    // Amper sadece hareket halindeyken anlamli (motor duruyorsa 0.00A gonderilir) - orada bos birak, kalabalik etmesin
-    const a1=$('#bahce-akim1'); if(a1) a1.textContent = (esp8266Ok && (bk1===3||bk1===4)) ? (d.nano.bahce_kapi1_akim||0).toFixed(2)+'A' : '';
-    const a2=$('#bahce-akim2'); if(a2) a2.textContent = (esp8266Ok && (bk2===3||bk2===4)) ? (d.nano.bahce_kapi2_akim||0).toFixed(2)+'A' : '';
-    const dd1=$('#db-bahce-durum1'); if(dd1) dd1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
-    const dd2=$('#db-bahce-durum2'); if(dd2) dd2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
-    // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok:
-    // hareket halinde (kilit aciliyor/aciliyor/kapaniyor) -> "Dur"; tam acik -> "Kapat"; kapali/hata -> "Aç"
-    bahceHareketVar = (bk1===2||bk1===3||bk1===4||bk2===2||bk2===3||bk2===4);
-    bahceAcikSayilirmi = (bk1===1||bk2===1);
+    const n=d.nano||{};
+    const swTaze = esp8266Ok && !!n.bahce_sw_taze;
+    const kapali=[!!n.bahce_kapi1_tam_kapali, !!n.bahce_kapi2_tam_kapali];
+    const acik  =[!!n.bahce_kapi1_tam_acik,   !!n.bahce_kapi2_tam_acik];
+    const durum =[esp8266Ok?(n.bahce_kapi1||0):-1, esp8266Ok?(n.bahce_kapi2||0):-1];
+    const akim  =[n.bahce_kapi1_akim||0, n.bahce_kapi2_akim||0];
+    let hareketKomutuVar=false, tamKapaliDegilVar=false;
+    for(let i=0;i<2;i++){
+      const dd=durum[i];
+      const motorDonuyor=(dd===3||dd===4);          // kilit darbesi (2) haric, gercekten motor komutu
+      const komutVar=(dd===2||dd===3||dd===4);
+      const celiski=kapali[i]&&acik[i];             // iki limit ayni anda basili olamaz - sensor/kablo arizasi
+      const konum = !swTaze ? 'bilinmiyor' : (celiski?'celiski':(kapali[i]?'kapali':(acik[i]?'acik':'ara')));
+      const el=$('#bahce-kanat'+(i+1));
+      if(el){
+        el.classList.toggle('acik', konum==='acik');
+        el.classList.toggle('ara',  konum==='ara'||konum==='bilinmiyor');
+        // Animasyon SADECE kanat gercekten iki limit arasindayken - kapali
+        // switch'i hala basiliyken "hareket ediyor" gostermek yalan olurdu.
+        el.classList.toggle('hareket', motorDonuyor && konum==='ara');
+        el.classList.toggle('hata', dd===5||celiski||!swTaze);
+      }
+      if(komutVar) hareketKomutuVar=true;
+      if(swTaze && !kapali[i]) tamKapaliDegilVar=true;
+      const konumMetin={kapali:'Kapalı',acik:'Açık',ara:'Aralık',celiski:'SW ÇELİŞKİ',bilinmiyor:'--'}[konum];
+      // Konum (switch gercegi) once, komut/niyet ok ile sonra. Motor donuyor
+      // ama kanat hala kapali switch'inde ise bunu acikca belirt.
+      let metin = konumMetin;
+      if(esp8266Ok && komutVar) metin += ' → ' + (bahceEtiket[dd]||'-');
+      if(motorDonuyor && konum==='kapali') metin += ' · hareket yok';
+      const de=$('#bahce-durum'+(i+1)); if(de) de.textContent = esp8266Ok ? metin : '--';
+      const dbe=$('#db-bahce-durum'+(i+1)); if(dbe) dbe.textContent = esp8266Ok ? konumMetin : '--';
+      // Amper sadece motor donuyorken anlamli (dururken 0.00A gonderilir)
+      const ae=$('#bahce-akim'+(i+1)); if(ae) ae.textContent = (esp8266Ok && motorDonuyor) ? akim[i].toFixed(2)+'A' : '';
+    }
+    // Limit switch / kilit / zil LED'leri. Kapali sw = normal konum (yesil),
+    // acik sw = kapi acik (kirmizi), kilit enerjili = kilit birakilmis
+    // (kirmizi), zil basili = dikkat (amber).
+    const ledAyarla=(id,cls,on)=>{ const e=$('#'+id); if(!e) return; e.classList.remove('on','ok','pending'); if(on&&swTaze) e.classList.add(cls); };
+    ledAyarla('bahce-sw-k1','ok',kapali[0]);
+    ledAyarla('bahce-sw-a1','on',acik[0]);
+    ledAyarla('bahce-sw-k2','ok',kapali[1]);
+    ledAyarla('bahce-sw-a2','on',acik[1]);
+    ledAyarla('bahce-kilit-led','on',!!n.bahce_kilit);
+    ledAyarla('bahce-zil-led','pending',!!n.bahce_zil);
+    // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok: hareket
+    // komutu varken "Dur"; kanatlardan biri tam kapali degilse "Kapat";
+    // ikisi de tam kapaliysa "Ac".
+    bahceHareketVar = hareketKomutuVar;
+    bahceAcikSayilirmi = tamKapaliDegilVar;
     const bahceBtnMetin = bahceHareketVar ? 'Dur' : (bahceAcikSayilirmi ? 'Kapat' : 'Aç');
     const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
     const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;

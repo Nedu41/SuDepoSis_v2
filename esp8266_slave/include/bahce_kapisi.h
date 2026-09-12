@@ -34,7 +34,18 @@ void kapiAcKomut(int i, bool birlikte = false);
 void kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
 void kapiPoll();
-void zilButonPoll();
+// Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
+// kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano
+// buzzer'inda ding-dong calar). Eskiden sadece zil icin ayri sorgu yapiliyordu.
+void bahceNanoPoll();
+
+// bahceNanoPoll'un doldurdugu anlik giris durumlari + kilit KOMUT durumu.
+// Limit switch'ler INPUT_PULLUP (tetiklenince LOW), burada true = tetiklenmis.
+extern bool bahceKapi1TamAcik, bahceKapi2TamAcik;
+extern bool bahceZilBasili;
+extern unsigned long bahceZilSonCalmaMs;   // son ding-dong ani (0 = hic calmadi)
+extern unsigned long bahceSwSonBasariliMs; // son basarili PIN_READ_ALL (0 = hic)
+extern bool bahceKilitAktif;               // solenoid kilit enerjili mi (komut, geri besleme YOK)
 
 // GECICI TEST: R413D08'e Modbus fonksiyon 0x03 (durum oku, kanal 1-8) gonderir
 // ve RS485 hattindan yanit gelip gelmedigini bekler - normal r413RoleYaz()'in
