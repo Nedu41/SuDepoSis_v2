@@ -285,8 +285,16 @@ GND      → GND
 Nano D4 → IRF520 SIG (Alarm Sireni, 12V doğrudan anahtarlanır)
 Nano D5 → Nem Rölesi IN (5V bobin, tetiklenince 30dk sulama)
 Nano D13 → Depo Lambası MOSFET gate (5V power LED)
-Nano D2 → Kapı1 (SOL) sensör
-Nano D3 → Kapı2 (SAĞ) sensör
+Bahçe Kapısı (araç girişi) — Nano girişleri
+Nano D2  → Sol kanat TAM KAPALI limit switch   (INPUT_PULLUP)
+Nano D3  → Sağ kanat TAM KAPALI limit switch   (INPUT_PULLUP)
+Nano D7  → Sol kanat TAM AÇIK   limit switch   (INPUT_PULLUP)
+Nano D9  → Sağ kanat TAM AÇIK   limit switch   (INPUT_PULLUP)
+Nano D10 → Zil butonu                          (INPUT_PULLUP)
+Nano D12 → Pasif buzzer (zil ding-dong, açılış melodisi, PIR bipi)
+Nano A1  → Sol kanat motor akımı (ACS712 5A)
+Nano A2  → Sağ kanat motor akımı (ACS712 5A)
+   Motor/kilit röleleri Nano'da DEĞİL — R413D08 (Modbus, RS485 hattında)
 </pre>
 </div>
 </body>

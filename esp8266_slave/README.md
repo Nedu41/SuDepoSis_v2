@@ -45,17 +45,18 @@ Tam pin şeması için [docs/pinout.html](docs/pinout.html).
 Slave, master'a ~1 saniyede bir (veya `MASTER:REQUEST_ESP8266` isteğine yanıt olarak) şu satırı gönderir:
 
 ```
-ESP8266:LEVEL=..,PCT=..,LITRE=..,TEMP=..,MODE=day|night,K1=..,K2=..,R=..,LAMBA=..,ALARM=..,
-ERR=..,RTC=..,LEAK=..,LEAK_DK=..,FILL=..,MOISTURE_RAW=..,MOISTURE_PCT=..,MOISTURE_OUTPUT=..,
-MOISTURE_AUTO=..,MOISTURE_LOW=..,MOISTURE_HIGH=..,ALARM_MOD=..,ALARM_MUTE=..,ALARM_PENDING=..,
-PANIC=..,TRIG_MASK=..
+ESP8266:LEVEL=..,PCT=..,LITRE=..,TEMP=..,MODE=day|night,K1=..,K2=..,R=..,LAMBA=..,NANO=..,
+ALARM=..,ERR=..,RTC=..,LEAK=..,LEAK_DK=..,FILL=..,MOISTURE_RAW=..,MOISTURE_PCT=..,
+MOISTURE_OUTPUT=..,MOISTURE_AUTO=..,MOISTURE_LOW=..,MOISTURE_HIGH=..,ALARM_MOD=..,
+ALARM_MUTE=..,ALARM_PENDING=..,PANIC=..,TRIG_MASK=..,BATTERY_LOW=..,BAHCE1=..,BAHCE2=..,
+BAHCE1A=..,BAHCE2A=..,BSW=..
 ```
 
 | Alan | Anlamı |
 |---|---|
 | `LEVEL`/`PCT`/`LITRE` | Depo seviyesi (cm/yüzde/litre) |
 | `MODE` | `day`/`night` (gece modu) |
-| `K1`/`K2` | Kapı 1/2 açık mı |
+| `K1`/`K2` | Bahçe kapısı sol/sağ kanat **tam kapalı değil** mi (Nano D2/D3 limit switch). Alarm mantığında kullanılmaz |
 | `R` | Alarm rölesi fiziksel durumu |
 | `LAMBA` | Depo lambası açık mı |
 | `ALARM` | Alarm rölesi aktif mi (ayar) |
@@ -67,7 +68,12 @@ PANIC=..,TRIG_MASK=..
 | `MOISTURE_OUTPUT`/`MOISTURE_AUTO`/`MOISTURE_LOW`/`MOISTURE_HIGH` | Sulama çıkışı ve otomasyon ayarları |
 | `ALARM_MOD`/`ALARM_MUTE`/`ALARM_PENDING` | Alarm modu (sesli/sessiz/onaylı), susturma, onay bekliyor |
 | `PANIC` | Panik modu aktif mi |
-| `TRIG_MASK` | O an alarmı tetikleyen sensör(ler) bitmask'i |
+| `TRIG_MASK` | O an alarmı tetikleyen sensör(ler) bitmask'i (bit2=PIR, bit3=su seviyesi, bit4=kaçak, bit5=sensör hatası; bit0/1 kullanılmıyor) |
+| `NANO` | Nano ile seri haberleşme canlı mı |
+| `BATTERY_LOW` | Akü düşük uyarısı |
+| `BAHCE1`/`BAHCE2` | Bahçe kapısı kanat durum kodu: 0=kapalı, 1=açık, 2=kilit açılıyor, 3=açılıyor, 4=kapanıyor, 5=hata |
+| `BAHCE1A`/`BAHCE2A` | Kanat motor akımı (amper, ACS712) |
+| `BSW` | Bahçe kapısı giriş bitmask'i: bit0=sol tam açık, bit1=sağ tam açık, bit2=zil (1500ms mandallı), bit3=kilit enerjili, bit4=limit switch okuması taze |
 
 Master'dan gelen komutlar (`MASTER:<KOMUT>`) için `src/main.cpp` içindeki `rs485KomutDinle()`'ye bak
 — `SET_MOISTURE_AUTO=`, `SET_RAIN_SKIP=`, `SET_ALARM_MOD=`, `PANIC`, `ALARM_MUTE` vb.
