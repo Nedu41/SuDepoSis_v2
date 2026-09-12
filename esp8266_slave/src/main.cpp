@@ -1118,18 +1118,19 @@ void rs485KomutDinle() {
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
           // Konteyner/ESP32 web toggle'indan ya da fiziksel butona CIFT basisla
-          // gelir - iki kanat birlikte acilir. birlikte=true: biri sikisirsa
-          // digeri de ayni ters yone alinir (bkz kapiPoll).
-          kapiAcKomut(0, true);
-          kapiAcKomut(1, true);
+          // gelir. Kanatlar bindirmeli oldugu icin AYNI ANDA baslatilmaz -
+          // kapiCiftKanatAc ikinci kanadi gecikmeli baslatir (bkz config.h
+          // BAHCE_KANAT_GECIKME_*). birlikte=true: biri sikisirsa digeri de
+          // ayni ters yone alinir (bkz kapiPoll).
+          kapiCiftKanatAc();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI1_AC") {
           // Fiziksel butona TEK basisla gelir - sadece sol kanat (Kapi 1) acilir.
           kapiAcKomut(0, false);
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_KAPAT") {
-          kapiKapatKomut(0, true);
-          kapiKapatKomut(1, true);
+          // Kapanista sira TERS - ustteki kanat en son kapanir (bkz kapiCiftKanatKapat).
+          kapiCiftKanatKapat();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_DUR") {
           kapiDurdurKomut(0);
@@ -1709,6 +1710,9 @@ void handleCSS() {
   css += ".led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}";
   css += ".led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}";
   css += ".led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}";
+  // Mavi (camgobegi) LED - "kapali/guvende" konum gostergesi. Kapi kapali
+  // olmasi bir tehlike DEGIL, o yuzden kirmizi kullanilmaz.
+  css += ".led.mavi{background:#22b8cf;box-shadow:0 0 6px #22b8cf}";
   // Buyuk panel-LED gostergesi - ESP32 Merkez Kontrol panelindeki .led-big
   // ile AYNI (kullanici talebi, 2026-08-28: "sudepo durum kismindaki
   // sensorlerde kalburum gibi buyuk ledler olsun"). .led ile ayni .on/.ok/
@@ -1717,6 +1721,7 @@ void handleCSS() {
   css += ".led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}";
   css += ".led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}";
   css += ".led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}";
+  css += ".led-big.mavi{background:radial-gradient(circle at 35% 30%,#c9f7ff,#22b8cf 55%,#06414d 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px #22b8cf,0 0 14px 5px rgba(34,184,207,.55)}";
   // Sistem durumu 3 kademeli isik - ESP32 Merkez Kontrol panelindeki .sysdot
   // ile AYNI (normal=yesil, kritik=sari, tehlike=kirmizi soft yanip soner).
   css += ".sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}";

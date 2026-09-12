@@ -152,6 +152,33 @@ void kapiTumRoleleriKapat() {
   }
 }
 
+// Gecikmeli (ikinci) kanat komutu - bkz kapiCiftKanatAc/Kapat. 0 = bekleyen yok.
+static unsigned long gecikmeliKomutMs = 0;
+static int gecikmeliKomutKapi = -1;
+static bool gecikmeliKomutAc = false;
+
+// 2 kanatli kapilarin temel kurali: kanatlar orta noktada bindirdigi icin
+// ayni anda hareket EDEMEZ. Acilista ust kanat once, kapanista en son -
+// aradaki gecikme config.h'de (ticari kartlardaki "leaf delay/phase shift").
+void kapiCiftKanatAc() {
+  int once = BAHCE_ONCE_ACILAN_KAPI, sonra = 1 - BAHCE_ONCE_ACILAN_KAPI;
+  kapiAcKomut(once, true);
+  gecikmeliKomutKapi = sonra;
+  gecikmeliKomutAc = true;
+  gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_AC_MS;
+}
+
+void kapiCiftKanatKapat() {
+  // Kapanista sira TERS: ustteki kanat en son kapanmali ki digerinin ustune otursun.
+  int once = 1 - BAHCE_ONCE_ACILAN_KAPI, sonra = BAHCE_ONCE_ACILAN_KAPI;
+  kapiKapatKomut(once, true);
+  gecikmeliKomutKapi = sonra;
+  gecikmeliKomutAc = false;
+  gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_KAPA_MS;
+}
+
+void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
+
 // Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
 // motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
 void kapiAcKomut(int i, bool birlikte) {
@@ -188,6 +215,9 @@ static void kapiYoneAyarla(BahceKapisi& k, KapiDurum yon, unsigned long now) {
 }
 
 void kapiDurdurKomut(int i) {
+  // Henuz baslamamis gecikmeli kanat komutu varsa onu da iptal et - yoksa
+  // "Dur" dedikten saniyeler sonra diger kanat kendi kendine hareket ederdi.
+  kapiGecikmeliKomutIptal();
   BahceKapisi& k = bahceKapi[i];
   // Sadece gercekten hareket halindeyse dokun - BAHCE_KAPI_DUR komutu iki
   // kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
@@ -200,6 +230,15 @@ void kapiDurdurKomut(int i) {
 
 void kapiPoll() {
   unsigned long now = millis();
+
+  // Bekleyen ikinci kanat komutu zamani geldiyse baslat (kanat gecikmesi).
+  if (gecikmeliKomutMs != 0 && (long)(now - gecikmeliKomutMs) >= 0) {
+    int k = gecikmeliKomutKapi;
+    bool ac = gecikmeliKomutAc;
+    kapiGecikmeliKomutIptal();
+    if (k >= 0) { if (ac) kapiAcKomut(k, true); else kapiKapatKomut(k, true); }
+  }
+
   for (int i = 0; i < 2; i++) {
     BahceKapisi& k = bahceKapi[i];
     if (k.durum == KAPI_KILIT_ACILIYOR) {

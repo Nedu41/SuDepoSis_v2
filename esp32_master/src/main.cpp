@@ -939,6 +939,39 @@ void acilisSesiCal() {
   }
 }
 
+// ============ BAHCE KAPISI ZILI (Konteyner/Kalburum tarafi) ============
+// Asil zil sesi burada calmali - Sudepo'daki Nano buzzer'i bahcenin obur
+// ucunda. DIKKAT: buradaki buzzer AKTIF tip (kendi osilatoru var, bkz
+// acilisSesiCal notu), perde DEGISTIRILEMEZ - gercek iki notali "ding-dong"
+// donanimsal olarak mumkun degil. Onun yerine zil gibi okunan iki vuruslu
+// bir ritim calinir (uzun "ding" + kisa duraklama + daha kisa "dong").
+// Bloklamayan kucuk bir durum makinesi - loop()'u delay() ile tutmaz.
+static const uint16_t ZIL_DESEN_MS[] = {320, 160, 200};  // ac, kapa, ac
+static uint8_t zilAdim = 0;                // 0 = calmiyor
+static unsigned long zilAdimBaslangicMs = 0;
+static bool zilOncekiBasili = false;
+
+void zilCal() {
+  if (zilAdim != 0) return;  // zaten caliyor
+  zilAdim = 1;
+  zilAdimBaslangicMs = millis();
+  digitalWrite(ALARM_LED_PIN, HIGH);
+}
+
+// Zil caliyorsa desendeki siradaki adima gecir. Alarm/siren mantigi ayni
+// pini kullandigi icin (alarmLedGuncelle) zil SADECE ortada alarm yokken
+// calinir - cagiran taraf bunu kontrol eder.
+void zilPoll() {
+  if (zilAdim == 0) return;
+  if (millis() - zilAdimBaslangicMs < ZIL_DESEN_MS[zilAdim - 1]) return;
+  zilAdimBaslangicMs = millis();
+  zilAdim++;
+  if (zilAdim > 3) { zilAdim = 0; digitalWrite(ALARM_LED_PIN, LOW); return; }
+  digitalWrite(ALARM_LED_PIN, (zilAdim == 2) ? LOW : HIGH);
+}
+
+bool zilCaliyorMu() { return zilAdim != 0; }
+
 // Kirmizi alarm LED'i + buzzer (ikisi ayni pine paralel bagli, bkz config.h) -
 // mevcut alarm durumunu okur (banner'in gorunurlugüyle ayni mantik) VE yerel
 // Konteyner sensorlerini (kapi reed + ESKALE OLMUS PIR) de hesaba katar -
@@ -1167,6 +1200,9 @@ void alarmLedGuncelle() {
   }
 
   if (!alarmVar) {
+    // Zil caliyorsa pini birak - ayni pin paylasildigi icin zil desenini
+    // ortasindan kesmesin (bkz zilPoll). Alarm varsa alarm her zaman oncelikli.
+    if (zilCaliyorMu()) return;
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
   }
@@ -2081,6 +2117,8 @@ String rs485_read_line() {
 
 void parse_esp8266_data(String payload);
 void ssePush();
+void zilCal();          // bkz zil durum makinesi (bahce kapisi zili)
+bool zilCaliyorMu();
 void guvenliRestart(); // bkz tanimi asagida - BLE/WiFi'yi duzgunce kapatip ESP.restart() cagirir
 
 void parse_rs485_message(String msg) {
@@ -2157,7 +2195,13 @@ void parse_esp8266_data(String payload) {
       uint8_t m = (uint8_t)value.toInt();
       nanoStatus.bahce_kapi1_tam_acik = (m & 1);
       nanoStatus.bahce_kapi2_tam_acik = (m & 2);
-      nanoStatus.bahce_zil            = (m & 4);
+      {
+        bool zilYeni = (m & 4);
+        // Yukselen kenar: buton yeni basildi -> Kalburum buzzer'ini calistir.
+        // Alarm calarken calma (ayni pin, alarm oncelikli).
+        if (zilYeni && !nanoStatus.bahce_zil && !alarmStatus.panic_mode) zilCal();
+        nanoStatus.bahce_zil = zilYeni;
+      }
       nanoStatus.bahce_kilit          = (m & 8);
       nanoStatus.bahce_sw_taze        = (m & 16);
     } else if (key == "MOISTURE_RAW") {
@@ -5311,6 +5355,7 @@ void loop() {
 
   // Konteyner donanimi - sadece okuma/yerel LED, alarm mantigina yazmiyor
   konteynerSensorleriOku();
+  zilPoll();            // Bahce kapisi zili - bloklamayan desen (alarmLedGuncelle ile ayni pini paylasir)
   alarmLedGuncelle();
   irKumandaIsle();
   irKomutIsleVeCalistir();

@@ -77,6 +77,12 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .btn-danger{background-color:var(--danger);color:#fff}
 .btn-warn{background-color:var(--warn);color:#3d2c02}
 .btn:disabled{opacity:.6;cursor:not-allowed}
+/* Simulasyonun iki yaninda, kanadin kendi motor akimini SUREKLI gosteren
+   dijital gosterge (sol=Sol Kapi, sag=Sag Kapi). */
+.bahce-sim-sarmal{display:flex;align-items:center;gap:8px;margin:10px 0}
+.bahce-sim-sarmal .bahce-sim{flex:1;margin:0}
+.bahce-akim{flex:0 0 auto;min-width:56px;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;font-weight:600;color:var(--accent);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 4px}
+.bahce-akim.pasif{color:var(--muted)}
 .bahce-sim{position:relative;height:90px;margin:10px 0;border-radius:8px;background:repeating-linear-gradient(90deg,var(--border) 0 2px,transparent 2px 14px),var(--bg)}
 .bahce-sim .post{position:absolute;top:50%;width:8px;height:26px;background:var(--muted);transform:translateY(-50%);border-radius:2px}
 .bahce-sim .post.sol{left:calc(50% - 4px)}
@@ -92,6 +98,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .bahce-sim .kanat.sag.ara{transform:translateY(-50%) rotate(36deg)}
 .bahce-sim .kanat.hareket{animation:bahceKanatNabiz 1s ease-in-out infinite}
 .bahce-sim .kanat.hata{background:var(--danger)}
+/* Veri bayat: konum korunur ama belirsizlik gorsel olarak belli edilir. */
+.bahce-sim .kanat.bayat{opacity:.35}
 @keyframes bahceKanatNabiz{0%,100%{filter:brightness(1)}50%{filter:brightness(1.5)}}
 .sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}
 .sysdot.normal{background:var(--accent);box-shadow:0 0 7px var(--accent)}
@@ -102,6 +110,9 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led.on{background:var(--danger);box-shadow:0 0 6px var(--danger)}
 .led.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
+/* Mavi (camgobegi) = "kapali/guvende" konum gostergesi - kapinin kapali
+   olmasi tehlike degil, o yuzden kirmizi kullanilmaz. */
+.led.mavi{background:#22b8cf;box-shadow:0 0 6px #22b8cf}
 /* Buyuk/"canli" LED varyanti (kullanici talebi, 2026-08-27: "gercek ledmis
    gibi") - Konteyner Sensorleri karti icin. .led ile AYNI .on/.ok/.pending
    sinif adlarini kullanir, sadece boyut+parlaklik/govde stilini degistirir -
@@ -258,20 +269,24 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <div class="card">
       <h3>Bahçe Kapısı</h3>
       <p style="font-size:12px;color:var(--muted);margin-top:-4px">Araç girişi, 2 kanat - motor/röle Sudepo (ESP8266) tarafında. Henüz saha kurulumu yok, komutlar donanım bağlanınca çalışır.</p>
-      <div class="bahce-sim">
-        <div class="post sol"></div><div class="post sag"></div>
-        <div class="kanat sol" id="bahce-kanat1"></div>
-        <div class="kanat sag" id="bahce-kanat2"></div>
+      <div class="bahce-sim-sarmal">
+        <div class="bahce-akim" id="bahce-akim1">--</div>
+        <div class="bahce-sim">
+          <div class="post sol"></div><div class="post sag"></div>
+          <div class="kanat sol" id="bahce-kanat1"></div>
+          <div class="kanat sag" id="bahce-kanat2"></div>
+        </div>
+        <div class="bahce-akim" id="bahce-akim2">--</div>
       </div>
       <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
-        <span>Kapı 1: <b id="bahce-durum1" style="color:var(--text)">-</b> <span id="bahce-akim1" style="color:var(--accent)"></span></span>
-        <span>Kapı 2: <b id="bahce-durum2" style="color:var(--text)">-</b> <span id="bahce-akim2" style="color:var(--accent)"></span></span>
+        <span>Sol Kapı: <b id="bahce-durum1" style="color:var(--text)">-</b></span>
+        <span>Sağ Kapı: <b id="bahce-durum2" style="color:var(--text)">-</b></span>
       </div>
       <div class="row" style="justify-content:center;gap:10px;row-gap:6px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-top:8px">
-        <span><span class="led" id="bahce-sw-k1"></span> K1 Kapalı</span>
-        <span><span class="led" id="bahce-sw-a1"></span> K1 Açık</span>
-        <span><span class="led" id="bahce-sw-k2"></span> K2 Kapalı</span>
-        <span><span class="led" id="bahce-sw-a2"></span> K2 Açık</span>
+        <span><span class="led" id="bahce-sw-k1"></span> Sol Kapalı</span>
+        <span><span class="led" id="bahce-sw-a1"></span> Sol Açık</span>
+        <span><span class="led" id="bahce-sw-k2"></span> Sağ Kapalı</span>
+        <span><span class="led" id="bahce-sw-a2"></span> Sağ Açık</span>
         <span><span class="led" id="bahce-kilit-led"></span> Kilit</span>
         <span><span class="led" id="bahce-zil-led"></span> Zil</span>
       </div>
@@ -1212,14 +1227,19 @@ function renderUI(d){
       const celiski=kapali[i]&&acik[i];             // iki limit ayni anda basili olamaz - sensor/kablo arizasi
       const konum = !swTaze ? 'bilinmiyor' : (celiski?'celiski':(kapali[i]?'kapali':(acik[i]?'acik':'ara')));
       const el=$('#bahce-kanat'+(i+1));
-      if(el){
+      if(el && konum!=='bilinmiyor'){
+        // Konum BILINMIYORKEN siniflar HIC degistirilmez - son bilinen konum
+        // oldugu gibi kalir. Aksi halde tek bir kacan RS485 turu
+        // (esp8266_online bir an false) kanatlari ara konuma savurup geri
+        // getiriyordu: kullanicinin gordugu "kendi kendine acilip kapanma".
         el.classList.toggle('acik', konum==='acik');
-        el.classList.toggle('ara',  konum==='ara'||konum==='bilinmiyor');
+        el.classList.toggle('ara',  konum==='ara');
         // Animasyon SADECE kanat gercekten iki limit arasindayken - kapali
         // switch'i hala basiliyken "hareket ediyor" gostermek yalan olurdu.
         el.classList.toggle('hareket', motorDonuyor && konum==='ara');
-        el.classList.toggle('hata', dd===5||celiski||!swTaze);
+        el.classList.toggle('hata', dd===5||celiski);
       }
+      if(el) el.classList.toggle('bayat', konum==='bilinmiyor');
       if(komutVar) hareketKomutuVar=true;
       if(swTaze && !kapali[i]) tamKapaliDegilVar=true;
       const konumMetin={kapali:'Kapalı',acik:'Açık',ara:'Aralık',celiski:'SW ÇELİŞKİ',bilinmiyor:'--'}[konum];
@@ -1230,18 +1250,20 @@ function renderUI(d){
       if(motorDonuyor && konum==='kapali') metin += ' · hareket yok';
       const de=$('#bahce-durum'+(i+1)); if(de) de.textContent = esp8266Ok ? metin : '--';
       const dbe=$('#db-bahce-durum'+(i+1)); if(dbe) dbe.textContent = esp8266Ok ? konumMetin : '--';
-      // Amper sadece motor donuyorken anlamli (dururken 0.00A gonderilir)
-      const ae=$('#bahce-akim'+(i+1)); if(ae) ae.textContent = (esp8266Ok && motorDonuyor) ? akim[i].toFixed(2)+'A' : '';
+      // Akim SUREKLI gorunur (kullanici talebi) - motor dururken 0.00A
+      // gonderilir, bu da gecerli bir olcum. ESP8266 yoksa "--".
+      const ae=$('#bahce-akim'+(i+1));
+      if(ae){ ae.textContent = esp8266Ok ? akim[i].toFixed(2)+'A' : '--'; ae.classList.toggle('pasif', !esp8266Ok || !motorDonuyor); }
     }
     // Limit switch / kilit / zil LED'leri. Kapali sw = normal konum (yesil),
     // acik sw = kapi acik (kirmizi), kilit enerjili = kilit birakilmis
     // (kirmizi), zil basili = dikkat (amber).
-    const ledAyarla=(id,cls,on)=>{ const e=$('#'+id); if(!e) return; e.classList.remove('on','ok','pending'); if(on&&swTaze) e.classList.add(cls); };
-    ledAyarla('bahce-sw-k1','ok',kapali[0]);
-    ledAyarla('bahce-sw-a1','on',acik[0]);
-    ledAyarla('bahce-sw-k2','ok',kapali[1]);
-    ledAyarla('bahce-sw-a2','on',acik[1]);
-    ledAyarla('bahce-kilit-led','on',!!n.bahce_kilit);
+    const ledAyarla=(id,cls,on)=>{ const e=$('#'+id); if(!e) return; e.classList.remove('on','ok','pending','mavi'); if(on&&swTaze) e.classList.add(cls); };
+    ledAyarla('bahce-sw-k1','mavi',kapali[0]);
+    ledAyarla('bahce-sw-a1','ok',acik[0]);
+    ledAyarla('bahce-sw-k2','mavi',kapali[1]);
+    ledAyarla('bahce-sw-a2','ok',acik[1]);
+    ledAyarla('bahce-kilit-led','ok',!!n.bahce_kilit);
     ledAyarla('bahce-zil-led','pending',!!n.bahce_zil);
     // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok: hareket
     // komutu varken "Dur"; kanatlardan biri tam kapali degilse "Kapat";
