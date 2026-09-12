@@ -633,6 +633,17 @@ void nanoStatusAyristir(const String& yanit) {
       // ve LOW okunur (D0=0), yani "D0=1" = kanat tam kapali DEGIL.
       bahceKapi1TamKapali = (yanit.indexOf("D0=1") < 0);
       bahceKapi2TamKapali = (yanit.indexOf("D1=1") < 0);
+      // Guncel Nano firmware'i "tam acik" switch'lerini ve zili de bu yanitta
+      // gonderiyor - o zaman ayri PIN_READ_ALL istegine hic gerek kalmaz
+      // (9600 baud'da her istek ~90ms hat mesgul eder). Eski firmware'de bu
+      // alanlar yoktur; o durumda bahceNanoPoll eski yontemle devam eder.
+      bahceSwGetStatustan = (yanit.indexOf("ACIK1=") >= 0);
+      if (bahceSwGetStatustan) {
+        bahceKapi1TamAcik = (yanit.indexOf("ACIK1=1") < 0);
+        bahceKapi2TamAcik = (yanit.indexOf("ACIK2=1") < 0);
+        bahceZilGuncelle(yanit.indexOf("ZIL=1") < 0);
+        bahceSwSonBasariliMs = millis();
+      }
       // PIR artik ayri bir PIN_READ komutuyla degil, GET_STATUS yanitinin
       // kendisinden okunuyor - iki ayri komutu ayni pencerede art arda
       // gondermenin yol actigi zamanlama/kesilme sorunlari ortadan kalkti.
@@ -1712,7 +1723,7 @@ void handleCSS() {
   css += ".led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}";
   // Mavi (camgobegi) LED - "kapali/guvende" konum gostergesi. Kapi kapali
   // olmasi bir tehlike DEGIL, o yuzden kirmizi kullanilmaz.
-  css += ".led.mavi{background:#22b8cf;box-shadow:0 0 6px #22b8cf}";
+  css += ".led.mavi{background:#3b82f6;box-shadow:0 0 7px #3b82f6}";
   // Buyuk panel-LED gostergesi - ESP32 Merkez Kontrol panelindeki .led-big
   // ile AYNI (kullanici talebi, 2026-08-28: "sudepo durum kismindaki
   // sensorlerde kalburum gibi buyuk ledler olsun"). .led ile ayni .on/.ok/
@@ -1721,7 +1732,7 @@ void handleCSS() {
   css += ".led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}";
   css += ".led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}";
   css += ".led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}";
-  css += ".led-big.mavi{background:radial-gradient(circle at 35% 30%,#c9f7ff,#22b8cf 55%,#06414d 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px #22b8cf,0 0 14px 5px rgba(34,184,207,.55)}";
+  css += ".led-big.mavi{background:radial-gradient(circle at 35% 30%,#cfe0ff,#3b82f6 55%,#0b2a63 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px #3b82f6,0 0 14px 5px rgba(59,130,246,.6)}";
   // Sistem durumu 3 kademeli isik - ESP32 Merkez Kontrol panelindeki .sysdot
   // ile AYNI (normal=yesil, kritik=sari, tehlike=kirmizi soft yanip soner).
   css += ".sysdot{width:15px;height:15px;border-radius:50%;display:inline-block}";

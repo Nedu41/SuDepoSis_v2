@@ -28,6 +28,13 @@
 // Kapı Sensörleri (Input, PULLUP)
 #define DOOR1_PIN       2       // D2 - Bahçe Kapı1 (SOL) tam kapalı limit switch
 #define DOOR2_PIN       3       // D3 - Bahçe Kapı2 (SAĞ) tam kapalı limit switch
+// Bahçe kapısı "tam açık" limit switch'leri + zil butonu. Eskiden ESP8266
+// bunları ayrı bir PIN_READ_ALL isteğiyle okuyordu; GET_STATUS yanıtına
+// eklenerek o istek tamamen kaldırıldı (PIR'de uygulanan çözümün aynısı) -
+// 9600 baud'da her istek ~90ms hat meşgul ediyor.
+#define BAHCE_ACIK1_PIN 7       // D7 - Bahçe Kapı1 (SOL) tam açık limit switch
+#define BAHCE_ACIK2_PIN 9       // D9 - Bahçe Kapı2 (SAĞ) tam açık limit switch
+#define BAHCE_ZIL_PIN   10      // D10 - Bahçe kapısı zil butonu
 
 // Alarm Sireni (Output) - IRF520 MOSFET SIG, HIGH = aktif (low-side switch, kontak yok)
 #define RELAY_PIN       4       // D4 - Alarm Sireni (IRF520 MOSFET)
