@@ -10,7 +10,7 @@
 #include "bahce_kapisi.h"
 
 extern SoftwareSerial swSerial;   // main.cpp - RS485 hatti (custom protokol + Modbus paylasimli)
-extern bool kapi1Acik, kapi2Acik; // main.cpp - depo alarm kapi sensorleri, "kapali" tespiti icin
+extern bool bahceKapi1TamKapali, bahceKapi2TamKapali; // main.cpp - Nano D2/D3 tam-kapali limit switch'leri
 
 const char* kapiDurumAdi(KapiDurum d) {
   switch (d) {
@@ -130,11 +130,10 @@ static int nanoAnalogOku(int pin) {
   return eq >= 0 ? r.substring(eq + 1).toInt() : -1;
 }
 
-// "Kapalı" konumu icin ayri Nano sorgusu YOK - mevcut alarm kapi sensoru
-// (kapi1Acik/kapi2Acik, GET_STATUS ile zaten surekli taze) dogrudan kullanilir.
-// Bu sensor "kapi acik" algiladiginda true oldugundan, bahce kapisi
-// "kapali" durumu = !kapi1Acik/!kapi2Acik.
-static bool kapiMevcutAlarmSensoruKapali(int i) { return i == 0 ? !kapi1Acik : !kapi2Acik; }
+// "Tam kapali" limit switch'leri (Nano D2/D3) icin ayri bir PIN_READ sorgusu
+// YOK - Nano bunlari zaten her GET_STATUS yanitinda bildiriyor, main.cpp
+// orada bahceKapi1/2TamKapali'ya yaziyor. Ekstra Nano trafigi olmadan taze.
+static bool kapiTamKapaliMi(int i) { return i == 0 ? bahceKapi1TamKapali : bahceKapi2TamKapali; }
 
 static void kapiMotorDurdur(BahceKapisi& k) {
   r413RoleYaz(k.releA, false);
@@ -215,7 +214,7 @@ void kapiPoll() {
 
     bool acikOk;
     bool acikLimit = nanoDijitalOku(k.acikPin, &acikOk) == LOW;
-    bool kapaliLimit = kapiMevcutAlarmSensoruKapali(i);  // mevcut alarm kapi sensorunden, ekstra Nano sorgusu yok
+    bool kapaliLimit = kapiTamKapaliMi(i);  // GET_STATUS'tan taze gelir, ekstra Nano sorgusu yok
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
     if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger

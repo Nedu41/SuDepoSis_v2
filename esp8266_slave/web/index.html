@@ -21,7 +21,7 @@
 
 <div class=card><h3>Tuketim</h3><div class=info><p><span class=info-label>Bugun</span><span class=kpi id=gunlukTuketimText>- L</span></p><p><span class=info-label>Bu ay</span><span class=kpi id=aylikTuketimText>- L</span></p></div></div>
 
-<div class=card><h3>Durum</h3><div class=info><p><span class=info-label>Sol Kapi</span><span class='led led-big' id=kapi1Text></span></p><p><span class=info-label>Sag Kapi</span><span class='led led-big' id=kapi2Text></span></p><p><span class=info-label>Nano</span><span class='led led-big' id=nanoBagliText></span></p><p><span class=info-label>Alarm</span><span class='led led-big' id=roleTetikliText></span></p><p><span class=info-label>PIR</span><span class='led led-big' id=pirDurumText></span></p><p><span class=info-label>Lamba</span><span class='led led-big' id=lambaText></span></p><p><span class=info-label>Nem</span><span class=kpi id=moistureText>-</span></p><p><span class=info-label>Nem Mod</span><b id=moistureAutoText>-</b></p><p><span class=info-label>Nem Role</span><span class='led led-big' id=moistureOutputText></span></p></div>
+<div class=card><h3>Durum</h3><div class=info><p><span class=info-label>Kapi1 Kapali Sw</span><span class='led led-big' id=kapi1Text></span></p><p><span class=info-label>Kapi2 Kapali Sw</span><span class='led led-big' id=kapi2Text></span></p><p><span class=info-label>Nano</span><span class='led led-big' id=nanoBagliText></span></p><p><span class=info-label>Alarm</span><span class='led led-big' id=roleTetikliText></span></p><p><span class=info-label>PIR</span><span class='led led-big' id=pirDurumText></span></p><p><span class=info-label>Lamba</span><span class='led led-big' id=lambaText></span></p><p><span class=info-label>Nem</span><span class=kpi id=moistureText>-</span></p><p><span class=info-label>Nem Mod</span><b id=moistureAutoText>-</b></p><p><span class=info-label>Nem Role</span><span class='led led-big' id=moistureOutputText></span></p></div>
 <div class=btn-satir><button onclick=roleToggle() class='btn btn-turuncu' id=roleToggleBtn>Alarmi Ac</button><button onclick=panicToggle() class='btn btn-kirmizi' id=panicBtn>Panik</button><button onclick=lambaToggle() class='btn btn-mavi' id=lambaToggleBtn>Lamba</button></div>
 <div class=btn-satir><button onclick=alarmSustur() class='btn btn-turuncu' id=susturBtn>Sustur/Sireni Kapat</button></div>
 <div id=panicSonuc class=sonuc-metni></div><div id=roleSonuc class=sonuc-metni></div><div id=alarmModSonuc class=sonuc-metni></div></div>
@@ -39,23 +39,17 @@
 <details class=card><summary>PIR Ayarlari</summary><p class=muted>SR501 her tetiklenmede ~3sn HIGH / ~5sn LOW dongusunde calisir (kendi kilitlenme suresi), hareket surdukce bu tekrarlar. Asagidaki Pencere suresi icinde PIR en az kac KEZ ayri ayri tetiklenirse gercek/surekli hareket sayilacagini ayarlayin - tek seferlik ruzgar darbesi genelde 1 kez tetikler, gercek hareket ise ardarda birkac kez. (Pencere=0: filtre yok, ham deger aninda gecerli.)</p><label>Pencere suresi (sn)</label><input type=number min=0 max=120 id=pirPencereSaniye><label>Min. tetiklenme sayisi</label><input type=number min=1 max=8 id=pirMinTetiklenme><div class=info><p>Anlik PIR durumu: <b id=pirHamText>-</b></p></div></details>
 <details class=card><summary>Siren Zamanlama</summary><p class=muted>Lamba tetikte hemen yanar. Siren, Ilk Gecikme sonra kisa Chirp/Bekleme atislarini tetik bitene kadar tekrarlar (Konteyner/ESP32 ile ayni prensip - uzun sureli kesintisiz "aktif" fazi yok). En fazla Max Sure kesintisiz atarsa otomatik susturulur, bir sonraki YENI tetiklenmeye kadar oyle kalir. Panik modu bu mantigi atlar (aninda surekli). Amac: kisa/yanlis tetiklerin tam siren calmadan sona ermesi.</p><label>Ilk Gecikme (sn)</label><input type=number min=0 max=120 id=sirenGecikme><label>Chirp Suresi (ms)</label><input type=number min=50 max=5000 id=sirenChirp><label>Bekleme Suresi (sn)</label><input type=number min=1 max=120 id=sirenBekleme><label>Max Sure (dk)</label><input type=number min=1 max=30 id=sirenMax></details>
 <details class=card><summary>Zaman Bazli Tetikleyiciler</summary><div class='info cb-grid'><p>Gunduz:</p>
-<label class=cb><input type=checkbox id=Gunduz_kapi1> Sol Kapi</label>
-<label class=cb><input type=checkbox id=Gunduz_kapi2> Sag Kapi</label>
 <label class=cb><input type=checkbox id=Gunduz_pir> PIR</label>
 <label class=cb><input type=checkbox id=Gunduz_seviye> Su Seviyesi</label>
 <label class=cb><input type=checkbox id=Gunduz_kacak> Kacak</label>
 <label class=cb><input type=checkbox id=Gunduz_sensor> Sensor</label>
 </div><div class='info cb-grid'><p>Gece:</p>
-<label class=cb><input type=checkbox id=Gece_kapi1> Sol Kapi</label>
-<label class=cb><input type=checkbox id=Gece_kapi2> Sag Kapi</label>
 <label class=cb><input type=checkbox id=Gece_pir> PIR</label>
 <label class=cb><input type=checkbox id=Gece_seviye> Su Seviyesi</label>
 <label class=cb><input type=checkbox id=Gece_kacak> Kacak</label>
 <label class=cb><input type=checkbox id=Gece_sensor> Sensor</label>
 </div></details>
 <details class=card><summary>Mod Senaryolari</summary><p class=muted>Her modu hangi sensorlerin tetikleyecegini (girdi) ve tetiklendiginde neyin calisacagini (cikis) ayri ayri secin.</p><div class='info cb-grid'><p>Sesli mod - Girdi:</p>
-<label class=cb><input type=checkbox id=Sesli_kapi1> Sol Kapi</label>
-<label class=cb><input type=checkbox id=Sesli_kapi2> Sag Kapi</label>
 <label class=cb><input type=checkbox id=Sesli_pir> PIR</label>
 <label class=cb><input type=checkbox id=Sesli_seviye> Su Seviyesi</label>
 <label class=cb><input type=checkbox id=Sesli_kacak> Kacak</label>
@@ -64,8 +58,6 @@
 <label class=cb><input type=checkbox id=Sesli_siren> Siren</label>
 <label class=cb><input type=checkbox id=Sesli_lamba> Lamba</label>
 </div><div class='info cb-grid'><p>Sessiz mod - Girdi:</p>
-<label class=cb><input type=checkbox id=Sessiz_kapi1> Sol Kapi</label>
-<label class=cb><input type=checkbox id=Sessiz_kapi2> Sag Kapi</label>
 <label class=cb><input type=checkbox id=Sessiz_pir> PIR</label>
 <label class=cb><input type=checkbox id=Sessiz_seviye> Su Seviyesi</label>
 <label class=cb><input type=checkbox id=Sessiz_kacak> Kacak</label>
@@ -74,8 +66,6 @@
 <label class=cb><input type=checkbox id=Sessiz_siren> Siren</label>
 <label class=cb><input type=checkbox id=Sessiz_lamba> Lamba</label>
 </div><div class='info cb-grid'><p>Onayli mod:</p>
-<label class=cb><input type=checkbox id=Onayli_kapi1> Sol Kapi</label>
-<label class=cb><input type=checkbox id=Onayli_kapi2> Sag Kapi</label>
 <label class=cb><input type=checkbox id=Onayli_pir> PIR</label>
 <label class=cb><input type=checkbox id=Onayli_seviye> Su Seviyesi</label>
 <label class=cb><input type=checkbox id=Onayli_kacak> Kacak</label>

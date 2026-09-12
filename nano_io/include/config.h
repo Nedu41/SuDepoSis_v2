@@ -11,7 +11,7 @@
 // ============================================================
 // PIN HARİTASI (v2 - 2026 planı)
 // D0/D1  → ESP8266 seri haberleşme
-// D2/D3  → Kapı sensörleri (INPUT_PULLUP) - Kapı1=SOL, Kapı2=SAĞ
+// D2/D3  → Bahçe kapısı tam-kapalı limit switch (INPUT_PULLUP) - Kapı1=SOL, Kapı2=SAĞ
 // D4     → Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)
 // D5     → Nem rölesi (OUTPUT)
 // D7     → Bahçe Kapı1 (SOL) tam açık switch (genel /pin/* API, pinKorumali())
@@ -26,8 +26,8 @@
 // ============================================================
 
 // Kapı Sensörleri (Input, PULLUP)
-#define DOOR1_PIN       2       // D2 - Sol Kapı Sensörü
-#define DOOR2_PIN       3       // D3 - Sağ Kapı Sensörü
+#define DOOR1_PIN       2       // D2 - Bahçe Kapı1 (SOL) tam kapalı limit switch
+#define DOOR2_PIN       3       // D3 - Bahçe Kapı2 (SAĞ) tam kapalı limit switch
 
 // Alarm Sireni (Output) - IRF520 MOSFET SIG, HIGH = aktif (low-side switch, kontak yok)
 #define RELAY_PIN       4       // D4 - Alarm Sireni (IRF520 MOSFET)

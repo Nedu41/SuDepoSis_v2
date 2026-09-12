@@ -432,8 +432,11 @@ struct SensorData {
 };
 
 struct NanoIOStatus {
-  bool door1_open = false;
-  bool door2_open = false;
+  // Nano D2/D3 = BAHCE KAPISI tam-kapali limit switch'leri (RS485 K1/K2 ile
+  // gelir, 1 = kanat tam kapali DEGIL). Depo kapi sensoru DEGIL - alarm
+  // mantiginda kullanilmaz (2026-09-12 duzeltmesi).
+  bool bahce_kapi1_tam_kapali = false;
+  bool bahce_kapi2_tam_kapali = false;
   bool relay_active = false;
   bool lamp_on = false;
   // Bahce kapisi (arac girisi) durum kodu - esp8266_slave KapiDurum enum'uyla
@@ -457,7 +460,6 @@ struct NanoIOStatus {
 struct AlarmStatus {
   bool leak_alarm = false;
   bool low_level_alarm = false;
-  bool door_alarm = false;
   bool enabled = true;  // Alarm toggle state
   bool panic_mode = false;  // Panik butonu durumu (ESP8266 ile senkron)
   uint8_t mode = 1;      // 1=Sesli 2=Sessiz 3=Onayli (ESP8266 ile senkron)
@@ -2128,9 +2130,9 @@ void parse_esp8266_data(String payload) {
     } else if (key == "MODE") {
       sensorData.night_mode = (value == "night");
     } else if (key == "K1") {
-      nanoStatus.door1_open = (value == "1");
+      nanoStatus.bahce_kapi1_tam_kapali = (value != "1");
     } else if (key == "K2") {
-      nanoStatus.door2_open = (value == "1");
+      nanoStatus.bahce_kapi2_tam_kapali = (value != "1");
     } else if (key == "R") {
       nanoStatus.relay_active = (value == "1");
     } else if (key == "LAMBA") {
@@ -2159,10 +2161,7 @@ void parse_esp8266_data(String payload) {
       sensorData.moisture_high = value.toInt();
     } else if (key == "ALARM") {
       // ESP8266'da bu alan "alarm sistemi etkin mi" anlamina gelir (kapi
-      // durumuyla ilgisi yok). Eskiden yanlislikla door_alarm'a yaziliyordu;
-      // kapi alarmi asagida K1/K2'den ayrica dogru hesaplaniyor zaten - o
-      // deger burada ezildigi icin ssePush() aninda yanlis "kapi acik"
-      // gonderiyordu, sonraki cevrimde duzeliyordu. Bu "yanip-sonme" hatasiydi.
+      // durumuyla ilgisi yok).
       alarmStatus.enabled = (value == "1");
     } else if (key == "ERR") {
       sensorData.sensor_err = (value == "1");
@@ -2197,13 +2196,9 @@ void parse_esp8266_data(String payload) {
   // "online" damgasi da burada guncellenir (ayri bir Nano mesaji hic gelmez).
   nanoStatus.last_update_ms = millis();
 
-  // Kapı alarmı - ssePush()'tan ONCE hesaplanmali ki push her zaman tutarli
-  // (dogru) durumu gondersin.
-  if (nanoStatus.door1_open || nanoStatus.door2_open) {
-    alarmStatus.door_alarm = true;
-  } else {
-    alarmStatus.door_alarm = false;
-  }
+  // 2026-09-12: "Kapi alarmi" KALDIRILDI - K1/K2 aslinda bahce kapisinin
+  // tam-kapali limit switch'leri (Nano D2/D3), depo kapi sensoru degil.
+  // Kapinin motorla acilmasi alarm sayiliyordu; depoda ayri kapi sensoru yok.
 
   ssePush(); // ESP8266'dan taze veri geldi - baglı istemcilere aninda pushla
 }
@@ -3187,20 +3182,19 @@ void mqtt_publish() {
     "\"level_liters\":%.0f,"
     "\"temperature\":%.1f,"
     "\"night_mode\":%s,"
-    "\"nano\":{\"door1\":%s,\"door2\":%s,\"relay\":%s},"
-    "\"alarm\":{\"leak\":%s,\"low_level\":%s,\"door\":%s,\"panic\":%s}"
+    "\"nano\":{\"bahce_kapi1_tam_kapali\":%s,\"bahce_kapi2_tam_kapali\":%s,\"relay\":%s},"
+    "\"alarm\":{\"leak\":%s,\"low_level\":%s,\"panic\":%s}"
     "}",
     sensorData.level_cm,
     sensorData.level_percent,
     sensorData.level_liters,
     sensorData.temperature,
     sensorData.night_mode ? "true" : "false",
-    nanoStatus.door1_open ? "true" : "false",
-    nanoStatus.door2_open ? "true" : "false",
+    nanoStatus.bahce_kapi1_tam_kapali ? "true" : "false",
+    nanoStatus.bahce_kapi2_tam_kapali ? "true" : "false",
     nanoStatus.relay_active ? "true" : "false",
     alarmStatus.leak_alarm ? "true" : "false",
     alarmStatus.low_level_alarm ? "true" : "false",
-    alarmStatus.door_alarm ? "true" : "false",
     alarmStatus.panic_mode ? "true" : "false"
   );
   
@@ -3235,8 +3229,8 @@ String durumJson() {
   doc["rtc_ok"] = sensorData.rtc_ok;
   doc["sensor_err"] = sensorData.sensor_err;
 
-  doc["nano"]["door1"] = nanoStatus.door1_open;
-  doc["nano"]["door2"] = nanoStatus.door2_open;
+  doc["nano"]["bahce_kapi1_tam_kapali"] = nanoStatus.bahce_kapi1_tam_kapali;
+  doc["nano"]["bahce_kapi2_tam_kapali"] = nanoStatus.bahce_kapi2_tam_kapali;
   doc["nano"]["relay"] = nanoStatus.relay_active;
   doc["nano"]["lamp"] = nanoStatus.lamp_on;
   doc["nano"]["bahce_kapi1"] = nanoStatus.bahce_kapi1_durum;
@@ -3246,7 +3240,6 @@ String durumJson() {
 
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;
-  doc["alarm"]["door"] = alarmStatus.door_alarm;
   doc["alarm"]["enabled"] = alarmStatus.enabled;
   doc["alarm"]["panic"] = alarmStatus.panic_mode;
   doc["alarm"]["mode"] = alarmStatus.mode;
@@ -4814,7 +4807,9 @@ void bleDurumBildir() {
   snprintf(buf, sizeof(buf),
     "LEVEL=%.1f,PCT=%.1f,TEMP=%.1f,LAMP=%d,D1=%d,D2=%d,ALARM=%d,PANIC=%d,MOD=%d,MUTE=%d,PEND=%d,TRIG=%d",
     sensorData.level_cm, sensorData.level_percent, sensorData.temperature,
-    nanoStatus.lamp_on ? 1 : 0, nanoStatus.door1_open ? 1 : 0, nanoStatus.door2_open ? 1 : 0,
+    // D1=/D2= alan adlari ve polaritesi Android uygulamasi icin AYNEN korundu
+    // (1 = bahce kapisi kanadi tam kapali degil).
+    nanoStatus.lamp_on ? 1 : 0, nanoStatus.bahce_kapi1_tam_kapali ? 0 : 1, nanoStatus.bahce_kapi2_tam_kapali ? 0 : 1,
     alarmStatus.enabled ? 1 : 0, alarmStatus.panic_mode ? 1 : 0, alarmStatus.mode,
     alarmStatus.muted ? 1 : 0, alarmStatus.pending ? 1 : 0, alarmStatus.trigger_mask);
 

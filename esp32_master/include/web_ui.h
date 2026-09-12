@@ -188,8 +188,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           </div>
         </div>
         <div class="row" style="column-gap:16px;row-gap:16px;margin-top:16px;align-items:center;flex-wrap:wrap">
-          <div><span class="led led-big" id="db8-kapi1"></span> Sol Kapı</div>
-          <div><span class="led led-big" id="db8-kapi2"></span> Sağ Kapı</div>
+          <div><span class="led led-big" id="db8-kapi1"></span> Kapı1 Kapalı Sw</div>
+          <div><span class="led led-big" id="db8-kapi2"></span> Kapı2 Kapalı Sw</div>
           <div><span class="led led-big" id="db8-pir"></span> PIR</div>
           <div><span class="led led-big" id="db8-kacak"></span> Kaçak</div>
           <div><span class="led led-big" id="db8-role"></span> Siren</div>
@@ -859,7 +859,7 @@ function bipSesi(){
 }
 
 // Her ad hangi cihaza (Sudepo/Konteyner) ait oldugunu belirtir.
-const tetikleyiciAdlari=['Sudepo: Sol Kapı','Sudepo: Sağ Kapı','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
+const tetikleyiciAdlari=['-','-','Sudepo: PIR (Hareket)','Sudepo: Su Seviyesi','Sudepo: Kaçak','Sudepo: Sensör Hatası'];
 function tetikleyenMetni(mask,panicAktif,konteynerPir,konteynerKapi,konteynerSwan,konteynerDuman,konteynerGaz){
   if(panicAktif) return 'Panik (elle açıldı)';
   const l=[];
@@ -1011,7 +1011,6 @@ function renderUI(d){
     else if(konteynerGazVar) at='ALARM: Konteyner gaz sızıntısı!';
     else if(d.alarm.leak) at='ALARM: Sudepo kaçak!';
     else if(d.alarm.low_level) at='ALARM: Sudepo düşük seviye!';
-    else if(d.alarm.door) at='ALARM: Sudepo kapı açık!';
     else if(alarmMask & 4) at='ALARM: Sudepo hareket algılandı!';
     else if(konteynerPirVar) at='ALARM: Konteyner hareket!';
     else if(konteynerKapiVar) at='ALARM: Konteyner kapı açık!';
@@ -1162,8 +1161,9 @@ function renderUI(d){
   // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
   // Sudepo Zonu Sensorleri karti (Konteyner Sensorleri ile ayni LED deseni,
   // kullanici talebi 2026-08-28) - baglanti yoksa hepsi sonuk kalir.
-  { const e=$('#db8-kapi1'); if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.door1); }
-  { const e=$('#db8-kapi2'); if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.door2); }
+  // Bahce kapisi tam-kapali limit switch'i: kapali = yesil (normal konum)
+  { const e=$('#db8-kapi1'); if(e) e.classList.toggle('ok', esp8266Ok && !!d.nano.bahce_kapi1_tam_kapali); }
+  { const e=$('#db8-kapi2'); if(e) e.classList.toggle('ok', esp8266Ok && !!d.nano.bahce_kapi2_tam_kapali); }
   { const e=$('#db8-role');  if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.relay); }
   { const e=$('#db8-lamba'); if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.lamp); }
   { const e=$('#db8-pir');   if(e) e.classList.toggle('on', esp8266Ok && !!(alarmMask & 4)); }
@@ -1651,7 +1651,10 @@ function bateryaEsikKaydet(){
 }
 
 // === SUDEPO ZONU (ESP8266+Nano) AYARLARI - Kalburum'dan koprulu yonetim ===
-const szTetikleyiciler=[['kapi1','Sol Kapı'],['kapi2','Sağ Kapı'],['pir','PIR'],['seviye','Su Seviyesi'],['kacak','Kaçak'],['sensor','Sensör Hatası']];
+// 3. eleman = ALARM_TRIGGER_* bit degeri. Bit 0/1 (eski Sol/Sag Kapi)
+// kaldirildi; kalan bitler KAYDIRILMADAN korunmali, o yuzden dizi indeksi
+// degil bu acik deger kullanilir (bkz esp8266_slave/include/config.h).
+const szTetikleyiciler=[['pir','PIR',4],['seviye','Su Seviyesi',8],['kacak','Kaçak',16],['sensor','Sensör Hatası',32]];
 function szGridHtml(prefix){
   return szTetikleyiciler.map(t=>'<label><input type="checkbox" id="'+prefix+'_'+t[0]+'" onchange="szKaydet()">'+t[1]+'</label>').join('');
 }
@@ -1660,7 +1663,7 @@ function szOutputGridHtml(prefix){
 }
 function szCalcTrigger(prefix){
   let v=0;
-  szTetikleyiciler.forEach((t,i)=>{ if($('#'+prefix+'_'+t[0]).checked) v|=(1<<i); });
+  szTetikleyiciler.forEach(t=>{ if($('#'+prefix+'_'+t[0]).checked) v|=t[2]; });
   return v;
 }
 function szCalcOutput(prefix){
@@ -1671,7 +1674,7 @@ function szCalcOutput(prefix){
 }
 function szUncheckAll(prefix, adlar){ adlar.forEach(a=>{ const el=$('#'+prefix+'_'+a); if(el) el.checked=false; }); }
 function szSetTrigger(prefix, mask){
-  szTetikleyiciler.forEach((t,i)=>{ const el=$('#'+prefix+'_'+t[0]); if(el) el.checked=((mask&(1<<i))!==0); });
+  szTetikleyiciler.forEach(t=>{ const el=$('#'+prefix+'_'+t[0]); if(el) el.checked=((mask&t[2])!==0); });
 }
 function szSetOutput(prefix, mask){
   const s=$('#'+prefix+'_siren'), l=$('#'+prefix+'_lamba');
