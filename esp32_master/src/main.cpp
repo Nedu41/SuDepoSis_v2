@@ -883,6 +883,12 @@ void bateryaAyarlariKaydet(bool aktif, float kesme, float geri) {
 void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
+#if ZIL_HOPARLOR_VAR
+  // Pasif zil hoparloru - gercek iki notali ding-dong icin LEDC tonu
+  ledcSetup(ZIL_LEDC_KANAL, 2000, 8);
+  ledcAttachPin(ZIL_HOPARLOR_PIN, ZIL_LEDC_KANAL);
+  ledcWriteTone(ZIL_LEDC_KANAL, 0);
+#endif
   pinMode(KONTEYNER_SIREN_PIN, OUTPUT);
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
   pinMode(KONTEYNER_LAMBA_PIN, OUTPUT);
@@ -946,16 +952,34 @@ void acilisSesiCal() {
 // donanimsal olarak mumkun degil. Onun yerine zil gibi okunan iki vuruslu
 // bir ritim calinir (uzun "ding" + kisa duraklama + daha kisa "dong").
 // Bloklamayan kucuk bir durum makinesi - loop()'u delay() ile tutmaz.
-static const uint16_t ZIL_DESEN_MS[] = {320, 160, 200};  // ac, kapa, ac
+// Desen: 1=ding, 2=kisa bosluk, 3=dong. Pasif hoparlor varsa gercek iki
+// notali zil calar; yoksa ayni ritim aktif buzzer'da tek perdede calinir.
+static const uint16_t ZIL_DESEN_MS[] = {320, 90, 420};
 static uint8_t zilAdim = 0;                // 0 = calmiyor
 static unsigned long zilAdimBaslangicMs = 0;
-static bool zilOncekiBasili = false;
+
+static void zilSesAc(uint16_t frekansHz) {
+#if ZIL_HOPARLOR_VAR
+  ledcWriteTone(ZIL_LEDC_KANAL, frekansHz);
+#else
+  (void)frekansHz;  // aktif buzzer - perde degistirilemez, sadece ac/kapa
+  digitalWrite(ALARM_LED_PIN, HIGH);
+#endif
+}
+
+static void zilSesKapat() {
+#if ZIL_HOPARLOR_VAR
+  ledcWriteTone(ZIL_LEDC_KANAL, 0);
+#else
+  digitalWrite(ALARM_LED_PIN, LOW);
+#endif
+}
 
 void zilCal() {
   if (zilAdim != 0) return;  // zaten caliyor
   zilAdim = 1;
   zilAdimBaslangicMs = millis();
-  digitalWrite(ALARM_LED_PIN, HIGH);
+  zilSesAc(ZIL_TON_DING_HZ);
 }
 
 // Zil caliyorsa desendeki siradaki adima gecir. Alarm/siren mantigi ayni
@@ -966,8 +990,9 @@ void zilPoll() {
   if (millis() - zilAdimBaslangicMs < ZIL_DESEN_MS[zilAdim - 1]) return;
   zilAdimBaslangicMs = millis();
   zilAdim++;
-  if (zilAdim > 3) { zilAdim = 0; digitalWrite(ALARM_LED_PIN, LOW); return; }
-  digitalWrite(ALARM_LED_PIN, (zilAdim == 2) ? LOW : HIGH);
+  if (zilAdim > 3) { zilAdim = 0; zilSesKapat(); return; }
+  if (zilAdim == 2) zilSesKapat();               // notalar arasi kisa bosluk
+  else zilSesAc(ZIL_TON_DONG_HZ);                // 3. adim: dong (daha pes)
 }
 
 bool zilCaliyorMu() { return zilAdim != 0; }
@@ -1200,9 +1225,11 @@ void alarmLedGuncelle() {
   }
 
   if (!alarmVar) {
-    // Zil caliyorsa pini birak - ayni pin paylasildigi icin zil desenini
-    // ortasindan kesmesin (bkz zilPoll). Alarm varsa alarm her zaman oncelikli.
+    // Zil ayni pini paylasiyorsa (hoparlor yokken) desenini ortasindan
+    // kesmesin. Ayri hoparlor varsa bu cakisma zaten olmaz.
+#if !ZIL_HOPARLOR_VAR
     if (zilCaliyorMu()) return;
+#endif
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
   }
