@@ -245,6 +245,9 @@
 // bağlı. Nano'nun yedek pinlerinden biri (D10) kullanılıyor.
 #define BAHCE_ZIL_BUTON_PIN 10   // D10 - INPUT_PULLUP, basılınca LOW
 #define BAHCE_ZIL_POLL_ARALIK_MS 400
+// Limit switch okumasi bu sureden eskiyse (Nano yanit vermiyor) limit'e gore
+// KARAR VERILMEZ - hareket yalnizca zaman asimi/asiri akim ile sonlanir.
+#define BAHCE_SW_TAZELIK_MS 2000
 #define BAHCE_ZIL_TON1_HZ 2000
 #define BAHCE_ZIL_TON2_HZ 1500
 #define BAHCE_ZIL_TON_SURE_MS 250

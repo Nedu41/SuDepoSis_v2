@@ -979,7 +979,7 @@ void masterGonder() {
   // Master tarafı 400 byte okuyor (rs485_read_line), üst sınır orası.
   char buf[384];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BSW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     // K1/K2 tel formati ve polaritesi BILEREK degistirilmedi (1 = kanat tam
@@ -1010,7 +1010,14 @@ void masterGonder() {
     (int)bahceKapi[0].durum,
     (int)bahceKapi[1].durum,
     bahceKapi[0].akimAmper,
-    bahceKapi[1].akimAmper
+    bahceKapi[1].akimAmper,
+    // Tek alanda bitmask - her giris icin ayri "AD=deger" yazmak mesaji ~40
+    // byte uzatirdi (buffer payi icin bkz yukaridaki buf[384] notu).
+    // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
+    // bit3=kilit enerjili, bit4=limit switch okumasi taze
+    (bahceKapi1TamAcik ? 1 : 0) | (bahceKapi2TamAcik ? 2 : 0) |
+      (bahceZilBasili ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
+      (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0)
   );
   rs485Gonder(buf);
 }
@@ -1582,6 +1589,10 @@ String durumJson() {
   j += "\"gece\":" + String(geceModuMu() ? "true" : "false") + ",";
   j += "\"bahceKapi1TamKapali\":" + String(bahceKapi1TamKapali ? "true" : "false") + ",";
   j += "\"bahceKapi2TamKapali\":" + String(bahceKapi2TamKapali ? "true" : "false") + ",";
+  j += "\"bahceKapi1TamAcik\":" + String(bahceKapi1TamAcik ? "true" : "false") + ",";
+  j += "\"bahceKapi2TamAcik\":" + String(bahceKapi2TamAcik ? "true" : "false") + ",";
+  j += "\"bahceZil\":" + String(bahceZilBasili ? "true" : "false") + ",";
+  j += "\"bahceKilit\":" + String(bahceKilitAktif ? "true" : "false") + ",";
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
@@ -2727,7 +2738,7 @@ void loop() {
   nanoPoll();
   server.handleClient();  // FIX: Bloklayıcı nanoPoll sonrası web isteklerini işle
   kapiPoll();  // Bahce kapisi hareket halindeyse limit switch/akim kontrolu (bloklayici, sadece hareket sirasinda)
-  zilButonPoll();  // Kapi zili butonu - basilinca Nano buzzer'inda ding-dong calar
+  bahceNanoPoll();  // Bahce kapisi limit switch'leri + zil butonu (tek PIN_READ_ALL turu)
   ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
   server.handleClient();
   rs485KomutDinle();
