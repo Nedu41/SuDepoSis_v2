@@ -1027,7 +1027,7 @@ void masterGonder() {
     // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
     // bit3=kilit enerjili, bit4=limit switch okumasi taze
     (bahceKapi1TamAcik ? 1 : 0) | (bahceKapi2TamAcik ? 2 : 0) |
-      (bahceZilBasili ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
+      (bahceZilMandalliMi() ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
       (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0)
   );
   rs485Gonder(buf);
@@ -1603,7 +1603,7 @@ String durumJson() {
   j += "\"bahceKapi2TamKapali\":" + String(bahceKapi2TamKapali ? "true" : "false") + ",";
   j += "\"bahceKapi1TamAcik\":" + String(bahceKapi1TamAcik ? "true" : "false") + ",";
   j += "\"bahceKapi2TamAcik\":" + String(bahceKapi2TamAcik ? "true" : "false") + ",";
-  j += "\"bahceZil\":" + String(bahceZilBasili ? "true" : "false") + ",";
+  j += "\"bahceZil\":" + String(bahceZilMandalliMi() ? "true" : "false") + ",";
   j += "\"bahceKilit\":" + String(bahceKilitAktif ? "true" : "false") + ",";
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";

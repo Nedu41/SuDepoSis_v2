@@ -407,6 +407,28 @@
 // KACINILDI (bkz proje hafizasi GPIO14 touch pin sorunu). GPIO47 daha once
 // MPPT icin degerlendirilip serbest birakilmisti (bkz proje hafizasi mppt-rs232-pi30).
 #define BAHCE_KAPI_BUTON_PIN 47
+
+// ===== Bahce Kapisi Zil Hoparloru (PASIF buzzer/hoparlor) =====
+// Kalburum'daki ALARM_LED_PIN buzzer'i AKTIF tip (kendi osilatoru var) -
+// perdesi degistirilemedigi icin gercek iki notali "ding-dong" calamiyor.
+// Asil zil sesi burada olmali (Sudepo bahcenin obur ucunda), bu yuzden ayri
+// bir PASIF hoparlor icin altyapi hazir: CN6'daki bosta duran Kirmizi tel
+// uzerinden SCART Pin 19'a cikar (bkz docs/pinout.html - o tel cekilmis ama
+// bir sinyale atanmamisti).
+//
+// GPIO35 secimi (pin atama kontrol listesi):
+//   - touch DEGIL (ESP32-S3'te GPIO1-14 touch'tir, ondan kacinildi)
+//   - strapping/boot pini DEGIL (S3'te 0, 3, 45, 46)
+//   - native USB DEGIL (19/20), UART0/monitor DEGIL (43/44)
+//   - flash/PSRAM'e rezerve DEGIL: bu kart PSRAM'SIZ calisiyor ve komsu
+//     GPIO36/37 (AHT10 SDA, RS485 RX) zaten sahada sorunsuz kullaniliyor
+#define ZIL_HOPARLOR_PIN 35
+// Hoparlor fiziksel olarak baglaninca 1 yapilir - o zamana kadar zil,
+// ALARM_LED_PIN'deki aktif buzzer'da iki vuruslu ritim olarak calar.
+#define ZIL_HOPARLOR_VAR 0
+#define ZIL_LEDC_KANAL 0
+#define ZIL_TON_DING_HZ 1150
+#define ZIL_TON_DONG_HZ 870
 #define BAHCE_KAPI_BUTON_COOLDOWN_MS 3000 // ACIL_BUTON_COOLDOWN ile ayni mantik - RS485'i art arda bloke etmesin
 #define BAHCE_KAPI_CIFT_BASIS_PENCERE_MS 450 // bu sure icinde 2. basis gelirse "cift basis" sayilir (bkz bahceKapiButonPoll)
 

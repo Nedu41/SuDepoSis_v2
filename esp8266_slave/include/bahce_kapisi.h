@@ -54,6 +54,7 @@ extern unsigned long bahceZilSonCalmaMs;   // son ding-dong ani (0 = hic calmadi
 extern unsigned long bahceSwSonBasariliMs; // son basarili PIN_READ_ALL (0 = hic)
 extern bool bahceKilitAktif;               // solenoid kilit enerjili mi (komut, geri besleme YOK)
 extern bool bahceSwGetStatustan;           // true = acik sw/zil GET_STATUS'tan geliyor
+bool bahceZilMandalliMi();                 // kisa basisin RS485 turuna yetismesi icin mandalli hal
 
 // Zil butonunun yukselen kenarini isler (ding-dong + Kalburum'a aninda bildirim).
 void bahceZilGuncelle(bool basili);

@@ -261,6 +261,11 @@
 // Limit switch okumasi bu sureden eskiyse (Nano yanit vermiyor) limit'e gore
 // KARAR VERILMEZ - hareket yalnizca zaman asimi/asiri akim ile sonlanir.
 #define BAHCE_SW_TAZELIK_MS 2000
+// Zil basisi RS485 ile Kalburum'a tasinirken MANDALLANIR. Kisa basis, 600ms'lik
+// RS485 turuna denk gelmezse (ya da o mesaj cakisip kaybolursa) Kalburum hic
+// yukselen kenar gormuyordu - sadece uzun basislar zili caliyordu. Mandal
+// suresi RS485 turundan belirgin uzun olmali ki en az bir tur mutlaka tasisin.
+#define BAHCE_ZIL_MANDAL_MS 1500
 #define BAHCE_ZIL_TON1_HZ 2000
 #define BAHCE_ZIL_TON2_HZ 1500
 #define BAHCE_ZIL_TON_SURE_MS 250

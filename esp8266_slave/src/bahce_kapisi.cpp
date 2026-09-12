@@ -34,6 +34,12 @@ unsigned long bahceSwSonBasariliMs = 0;  // 0 = Nano'dan hic gecerli okuma alinm
 bool bahceKilitAktif = false;            // solenoid kilit KOMUT durumu (geri besleme sensoru yok)
 bool bahceSwGetStatustan = false;         // true = acik sw/zil GET_STATUS'tan geliyor, PIN_READ_ALL gereksiz
 
+// Zil basisinin RS485/web'e tasinan MANDALLI hali - ham "su an basili"
+// degeri kisa basislarda 600ms'lik RS485 turuna denk gelmeyebiliyor.
+bool bahceZilMandalliMi() {
+  return bahceZilSonCalmaMs != 0 && (millis() - bahceZilSonCalmaMs < BAHCE_ZIL_MANDAL_MS);
+}
+
 // releKilit iki kapida da AYNI kanali (BAHCE_KILIT_RELE) gosterir - tek
 // ortak solenoid kilit, kapi basina ayri kilit YOK (bkz config.h).
 BahceKapisi bahceKapi[2] = {

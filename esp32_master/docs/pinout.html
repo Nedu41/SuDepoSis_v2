@@ -87,7 +87,7 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>CN3</td><td>MAX3232 (MPPT RS232)</td><td>40, 41</td></tr>
 <tr><td>CN4</td><td>Dreambox Ön Panel (IR Alıcı, Kırmızı LED+Buzzer, Yeşil Power LED, Reset Buton)</td><td>4, 5, — (Power LED beslemeye doğrudan), — (Reset ESP32 EN pinine)</td></tr>
 <tr><td>CN5</td><td>13'lü iç konnektör (RCA/SCART/RS485/güç toplu çıkış)</td><td>7, 8, 9, 12, 13, 17</td></tr>
-<tr><td>CN6</td><td>MQ6 Güç Kontrolü (Sarı tel, GPIO16 → SCART Pin 20) + Laptop Adaptörü Kesme MOSFET (Siyah tel, GPIO21 → SCART Pin 15, 2026-09-06). Kırmızı tel → SCART Pin 19'a çekildi, henüz atanmadı</td><td>16, 21</td></tr>
+<tr><td>CN6</td><td>MQ6 Güç Kontrolü (Sarı tel, GPIO16 → SCART Pin 20) + Laptop Adaptörü Kesme MOSFET (Siyah tel, GPIO21 → SCART Pin 15, 2026-09-06). Kırmızı tel (SCART Pin 19) → <b>Bahçe Kapısı Zil Hoparlörü, GPIO35</b> — yazılım hazır, hoparlör henüz bağlanmadı</td><td>16, 21, 35</td></tr>
 </table>
 <p style="font-size:13px;color:var(--muted)">CN1 ve CN2'de her biri iki farklı sinyal taşıyor — aynı kablo demetini paylaşıyorlar ama aralarında elektriksel bağlantı yok, sadece fiziksel yerleşim ortak. Aşağıda her konnektörün ayrıntısı sırasıyla verilmiştir.</p>
 </div>
@@ -359,6 +359,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>39</td><td>MAX485 RS485</td><td>DE + RE (Driver/Receiver Enable)</td><td>HIGH = gönderim, LOW = alım</td></tr>
 <tr><td>4</td><td>IR Alıcı</td><td>OUT/sinyal ucu</td><td>VCC/GND ayrı beslenir</td></tr>
 <tr><td>5</td><td>Alarm LED + Buzzer</td><td>Küçük görsel/sesli uyarı (yerel)</td><td>LED (seri dirençli) ve buzzer paralel, aynı sinyali paylaşır</td></tr>
+<tr><td>35</td><td>Bahçe Kapısı Zil Hoparlörü (PASİF)</td><td>LEDC ton çıkışı (PWM)</td><td>CN6 Kırmızı tel → SCART Pin 19. Asıl zil sesi burada olmalı (Sudepo bahçenin öbür ucunda). GPIO5'teki buzzer AKTİF tip olduğundan perdesi değişmiyor, gerçek iki notalı ding-dong için ayrı pasif hoparlör gerekir. Pin seçimi: touch değil (GPIO1-14 hariç tutuldu), strapping değil (0/3/45/46), USB değil (19/20), UART0 değil (43/44); kart PSRAM'siz çalıştığı için 33-37 serbest (komşu GPIO36/37 zaten kullanımda). Bağlandıktan sonra config.h'de ZIL_HOPARLOR_VAR=1 yapılmalı.</td></tr>
 <tr><td>17</td><td>PIR2 (Konteyner)</td><td>Hareket sensörü OUT</td><td>HC-SR505 — sabit ~8sn HIGH tutar, HC-SR501'den farklı olarak art arda kenar vermez. 2026-08-20: eski GPIO6'dan buraya taşındı (GP2Y10 sensörüne ADC1 kanalı açmak için)</td></tr>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>MOSFET çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
