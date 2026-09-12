@@ -40,6 +40,15 @@ lambası var; "Sudepo Zonu"ndaki (depo tarafı) alarm ile aynı Alarm Modu numar
 Onaylı) referans alır ama `konteynerAlarmEtkin` ile bağımsız açılıp kapatılabilir. Panik, moddan
 bağımsız her iki zonu da anında tetikler. Pin detayları için [docs/pinout.html](docs/pinout.html).
 
+## Bahçe Kapısı (Araç Girişi)
+
+Motor/röle mantığı (R413D08 üzerinden) `esp8266_slave` tarafında; bu kart sadece fiziksel butonu
+okur ve RS485 komutu iletir. Fiziksel buton GPIO47 (`BAHCE_KAPI_BUTON_PIN`, INPUT_PULLUP,
+aktif-LOW): tek basış Kapı 1'i (sol kanat) açar, `BAHCE_KAPI_CIFT_BASIS_PENCERE_MS` içinde çift
+basış iki kanadı da açar; hareket halindeyken durdurur, ikisi de açıkken kapatır (bkz
+`src/bahce_kapisi.cpp`). Web API: `/api/bahce_kapi?durum=ac|kapat|dur`. Gerçek kapı durumu RS485
+`GET_STATUS` yanıtındaki `BAHCE1`/`BAHCE2` alanından okunur, burada varsayımsal atama yapılmaz.
+
 ## BLE (Telefon Uygulaması)
 
 NimBLE üzerinden bir GATT servisi yayınlanır (`BLE_SERVICE_UUID`/`BLE_CHARACTERISTIC_UUID`,
@@ -62,16 +71,22 @@ açık/kapalı anahtarlanabilir (`/api/telegram/ayar`).
 | `/api/ota?url=` | URL'den firmware güncelleme |
 | `/update` (POST, multipart) | Dosyadan firmware güncelleme (.bin yükleme) |
 | `/api/lamba`, `/api/moisture`, `/api/moisture/auto`, `/api/moisture/threshold` | Sudepo Zonu lambası / nem kontrolü |
-| `/api/konteyner/lamba`, `/api/konteyner/alarm`, `/api/konteyner/pir_ayar` | Konteyner Zonu lambası / alarm anahtarı / PIR ayarı |
-| `/api/alarm`, `/api/alarm/mod`, `/api/alarm/mute`, `/api/alarm/onayla`, `/api/alarm/onayla_lamba` | Alarm yönetimi (Sudepo) |
+| `/api/konteyner/lamba`, `/api/konteyner/alarm`, `/api/konteyner/pir_ayar`, `/api/konteyner/swan_ayar` | Konteyner Zonu lambası / alarm anahtarı / PIR/Swan PIR ayarı |
+| `/api/konteyner/sensor_aktif`, `/api/konteyner/mq6_test`, `/api/konteyner/mq6_manuel`, `/api/konteyner/gaz_ayar`, `/api/konteyner/duman_ayar` | MQ6 (gaz) / GP2Y10 (duman) sensör etkin anahtarı, kalibrasyon, eşik ayarı |
+| `/api/konteyner/siren_ayar`, `/api/konteyner/siren_ayar/kaydet`, `/api/konteyner/mod_senaryo/kaydet` | Konteyner siren zamanlaması / Mod Senaryoları |
+| `/api/bahce_kapi?durum=ac\|kapat\|dur` | Bahçe kapısı (araç girişi) kontrolü |
+| `/api/batarya/ayar`, `/api/ana-guc-esik`, `/api/adaptor-esik` | Yedek akü / ana güç erken-uyarı / laptop adaptörü kesme eşikleri |
+| `/api/acil-lamba` | Acil durum lambası (GPIO12) kontrolü |
+| `/api/alarm`, `/api/alarm/mod`, `/api/alarm/mute`, `/api/alarm/onayla`, `/api/alarm/onayla_lamba`, `/api/alarm/log`, `/api/alarm/log/tam` | Alarm yönetimi (Sudepo) ve alarm logu |
 | `/api/panic` | Panik butonu (her iki zonu da tetikler) |
 | `/api/kapi` | Kapı/röle testi |
 | `/api/ir/liste`, `/api/ir/ogren_baslat`, `/api/ir/ogren_durum`, `/api/ir/kaydet`, `/api/ir/sil` | Konteyner IR kumanda öğrenme/eşleme |
 | `/api/weather`, `/api/weather/check` | Hava durumu / yağmur tahmini |
 | `/api/telegram/test`, `/api/telegram/ayar` | Telegram bildirimleri |
-| `/api/wifi`, `/api/wifi/scan` | STA WiFi ayarı |
+| `/api/wifi`, `/api/wifi/scan`, `/api/wifi/gecmis`, `/api/wifi/gecmis_bagla`, `/api/wifi/gecmis_sil` | STA WiFi ayarı / geçmiş ağlar |
 | `/api/sudepo_ayarlar`, `/api/sudepo_ayarlar/kaydet` | Sudepo ayarlarına (ESP8266) köprü |
-| `/api/kayit/yedekle`, `/api/kayit/geri_yukle`, `/api/kayit/yedek_durum` | Dolum kayıtları (kayitlar.csv) yedekleme |
+| `/api/kayit/yedekle`, `/api/kayit/geri_yukle`, `/api/kayit/yedek_durum`, `/api/kayit/liste_goster` | Dolum kayıtları (kayitlar.csv) yedekleme |
+| `/api/ayarlar/yedekle`, `/api/ayarlar/geri_yukle_cihaz`, `/api/ayarlar/geri_yukle_dosya`, `/api/ayarlar/fabrika` | Tüm ayarları yedekleme/geri yükleme/fabrika ayarları |
 | `/firmware/upload`, `/firmware/esp8266.bin`, `/api/firmware/durum` | ESP8266 firmware'ini yerel depoda barındırma |
 | `/api/restart` | Kartı yeniden başlat |
 
@@ -97,12 +112,24 @@ bilinçli olarak burada tutulur, `esp8266_slave` hafif kalsın diye (bkz. proje 
 | 37 | RS485 RX (UART1) |
 | 38 | RS485 TX (UART1) |
 | 39 | RS485 DE/RE |
+| 40, 41 | MPPT RS232 (UART2, TX/RX) |
 | 4 | Konteyner IR alıcı |
 | 5 | Konteyner LED + buzzer (yerel uyarı) |
-| 6 | Konteyner PIR2 (HC-SR505) |
+| 17 | Konteyner PIR2 (HC-SR505) |
+| 13 | Swan Quad PET PIR (NC/COM) |
 | 7 | Konteyner kapı reed switch |
 | 8 | Konteyner siren rölesi |
 | 9 | Konteyner lamba rölesi |
+| 15 | Fiziksel Acil Durum Butonu |
+| 47 | Bahçe Kapısı Butonu |
+| 12 | Acil Durum Lambası (MOSFET) |
+| 21 | Laptop Adaptörü Kesme MOSFET |
+| 2 | Yedek Akü ADC (ADC1) |
+| 10 | MQ6 (gaz) analog giriş (ADC1) |
+| 16 | MQ6 güç kontrolü (IRF520 SIG) |
+| 6 | GP2Y10 (duman/toz) analog giriş (ADC1) |
+| 18 | GP2Y10 LED kontrol (doğrudan Pin3) |
+| 36, 42 | AHT10 SDA/SCL (I2C) |
 
 Tam pinout (kablaj, modül notları) için [docs/pinout.html](docs/pinout.html); MPPT şarj kontrolcü
 bağlantısı için adım adım görsel kılavuz: [docs/mppt-baglanti-kilavuzu.html](docs/mppt-baglanti-kilavuzu.html);
