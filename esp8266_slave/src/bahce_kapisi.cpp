@@ -12,6 +12,7 @@
 extern SoftwareSerial swSerial;   // main.cpp - RS485 hatti (custom protokol + Modbus paylasimli)
 extern bool bahceKapi1TamKapali, bahceKapi2TamKapali; // main.cpp - Nano D2/D3 tam-kapali limit switch'leri
 extern bool nanoBaglantiVar;      // main.cpp - Nano ile seri haberlesme canli mi
+void masterGonder();              // main.cpp - RS485 durum satirini Kalburum'a gonderir
 
 const char* kapiDurumAdi(KapiDurum d) {
   switch (d) {
@@ -31,6 +32,7 @@ bool bahceZilBasili = false;
 unsigned long bahceZilSonCalmaMs = 0;
 unsigned long bahceSwSonBasariliMs = 0;  // 0 = Nano'dan hic gecerli okuma alinmadi
 bool bahceKilitAktif = false;            // solenoid kilit KOMUT durumu (geri besleme sensoru yok)
+bool bahceSwGetStatustan = false;         // true = acik sw/zil GET_STATUS'tan geliyor, PIN_READ_ALL gereksiz
 
 // releKilit iki kapida da AYNI kanali (BAHCE_KILIT_RELE) gosterir - tek
 // ortak solenoid kilit, kapi basina ayri kilit YOK (bkz config.h).
@@ -340,6 +342,10 @@ void bahceNanoPoll() {
     KapiDurum d = bahceKapi[i].durum;
     if (d == KAPI_HAREKET_AC || d == KAPI_HAREKET_KAPA || d == KAPI_KILIT_ACILIYOR) hareketVar = true;
   }
+  // Guncel Nano firmware'i bu verileri GET_STATUS icinde gonderiyor - o zaman
+  // bu ek istek HIC yapilmaz (hattin ~%22'si serbest kalir, veri de 400ms
+  // yerine 300ms tazelikte olur). Eski firmware'de asagisi calismaya devam eder.
+  if (bahceSwGetStatustan) return;
   if (now - sonPollMs < (hareketVar ? BAHCE_POLL_ARALIK_MS : BAHCE_ZIL_POLL_ARALIK_MS)) return;
   sonPollMs = now;
 
@@ -360,10 +366,20 @@ void bahceNanoPoll() {
   bahceKapi2TamAcik = (a2 == 0);
   bahceSwSonBasariliMs = now;
 
-  bool basili = (z == 0);
+  bahceZilGuncelle(z == 0);
+}
+
+// Zil butonunun yukselen kenarini isler - hem GET_STATUS hem (eski firmware'de)
+// PIN_READ_ALL yolundan cagrilir, mantik tek yerde kalsin diye.
+void bahceZilGuncelle(bool basili) {
+  static bool oncekiBasili = false;
+  unsigned long now = millis();
   bahceZilBasili = basili;
   if (basili && !oncekiBasili) {
     bahceZilSonCalmaMs = now;
+    // Kalburum'un zili poll sirasini beklemesin - durumu ANINDA gonder.
+    // Zil nadir bir olay oldugu icin bu ek gonderim hatti yormaz.
+    masterGonder();
     DEBUG_PRINTLN("[ZIL] basildi, ding-dong calinacak");
     while (Serial.available()) Serial.read();
     Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON1_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);

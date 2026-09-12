@@ -87,6 +87,11 @@ void setup() {
   // GPIO Setup
   pinMode(DOOR1_PIN, INPUT_PULLUP);    // Açıkken HIGH
   pinMode(DOOR2_PIN, INPUT_PULLUP);
+  // Bahçe kapısı girişleri: ESP8266 açılışta PIN_MODE ile de ayarlıyor ama
+  // Nano kendi başına resetlenirse o ayar kaybolurdu - burada kalıcı.
+  pinMode(BAHCE_ACIK1_PIN, INPUT_PULLUP);
+  pinMode(BAHCE_ACIK2_PIN, INPUT_PULLUP);
+  pinMode(BAHCE_ZIL_PIN, INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LAMBA_PIN, OUTPUT);
   pinMode(MOISTURE_PIN, OUTPUT);
@@ -189,6 +194,13 @@ void handleSerialCommand() {
         // aciyordu. Tek istekte tum durum alinir, cok daha saglam.
         response += ",PIR=";
         response += digitalRead(PIR_PIN) ? '1' : '0';
+        // Bahçe kapısı girişleri - ayrı PIN_READ_ALL isteğini gereksiz kılar
+        response += ",ACIK1=";
+        response += digitalRead(BAHCE_ACIK1_PIN) ? '1' : '0';
+        response += ",ACIK2=";
+        response += digitalRead(BAHCE_ACIK2_PIN) ? '1' : '0';
+        response += ",ZIL=";
+        response += digitalRead(BAHCE_ZIL_PIN) ? '1' : '0';
         Serial.println(response);
       } else if (inputString == F("LAMBA_ON")) {
         digitalWrite(LAMBA_PIN, LAMBA_ON_STATE);

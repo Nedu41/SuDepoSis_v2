@@ -53,6 +53,10 @@ extern bool bahceZilBasili;
 extern unsigned long bahceZilSonCalmaMs;   // son ding-dong ani (0 = hic calmadi)
 extern unsigned long bahceSwSonBasariliMs; // son basarili PIN_READ_ALL (0 = hic)
 extern bool bahceKilitAktif;               // solenoid kilit enerjili mi (komut, geri besleme YOK)
+extern bool bahceSwGetStatustan;           // true = acik sw/zil GET_STATUS'tan geliyor
+
+// Zil butonunun yukselen kenarini isler (ding-dong + Kalburum'a aninda bildirim).
+void bahceZilGuncelle(bool basili);
 
 // GECICI TEST: R413D08'e Modbus fonksiyon 0x03 (durum oku, kanal 1-8) gonderir
 // ve RS485 hattindan yanit gelip gelmedigini bekler - normal r413RoleYaz()'in

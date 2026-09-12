@@ -112,7 +112,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .led.pending{background:var(--warn);box-shadow:0 0 6px var(--warn);animation:pulse 1.2s infinite}
 /* Mavi (camgobegi) = "kapali/guvende" konum gostergesi - kapinin kapali
    olmasi tehlike degil, o yuzden kirmizi kullanilmaz. */
-.led.mavi{background:#22b8cf;box-shadow:0 0 6px #22b8cf}
+.led.mavi{background:#3b82f6;box-shadow:0 0 7px #3b82f6}
 /* Buyuk/"canli" LED varyanti (kullanici talebi, 2026-08-27: "gercek ledmis
    gibi") - Konteyner Sensorleri karti icin. .led ile AYNI .on/.ok/.pending
    sinif adlarini kullanir, sadece boyut+parlaklik/govde stilini degistirir -
