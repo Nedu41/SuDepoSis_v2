@@ -100,10 +100,10 @@
 <tr><td>D4</td><td>—</td><td>—</td><td>Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)</td></tr>
 <tr><td>D5</td><td>—</td><td>—</td><td>Nem rölesi (OUTPUT)</td></tr>
 <tr><td>D6</td><td>—</td><td>—</td><td>PIR hareket sensörü girişi (INPUT, HIGH=hareket)</td></tr>
-<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
+<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) tam açık switch (INPUT_PULLUP, tetiklenince LOW). pinMode Nano'nun kendi setup()'ında kurulur; değeri GET_STATUS yanıtında <code>ACIK1=</code> ile gelir.</td></tr>
 <tr><td>D8, D11</td><td>—</td><td>—</td><td>Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)</td></tr>
-<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
-<tr><td>D10</td><td>—</td><td>—</td><td>Bahçe Kapısı zil butonu (INPUT_PULLUP, basılınca LOW)</td></tr>
+<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) tam açık switch (INPUT_PULLUP, tetiklenince LOW). pinMode Nano'nun kendi setup()'ında kurulur; değeri GET_STATUS yanıtında <code>ACIK2=</code> ile gelir.</td></tr>
+<tr><td>D10</td><td>—</td><td>—</td><td>Bahçe Kapısı zil butonu (INPUT_PULLUP, basılınca LOW). pinMode Nano'nun kendi setup()'ında kurulur; değeri GET_STATUS yanıtında <code>ZIL=</code> ile gelir. Zil hem Nano D12 buzzer'ında hem Kalburum'da çalar.</td></tr>
 <tr><td>D12</td><td>—</td><td>—</td><td>Pasif buzzer (TONE_PLAY/TONE_STOP) — açılış melodisi, PIR ön-uyarı bipi, zil</td></tr>
 <tr><td>D13</td><td>—</td><td>—</td><td>Depo iç lamba rölesi (OUTPUT, sadece lamba)</td></tr>
 <tr><td>A0</td><td>—</td><td>—</td><td>Toprak nem sensörü (analog)</td></tr>
@@ -114,6 +114,8 @@
 <tr><td>5V</td><td>5V</td><td>—</td><td>5V güç (USB veya ayrı)</td></tr>
 <tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
 </table>
+<p><strong>GET_STATUS yanıt alanları:</strong> <code>D0</code>/<code>D1</code> (bahçe kapısı tam kapalı switch'leri, SOL/SAĞ), <code>RELE</code>, <code>LAMBA</code>, <code>MOISTURE</code>, <code>MOISTURE_RAW</code>, <code>MOISTURE_PCT</code>, <code>POLARITY</code>, <code>PIR</code>, <code>ACIK1</code>/<code>ACIK2</code> (tam açık switch'leri), <code>ZIL</code>.</p>
+<p>Bahçe kapısı girişleri bu yanıtla geldiği için ayrıca <code>PIN_READ_ALL</code> sorgulanmaz — 9600 baud'da her ek istek hattı ~90ms meşgul eder.</p>
 <p><strong>Genel GPIO Komut Protokolü (ESP → Nano):</strong></p>
 <ul>
 <li><code>PIN_MODE:<pin>,<mod></code> — mod: OUTPUT / INPUT / INPUT_PULLUP (örn: PIN_MODE:6,OUTPUT)</li>
@@ -125,7 +127,7 @@
 
 <div class="section">
 <h2>Modül 4b: R413D08 (8CH RS485/Modbus RTU Röle — Bahçe Kapısı Motor Kontrolü)</h2>
-<p>Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle aynı kural). R413D08 kapı tarafına monte edilir (ESP8266 panosuyla arası 5cm), Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
+<p>Kapı1 = SOL kanat, Kapı2 = SAĞ kanat. Bu kapının limit switch'leri depo alarmıyla ilgisizdir — alarm mantığında kullanılmazlar. R413D08 kapı tarafına monte edilir (ESP8266 panosuyla arası 5cm), Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
 <p><strong>Pozisyon algılama:</strong> Tam açık = Nano D7 (SOL) / D9 (SAĞ). Kapalı = Nano D2 (SOL) / D3 (SAĞ) (Modül 4 tablosu).</p>
 <p><strong>Röle yok — bu kart sadece sürücü:</strong> Elimizdeki R413D08 üzerinde fiziksel röle YOK, sadece RS485/Modbus alıp her kanal için ayrı bir tetikleme sinyali (Ch1-Ch8) üreten sürücü kartı. Gerçek anahtarlama (COM/NO/NC) ayrı, harici bir <a href="#modul4c">5V 8CH röle modülünde</a> yapılır — Ch1-Ch8, o modülün IN1-IN8'ine 1:1 kablolanır.</p>
 <table>
