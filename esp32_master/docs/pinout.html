@@ -59,16 +59,20 @@
 │  GPIO39    → DE/RE      │                                 │  D3     → DE/RE       │
 │                         │                                 │  + HC-SR04, DS1307 RTC│
 │  + Konteyner Zonu       │                                 └──────────┬────────────┘
-│    (IR, PIR2 (GPIO17), │                                            │ UART0 (9600 baud)
-│    siren, lamba - hepsi │                                            │ (470Ω seri + 1kΩ pull-down,
-│    ESP32'ye doğrudan    │                                 ┌──────────▼────────────┐
-│    bağlı, RS485 yok)    │                                 │  Arduino Nano          │
-│  + MPPT (RS232/PI30,    │                                 │  D2/D3  Kapı 1/2       │
-│    UART2, GPIO40/41,    │                                 │  D4     Alarm rölesi   │
-│    MAX3232)             │                                 │  D5     Nem rölesi     │
-│  + Yedek Akü (ADC,       │                                 │  D6     PIR (Sudepo)   │
-│    GPIO2/21)            │                                 │  D13    Depo lambası   │
-│  + AHT10/MQ6/GP2Y10       │                                 │  A0     Toprak nem     │
+│    (IR GPIO4, PIR2      │                                            │ UART0 (9600 baud)
+│    GPIO17, Swan GPIO13, │                                            │ (470Ω seri + 1kΩ pull-down,
+│    reed GPIO7, siren    │                                 ┌──────────▼────────────┐
+│    GPIO8, lamba GPIO9)  │                                 │  Arduino Nano          │
+│  + MPPT (RS232/PI30,    │                                 │  D2/D3  Bahçe kapalı sw│
+│    UART2, GPIO40/41,    │                                 │  D7/D9  Bahçe açık sw  │
+│    MAX3232)             │                                 │  D10    Bahçe zil butonu│
+│  + Yedek Akü ADC GPIO2  │                                 │  D12    Pasif buzzer   │
+│  + Adaptör kesme GPIO21 │                                 │  A1/A2  Motor akımı    │
+│  + Acil lamba GPIO12    │                                 │  D4     Alarm rölesi   │
+│  + Acil buton GPIO15    │                                 │  D5     Nem rölesi     │
+│  + Bahçe butonu GPIO47  │                                 │  D6     PIR (Sudepo)   │
+│  + Zil hoparlörü GPIO35 │                                 │  D13    Depo lambası   │
+│  + AHT10/MQ6/GP2Y10     │                                 │  A0     Toprak nem     │
 │    (GPIO36/42/10/6/18)  │                                 └────────────────────────┘
 └───────────────────────┘
 </pre>

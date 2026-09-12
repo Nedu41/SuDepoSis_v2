@@ -122,6 +122,7 @@ bilinçli olarak burada tutulur, `esp8266_slave` hafif kalsın diye (bkz. proje 
 | 9 | Konteyner lamba rölesi |
 | 15 | Fiziksel Acil Durum Butonu |
 | 47 | Bahçe Kapısı Butonu |
+| 35 | Bahçe Kapısı Zil Hoparlörü (pasif, henüz bağlanmadı) |
 | 12 | Acil Durum Lambası (MOSFET) |
 | 21 | Laptop Adaptörü Kesme MOSFET |
 | 2 | Yedek Akü ADC (ADC1) |
