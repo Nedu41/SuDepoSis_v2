@@ -965,10 +965,13 @@ void masterGonder() {
   // gecmesine ragmen tepki vermesi 15 dakikaya kadar gecikebiliyordu. Karar
   // da artik AYNI sikta, degerle birlikte taze veriliyor.
   if (ayar.moistureAutomatic) applyMoistureControl();
-  // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu
-  char buf[320];
+  // FIX: Mesaj ~230 byte, 160 byte buffer'a sığmıyordu - RS485 verisi kesiliyordu.
+  // 2026-09-12: BAHCE1A/BAHCE2A ile ~296 byte'a çıktı, 320'de pay kalmadı -> 384.
+  // Taşma sessizce sondaki '\n'i de keser ve master mesajı komple düşürür.
+  // Master tarafı 400 byte okuyor (rs485_read_line), üst sınır orası.
+  char buf[384];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     kapi1Acik ? 1 : 0,
@@ -995,7 +998,9 @@ void masterGonder() {
     alarmTetikleyenMask,
     batteryLowOverride ? 1 : 0,
     (int)bahceKapi[0].durum,
-    (int)bahceKapi[1].durum
+    (int)bahceKapi[1].durum,
+    bahceKapi[0].akimAmper,
+    bahceKapi[1].akimAmper
   );
   rs485Gonder(buf);
 }

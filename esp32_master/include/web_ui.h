@@ -260,8 +260,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <div class="kanat sag" id="bahce-kanat2"></div>
       </div>
       <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
-        <span>Kapı 1: <b id="bahce-durum1" style="color:var(--text)">-</b></span>
-        <span>Kapı 2: <b id="bahce-durum2" style="color:var(--text)">-</b></span>
+        <span>Kapı 1: <b id="bahce-durum1" style="color:var(--text)">-</b> <span id="bahce-akim1" style="color:var(--accent)"></span></span>
+        <span>Kapı 2: <b id="bahce-durum2" style="color:var(--text)">-</b> <span id="bahce-akim2" style="color:var(--accent)"></span></span>
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
@@ -1187,6 +1187,9 @@ function renderUI(d){
     if(k2){ k2.classList.toggle('acik', bk2===1||bk2===3); k2.classList.toggle('hareket', bk2===2||bk2===3||bk2===4); k2.classList.toggle('hata', bk2===5); }
     const d1=$('#bahce-durum1'); if(d1) d1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
     const d2=$('#bahce-durum2'); if(d2) d2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
+    // Amper sadece hareket halindeyken anlamli (motor duruyorsa 0.00A gonderilir) - orada bos birak, kalabalik etmesin
+    const a1=$('#bahce-akim1'); if(a1) a1.textContent = (esp8266Ok && (bk1===3||bk1===4)) ? (d.nano.bahce_kapi1_akim||0).toFixed(2)+'A' : '';
+    const a2=$('#bahce-akim2'); if(a2) a2.textContent = (esp8266Ok && (bk2===3||bk2===4)) ? (d.nano.bahce_kapi2_akim||0).toFixed(2)+'A' : '';
     const dd1=$('#db-bahce-durum1'); if(dd1) dd1.textContent = esp8266Ok ? (bahceEtiket[bk1]||'-') : '--';
     const dd2=$('#db-bahce-durum2'); if(dd2) dd2.textContent = esp8266Ok ? (bahceEtiket[bk2]||'-') : '--';
     // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok:

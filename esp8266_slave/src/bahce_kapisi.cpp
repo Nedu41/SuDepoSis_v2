@@ -139,6 +139,7 @@ static bool kapiMevcutAlarmSensoruKapali(int i) { return i == 0 ? !kapi1Acik : !
 static void kapiMotorDurdur(BahceKapisi& k) {
   r413RoleYaz(k.releA, false);
   r413RoleYaz(k.releB, false);
+  k.akimAmper = 0.0;  // motor duruyor, gosterge "0A" gostersin - eski deger yaniltici olmasin
 }
 
 void kapiTumRoleleriKapat() {
@@ -217,6 +218,7 @@ void kapiPoll() {
     bool kapaliLimit = kapiMevcutAlarmSensoruKapali(i);  // mevcut alarm kapi sensorunden, ekstra Nano sorgusu yok
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
+    if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
     bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
