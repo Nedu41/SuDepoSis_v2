@@ -187,7 +187,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>8</td><td>Pin3 (AHT10 SDA)</td><td>Pin11 (GP2Y10 Vo)</td></tr>
 <tr><td>9</td><td>Pin7 (AHT10 SCL)</td><td>Pin16 (GP2Y10 LED)</td></tr>
 <tr><td>10</td><td>GND</td><td>GND</td></tr>
-<tr><td>11</td><td>Pin8 (Swan PIR)</td><td>Pin19 (2026-09-06: artık GND değil, boşta/yedek — bu terminalin güncel kullanımı DOĞRULA)</td></tr>
+<tr><td>11</td><td>Pin8 (Swan PIR)</td><td>Pin19 (Zil Hoparlörü, GPIO35)</td></tr>
 <tr><td>12</td><td>Pin20 (MQ6 MOSFET SIG)</td><td>— (boş)</td></tr>
 <tr><td>13</td><td>GND</td><td>GND</td></tr>
 </table>
@@ -237,11 +237,11 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>16 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#222 50%,#ffffff 50%)"></span>Siyah/Beyaz</td><td>—</td><td>GPIO18</td><td>GP2Y10 LED sürücü - CN1 Siyah kablo</td></tr>
 <tr><td>17 &nbsp;<span class="swatch" style="background:#43a047"></span>Yeşil</td><td>—</td><td>GPIO15</td><td>Fiziksel Acil Durum Butonu - CN1 Kırmızı kablo</td></tr>
 <tr><td>18 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#e53935 50%,#ffffff 50%)"></span>Kırmızı/Beyaz</td><td>—</td><td>—</td><td>GND</td></tr>
-<tr><td>19 &nbsp;<span class="swatch" style="background:#fdd835"></span>Sarı</td><td>—</td><td>—</td><td>Boşta/yedek, GPIO ataması yok. 2026-09-06: GND'den ayrılıp izole edildi, CN6 Kırmızı kablo buraya çekildi (uçtan uca hazır, henüz kullanılmıyor)</td></tr>
+<tr><td>19 &nbsp;<span class="swatch" style="background:#fdd835"></span>Sarı</td><td>—</td><td>GPIO35</td><td>Bahçe Kapısı Zil Hoparlörü (pasif, LEDC ton çıkışı) - CN6 Kırmızı kablo. Hoparlör henüz bağlanmadı; bağlanınca config.h'de ZIL_HOPARLOR_VAR=1 yapılır.</td></tr>
 <tr><td>20 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#1e88e5 50%,#ffffff 50%)"></span>Mavi/Beyaz</td><td>—</td><td>GPIO16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü SIG ucu) - CN6 Sarı kablo</td></tr>
 <tr><td>21 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 </table>
-<p style="margin-top:8px;font-size:13px;color:var(--muted)">2026-09-06: Pin 15 GND'den ayrılıp GPIO21'e (Laptop Adaptörü MOSFET) ayrıldı, Pin 19 GND'den ayrılıp boşta/yedek bırakıldı. Kalan GND pinleri: 4, 5, 9, 13, 14, 18, 21 — yeni bir sinyale ihtiyaç olursa bunlardan biri kesilip izole edilerek açığa çıkarılabilir.</p>
+<p style="margin-top:8px;font-size:13px;color:var(--muted)">Pin 15 GND'den ayrılıp GPIO21'e (Laptop Adaptörü MOSFET), Pin 19 da GPIO35'e (Zil Hoparlörü) ayrıldı. Kalan GND pinleri: 4, 5, 9, 13, 14, 18, 21 — yeni bir sinyale ihtiyaç olursa bunlardan biri kesilip izole edilerek açığa çıkarılabilir.</p>
 </div>
 
 <div class="subsection">
@@ -286,9 +286,9 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><th>Tel Rengi</th><th>Sinyal</th><th>ESP32 GPIO</th></tr>
 <tr><td>Sarı</td><td>MQ6 IRF520 MOSFET SIG ucu → SCART Pin 20'ye gidiyor</td><td>16</td></tr>
 <tr><td>Siyah</td><td>Laptop Adaptörü Kesme MOSFET tetikleme → SCART Pin 15'e gidiyor</td><td>21</td></tr>
-<tr><td>Kırmızı</td><td>SCART Pin 19'a bağlandı — henüz GPIO atanmadı, uçtan uca hazır yedek hat</td><td>—</td></tr>
+<tr><td>Kırmızı</td><td>Bahçe Kapısı Zil Hoparlörü — SCART Pin 19 üzerinden dışarı çıkar</td><td>GPIO35</td></tr>
 </table>
-<p style="font-size:13px;color:var(--muted)">2026-08-28: MQ6 dışarı taşındığından bu konnektörün görevi IRF520 tetikleme sinyalini taşımaktı. 2026-09-06: boşta duran Siyah tel Laptop Adaptörü Kesme MOSFET sinyaline (GPIO21) ayrıldı; Kırmızı tel de SCART Pin 19'a çekilip dışarı hazır hale getirildi (henüz bir sinyale atanmadı).</p>
+<p style="font-size:13px;color:var(--muted)">2026-08-28: MQ6 dışarı taşındığından bu konnektörün görevi IRF520 tetikleme sinyalini taşımaktı. 2026-09-06: boşta duran Siyah tel Laptop Adaptörü Kesme MOSFET sinyaline (GPIO21) ayrıldı. 2026-09-12: Kırmızı tel Bahçe Kapısı Zil Hoparlörü'ne (GPIO35) ayrıldı - hoparlörün kendisi henüz bağlanmadı.</p>
 </div>
 
 <div class="section">
