@@ -33,6 +33,13 @@ void kapiTumRoleleriKapat();
 void kapiAcKomut(int i, bool birlikte = false);
 void kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
+
+// Iki kanadi SIRALI baslatir - bindirmeli kanatlar ayni anda hareket edemez
+// (ticari kapi otomasyon kartlarindaki "leaf delay / phase shift" kurali).
+// Acilista ust kanat once, kapanista en son; gecikme config.h'de.
+void kapiCiftKanatAc();
+void kapiCiftKanatKapat();
+void kapiGecikmeliKomutIptal();
 void kapiPoll();
 // Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
 // kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano

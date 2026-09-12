@@ -225,6 +225,19 @@
 // enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
 #define BAHCE_KILIT_PULSE_MS 1000
 
+// ===== Kanat Gecikmesi (2 kanatli kapilarin temel kurali) =====
+// Kanatlar orta noktada BINDIRMELI (bir kanat digerinin ustune kapanir), bu
+// yuzden ikisi ayni anda hareket ederse kapanista birbirine carpar. Ticari
+// kapi otomasyon kartlarinda bu "phase shift / leaf delay" olarak ayarlanir
+// (tipik acilista ~3sn, kapanista ~3-30sn).
+// ACILIS: ustteki kanat ONCE acilir  -> Kapi1 (SOL) basla, Kapi2 gecikmeli
+// KAPANIS: ustteki kanat EN SON kapanir -> Kapi2 (SAG) basla, Kapi1 gecikmeli
+// Bindirme yonu tersse bu iki degeri degil, asagidaki BAHCE_ONCE_ACILAN_KAPI
+// secimini degistirin.
+#define BAHCE_KANAT_GECIKME_AC_MS   3000
+#define BAHCE_KANAT_GECIKME_KAPA_MS 5000
+#define BAHCE_ONCE_ACILAN_KAPI 0   // 0 = Kapi1 (SOL) once acilir/en son kapanir
+
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
 #define BAHCE_POLL_ARALIK_MS 250
