@@ -32,6 +32,33 @@ ESP8266WebServer server(80);
 RTC_DS1307 rtc;
 bool rtcHazir = false;
 
+// KOK NEDEN ADAYI (2026-09-15 kullanici bulgusu - RTC pili/baglantisi
+// arizalandiginda I2C hatti kilitlenip TUM sistemi (RS485 dahil) birkac
+// saniyeligine donduruyor olabilir): ESP8266'nin Wire kutuphanesi bit-banged
+// yazilim I2C'dir - bir I2C cihazi (DS1307) islem ORTASINDA (orn. pil
+// bitip cip aniden enerjisiz kalirsa) SDA hattini LOW'da birakip giderse,
+// hat "takili" kalir ve sonraki HER Wire islemi (rtc.begin() dahil) uzun
+// sure/sinirsiz bekleyebilir - normal "cihaz hic yok" durumundan (ki bu
+// hizlica/temiz basarisiz olur) FARKLI, cok daha tehlikeli bir durum.
+// COZUM: her Wire.begin() cagrisindan ONCE SCL'yi manuel 9 kez darbeleyip
+// (takili kalmis bir slave'in SDA'yi birakmasini saglar) STOP kosulu
+// gonderiyoruz - bu, donanimsal pil/baglanti arizasinda bile sistemin
+// GERI KAZANILABILIR kalmasini saglar. setClockStretchLimit ile de tekil
+// bir I2C transferinin ust siniri kisitlanir.
+static void i2cHattiKurtar() {
+  pinMode(RTC_SCL, OUTPUT);
+  pinMode(RTC_SDA, INPUT_PULLUP);
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(RTC_SCL, HIGH); delayMicroseconds(5);
+    digitalWrite(RTC_SCL, LOW); delayMicroseconds(5);
+  }
+  // STOP kosulu: SCL HIGH'ken SDA'yi LOW'dan HIGH'a cek.
+  pinMode(RTC_SDA, OUTPUT);
+  digitalWrite(RTC_SDA, LOW); delayMicroseconds(5);
+  digitalWrite(RTC_SCL, HIGH); delayMicroseconds(5);
+  digitalWrite(RTC_SDA, HIGH); delayMicroseconds(5);
+}
+
 // ============ KAYIT DOSYALARI ============
 const char* KAYIT_DOSYASI = "/kayitlar.csv";
 const char* TUKETIM_DOSYASI = "/tuketim.csv";
@@ -2462,7 +2489,9 @@ void setup() {
   if (!LittleFS.exists(KAYIT_DOSYASI)) { File f = LittleFS.open(KAYIT_DOSYASI, "w"); if (f) f.close(); }
   if (!LittleFS.exists(TUKETIM_DOSYASI)) { File f = LittleFS.open(TUKETIM_DOSYASI, "w"); if (f) f.close(); }
   if (!LittleFS.exists(TUKETIM_GECMIS_DOSYASI)) { File f = LittleFS.open(TUKETIM_GECMIS_DOSYASI, "w"); if (f) f.close(); }
+  i2cHattiKurtar();
   Wire.begin(RTC_SDA, RTC_SCL);
+  Wire.setClockStretchLimit(200);  // bkz i2cHattiKurtar notu - tek I2C transferinin ust siniri
   delay(100);
   if (!rtc.begin()) {
     rtcHazir = false;
@@ -2731,7 +2760,9 @@ void loop() {
   static unsigned long sonRtcDenemeMs = 0;
   if (!rtcHazir && simdiMs - sonRtcDenemeMs >= 30000UL) {
     sonRtcDenemeMs = simdiMs;
+    i2cHattiKurtar();  // bkz tanim yukarida - takili kalmis I2C hattini kurtarir
     Wire.begin(RTC_SDA, RTC_SCL);
+    Wire.setClockStretchLimit(200);
     if (rtc.begin()) {
       rtcHazir = true;
       DEBUG_PRINTLN("[RTC] Yeniden baglanildi");
