@@ -1567,7 +1567,15 @@ String telegramBekleyenMetin = "";
 String telegramBekleyenReplyMarkup = ""; // bkz telegramAksiyonButonlariJson()
 unsigned long telegramIlkDenemeMs = 0;
 #define TELEGRAM_RETRY_SURESI_MS (2UL * 60UL * 1000UL) // basarisizsa bu kadar sure tekrar denenir, sonra vazgecilir
-#define TELEGRAM_UPDATE_POLL_INTERVAL_MS (4UL * 1000UL) // inline buton (Sustur/Onayla/Panik Iptal) getUpdates polling araligi
+// KOK NEDEN ADAYI (2026-09-15 kullanici bulgusu - Kalburum periyodik olarak
+// birkac saniyeligine yanit vermiyordu, Sudepo'dan BAGIMSIZ): bu polling
+// HER 4 saniyede bir loop() icinde SENKRON/BLOKLAYICI bir HTTPS/TLS istegi
+// (api.telegram.org) yapiyordu, http.setTimeout(5000) ile en kotu durumda
+// 5sn'ye kadar TUM sistemi (RS485/web sunucusu dahil) dondurebiliyordu -
+// ag gecikmesi/Telegram sunucusu yavasladiginda bu risk gerceklesiyordu.
+// Kalici/dogru cozum (ayri FreeRTOS task, bkz mpptTask ornegi) daha buyuk
+// bir degisiklik - simdilik risk payini kucultmek icin sıklık dusuruldu.
+#define TELEGRAM_UPDATE_POLL_INTERVAL_MS (10UL * 1000UL) // inline buton (Sustur/Onayla/Panik Iptal) getUpdates polling araligi
 
 // Kullanici talebiyle: Telegram alarm bildirimi ac/kapa ayari (Ayarlar
 // sekmesi) - NVS'de kalici, varsayilan acik (eski davranisla ayni).
@@ -1785,7 +1793,10 @@ void telegramGuncellemeleriKontrolEt() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setTimeout(5000);
+  // Bkz yukaridaki TELEGRAM_UPDATE_POLL_INTERVAL_MS notu - bu istek loop()'u
+  // bloke ediyor, zaman asimi kisa tutularak en kotu durumdaki dondurma
+  // suresi sinirlaniyor (5000 -> 1500ms).
+  http.setTimeout(1500);
   http.begin(client, url);
   int code = http.GET();
   if (code != HTTP_CODE_OK) { http.end(); return; }
