@@ -49,6 +49,12 @@ extern bool bahceRoleSorunu;  // true = en az bir kapinin "kapat" komutu donanim
 void r413SaglikPoll();
 extern bool r413ModulSagliksiz;  // true = R413D08 son saglik sorgusuna (idle iken) yanit vermedi
 
+// true iken: eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak dogrulama
+// beklemesi suruyor - main.cpp rs485KomutDinle() bunu YENI BAHCE_KAPI*
+// komutlarini ertelemek (NACK) icin kontrol eder, GET_STATUS gibi zararsiz
+// istekler bu sirada da servis edilmeye devam eder (bkz bahce_kapisi.cpp).
+extern bool bahceKritikBolgeAktif;
+
 // Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
 void r413RoleYaz(uint8_t koilNo, bool acik);
 

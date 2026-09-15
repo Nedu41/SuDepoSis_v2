@@ -225,16 +225,13 @@
 // enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
 #define BAHCE_KILIT_PULSE_MS 1000
 
-// ===== Iki Kanat Ladder-Mantik Sekansi (2026-09-13, kullanici TAM olarak =====
-// boyle tarif etti - sahada dogrulanan gercek kapi davranisi):
-// ACILIS: Role5(kilit) HIGH -> 1sn -> Role3(Kapi2/SAG acma) HIGH -> 1sn ->
-//         Role1(Kapi1/SOL acma) HIGH -> 1sn -> Role5(kilit) LOW.
-//         SW3(D7,Kapi1 acik) tetiklenince Role1 LOW; SW4(D9,Kapi2 acik)
-//         tetiklenince Role3 LOW (bkz kapiPoll mevcut limit-switch kontrolu).
-// KAPANIS: Role2(Kapi1/SOL kapama) HIGH -> 2sn -> Role4(Kapi2/SAG kapama) HIGH.
-//         SW1(D2,Kapi1 kapali) tetiklenince Role2 LOW; SW2(D3,Kapi2 kapali)
-//         tetiklenince Role4 LOW.
-// bkz bahceIkisiniAc()/bahceIkisiniKapat() (bahce_kapisi.cpp).
+// ===== Iki Kanat Gecikmeli Tetikleyici (2026-09-15 mimari duzeltme) =====
+// Iki kapi ayni komutla (Kalburum "cift ac/kapat") baslatilinca motorlar
+// es zamanli baslamasin diye (ortak beslemede gerilim dususu/asiri akim
+// riski) ikinci kapi bu kadar geciktirilerek baslatilir - TUM kilit/motor
+// mantigi kapiAcKomut/kapiKapatKomut'ta (Sudepo'nun kendi butonlarinin da
+// kullandigi AYNI fonksiyonlar), burada SADECE zamanlama var. Acilista
+// Kapi2/SAG once, kapanista Kapi1/SOL once baslar (bkz bahceIkisiniAc/Kapat).
 #define BAHCE_IKILI_ADIM_AC_MS   1000
 #define BAHCE_IKILI_ADIM_KAPA_MS 2000
 
@@ -243,8 +240,11 @@
 #define BAHCE_POLL_ARALIK_MS 250
 // Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
 // için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
-// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
-#define BAHCE_MAX_HAREKET_MS 20000UL
+// buna göre ayarlanmalı. 2026-09-15: çift kapı testinde iki kapı da 20sn'de
+// zaman aşımına düştü (aşırı akım DEĞİL) - muhtemelen iki motor aynı ortak
+// beslemeyi paylaşınca gerilim düşüp motorlar yavaşlıyor, tek kapıda yeterli
+// olan 20sn çift kapıda yetmiyor. Güvenlik payı için 35sn'e çıkarıldı.
+#define BAHCE_MAX_HAREKET_MS 35000UL
 
 // Motor/ACS712 henuz sahaya baglanmadigi icin (2026-09-13) sensor pini
 // bosta/gurultulu okuma yapiyor, ara sira esigi (20A'ya cikarilmis olsa
