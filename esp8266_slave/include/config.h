@@ -217,22 +217,34 @@
 
 // "Kapalı" limit switch bilgisi artik mevcut alarm kapi sensorunden geldiginden
 // (yukaridaki not), bu switch'e ulasilamadan (orn. kilit/mekanik arizasi)
-// motorun sonsuza dek "kapaniyor" durumda kalmamasi icin zaman asimi tek
-// guvenlik agidir - fiziksel arizaya karsi zaten asiri-akim da var. ARTIK
-// SABIT DEGIL: web'den ayarlanabilir (Ayarlar > Bahce Kapisi, struct Ayarlar
-// bahceMaxHareketSaniye, varsayilan 20sn) - bkz bahceMaxHareketMsGetir()
-// (2026-09-15 kullanici talebi, akim esigiyle AYNI desen).
+// motorun sonsuza dek "kapaniyor" durumda kalmamasi icin BAHCE_MAX_HAREKET_MS
+// tek guvenlik agidir - fiziksel arizaya karsi zaten timeout/asiri-akim var.
 
-// Solenoid kilit darbe suresi - ARTIK sabit bir "motoru bu kadar bekletip
-// baslat" suresi DEGIL (2026-09-15 kullanici duzeltmesi: kilit ve motor
-// AYNI ANDA baslar, bkz kapiAcKomut). Bu deger simdi SADECE kilitYonetimPoll
-// icin bir UST SINIR/failsafe: Nano/switch hic yanit vermezse (D2/D3
-// okunamiyorsa) kilit en fazla bu kadar enerjili kalir.
+// Solenoid kilit darbe süresi: enerji verilince kilit açılır/serbest kalır,
+// bu süre kadar beklenip motor başlatılır, sonra röle bırakılır (sürekli
+// enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
 #define BAHCE_KILIT_PULSE_MS 1000
+
+// ===== Iki Kanat Ladder-Mantik Sekansi (2026-09-13, kullanici TAM olarak =====
+// boyle tarif etti - sahada dogrulanan gercek kapi davranisi):
+// ACILIS: Role5(kilit) HIGH -> 1sn -> Role3(Kapi2/SAG acma) HIGH -> 1sn ->
+//         Role1(Kapi1/SOL acma) HIGH -> 1sn -> Role5(kilit) LOW.
+//         SW3(D7,Kapi1 acik) tetiklenince Role1 LOW; SW4(D9,Kapi2 acik)
+//         tetiklenince Role3 LOW (bkz kapiPoll mevcut limit-switch kontrolu).
+// KAPANIS: Role2(Kapi1/SOL kapama) HIGH -> 2sn -> Role4(Kapi2/SAG kapama) HIGH.
+//         SW1(D2,Kapi1 kapali) tetiklenince Role2 LOW; SW2(D3,Kapi2 kapali)
+//         tetiklenince Role4 LOW.
+// bkz bahceIkisiniAc()/bahceIkisiniKapat() (bahce_kapisi.cpp).
+#define BAHCE_IKILI_ADIM_AC_MS   1000
+#define BAHCE_IKILI_ADIM_KAPA_MS 2000
 
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
 #define BAHCE_POLL_ARALIK_MS 250
+// Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
+// için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
+// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
+#define BAHCE_MAX_HAREKET_MS 20000UL
 
 // Motor/ACS712 henuz sahaya baglanmadigi icin (2026-09-13) sensor pini
 // bosta/gurultulu okuma yapiyor, ara sira esigi (20A'ya cikarilmis olsa
