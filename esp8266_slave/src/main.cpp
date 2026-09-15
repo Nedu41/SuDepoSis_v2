@@ -1614,7 +1614,19 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 
 // ============ DURUM JSON ============
 String durumJson() {
-  String j = "{"; // OTA test icin derleme zamani degistirici
+  // KOK NEDEN ADAYI (2026-09-15, kullanici geri bildirimi: "dun sorun yoktu,
+  // bugunku degisikliklerden kaynaklaniyor"): bu fonksiyon bugun eklenen
+  // pek cok yeni alanla (tepe akim, role_sorunu, r413 saglik, freeHeap/
+  // resetReason, vb.) 50'den fazla ayri String "+=" cagrisina cikti - her
+  // "+=" mevcut kapasiteyi asinca String kendi buffer'ini YENIDEN ayirip
+  // eskisini serbest birakiyor (ESP8266 heap'i kucuk/parcalanmaya hassas).
+  // Bu fonksiyon HEM her /durum istegi HEM her dakika SSE push'ta calisiyor -
+  // olculen kronik dusuk heap'in (11-15KB) ve zaman zaman goruen kilitlenme/
+  // kopmalarin en olasi ortak sebebi. reserve() ile baslangicta TEK seferde
+  // yeterli buffer ayrilip tekrar tekrar yeniden-ayirma/parcalanma onlenir.
+  String j;
+  j.reserve(1400);
+  j += "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
   // TANI AMACLI (2026-09-15, tekrarlayan RS485/HTTP kopmasinin GERCEK
   // sebebini kanitla - heap tukenmesi/String parcalanmasi mi, WDT/exception
@@ -1638,7 +1650,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":13,";  // 2026-09-15: SSE stale-client blok riski duzeltildi (sseClient.setTimeout 300ms) - "dakikada bir birkac sn kopma" deseniyle DAY_MEASURE_INTERVAL=60s tetikli ssePush() ortusuyordu, bahce kapisiyla ilgisiz
+  j += "\"bahceWatchdogVer\":14,";  // 2026-09-15: durumJson() String parcalanmasi - reserve(1400) ile tekrar-tekrar yeniden-ayirma onlendi, bugun eklenen 50+ alanin toplam etkisi (SSE fix ile birlikte)
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
