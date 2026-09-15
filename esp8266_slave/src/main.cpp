@@ -1638,7 +1638,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":12,";  // 2026-09-15: TANI - freeHeap/resetReason /durum'a eklendi, kopmalarin gercek sebebini (heap/WDT/exception) kanitlamak icin - davranis DEGISMEDI
+  j += "\"bahceWatchdogVer\":13,";  // 2026-09-15: SSE stale-client blok riski duzeltildi (sseClient.setTimeout 300ms) - "dakikada bir birkac sn kopma" deseniyle DAY_MEASURE_INTERVAL=60s tetikli ssePush() ortusuyordu, bahce kapisiyla ilgisiz
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
@@ -1837,13 +1837,28 @@ void ssePush() {
   if (!sseAktif) return;
   if (!sseClient.connected()) { sseAktif = false; return; }
   String data = "data: " + durumJson() + "\n\n";
-  sseClient.print(data);
+  size_t yazilan = sseClient.print(data);
+  // Zaman asimina ugrarsa (bkz handleSSE setTimeout notu) print() beklenenden
+  // az byte doner - stale baglantiyi hemen kapat, bir sonraki dakika AYNI
+  // bloklanmayi tekrar yasamayalim.
+  if (yazilan < data.length()) { sseClient.stop(); sseAktif = false; }
 }
 
 void handleSSE() {
   if (sseAktif) { sseClient.stop(); sseAktif = false; }
   sseClient = server.client();
   sseClient.setNoDelay(true);
+  // KOK NEDEN ADAYI (2026-09-15, kullanici "dakikada bir birkac sn kopuyor"
+  // bulgusu - bahce kapisi degisiklikleriyle ILGISIZ, tamamen ayri bir yol):
+  // WiFiClient varsayilan yazma zaman asimi ESP8266 core'da ~5000ms. sseClient
+  // "connected()" gorunse bile (yari-acik/stale TCP baglanti - orn. tarayici
+  // sekmesi arka plana atilip WiFi roaming/uyku yasarsa) ssePush()'taki
+  // sseClient.print() bu sureye kadar BLOKE olabilir - loop() durur, o sirada
+  // RS485 GET_STATUS'a cevap verilemez. ssePush() dakikada bir (olcumYap ile,
+  // DAY_MEASURE_INTERVAL=60s) tetiklendigi icin "dakikada bir birkac sn kopma"
+  // deseniyle BIREBIR ortusuyor. Kisa bir yazma zaman asimi ile bu bloklanma
+  // en fazla birkac yuz ms'e indirilir.
+  sseClient.setTimeout(300);
   sseClient.print(
     "HTTP/1.1 200 OK\r\n"
     "Content-Type: text/event-stream\r\n"
