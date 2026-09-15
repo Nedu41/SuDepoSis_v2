@@ -70,6 +70,5 @@ String r413DurumSorgula();
 // basina AYRI ACS712 kalibrasyonu (kapiIndex: 0=Kapi1, 1=Kapi2).
 uint16_t bahceAkimSifirRawGetir(int kapiIndex);
 float bahceAkimEsikAGetir(int kapiIndex);
-unsigned long bahceMaxHareketMsGetir();  // web'den ayarlanabilir kapi hareket zaman asimi
 
 #endif
