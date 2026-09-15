@@ -1621,6 +1621,10 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 String durumJson() {
   String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
+  // TANI (2026-09-15): kopmalarin gercek sebebini (heap/reset) kanitlamak icin.
+  j += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  j += "\"resetReason\":\"" + ESP.getResetReason() + "\",";
+  j += "\"rtcHazir\":" + String(rtcHazir ? "true" : "false") + ",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
