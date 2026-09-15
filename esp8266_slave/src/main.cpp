@@ -998,7 +998,7 @@ void masterGonder() {
   // Master tarafı 400 byte okuyor (rs485_read_line), üst sınır orası.
   char buf[384];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BSW=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BAHCE1PK=%.2f,BAHCE2PK=%.2f,BSW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     // K1/K2 tel formati ve polaritesi BILEREK degistirilmedi (1 = kanat tam
@@ -1030,6 +1030,8 @@ void masterGonder() {
     (int)bahceKapi[1].durum,
     bahceKapi[0].akimAmper,
     bahceKapi[1].akimAmper,
+    bahceKapi[0].akimPeakAmper,
+    bahceKapi[1].akimPeakAmper,
     // Tek alanda bitmask - her giris icin ayri "AD=deger" yazmak mesaji ~40
     // byte uzatirdi (buffer payi icin bkz yukaridaki buf[384] notu).
     // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
