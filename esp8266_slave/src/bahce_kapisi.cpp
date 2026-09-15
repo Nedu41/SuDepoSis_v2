@@ -53,11 +53,6 @@ BahceKapisi bahceKapi[2] = {
 bool bahceKilitBeklenenKapi[2] = { false, false };
 unsigned long bahceKilitAcilmaMs = 0;
 
-// bkz bahce_kapisi.h - eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak
-// surerken true, main.cpp rs485KomutDinle() bunu YENI BAHCE_KAPI* komutlarini
-// ertelemek icin kontrol eder.
-bool bahceKritikBolgeAktif = false;
-
 uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
   uint16_t crc = 0xFFFF;
   for (uint8_t i = 0; i < len; i++) {
@@ -189,28 +184,26 @@ static int r413KanalDurumuOku(uint8_t koilNo) {
 // beklemez. Bekleme sirasinda RS485 istekleri (Kalburum GET_STATUS) de
 // servis edilmeye devam eder.
 // ONEMLI (2026-09-13 sahada bulundu - KOK NEDEN, coklu tutarsiz davranisin
-// asil sebebi): burada rs485KomutDinle()'i KOSULSUZ cagirmak CIDDI bir
-// reentrancy tehlikesi yaratiyordu - Kalburum'dan TAM bu bekleme sirasinda
-// yeni bir BAHCE_KAPI_AC/KAPAT/DUR komutu gelirse, kapiPoll()'un SU AN
-// islemekte oldugu AYNI kapi (BahceKapisi&) uzerinde kapiAcKomut/
-// kapiKapatKomut/kapiDurdurKomut IC ICE (reentrant) tekrar calisiyordu.
-// COZUM (2026-09-15 guncellendi): rs485KomutDinle() ARTIK cagriliyor (GET_STATUS
-// gibi istekler servis edilsin, Kalburum'daki "--" yanip sonme sikayeti icin -
-// bkz proje hafizasi) ama bahceKritikBolgeAktif bayragi rs485KomutDinle()'e
-// YENI bir BAHCE_KAPI* komutunu bu pencerede CALISTIRMAMASINI soyluyor (NACK
-// doner, Kalburum'un kendi retry'i kisa sure sonra tekrar dener) - eski
-// reentrancy riski byle ORTADAN KALKMIS oluyor, GET_STATUS gibi zararsiz
-// istekler yine de zamaninda cevaplaniyor.
+// asil sebebi): burada rs485KomutDinle() cagirmak CIDDI bir reentrancy
+// tehlikesi yaratiyordu - Kalburum'dan TAM bu bekleme sirasinda yeni bir
+// BAHCE_KAPI_AC/KAPAT/DUR komutu gelirse, kapiPoll()'un SU AN islemekte
+// oldugu AYNI kapi (BahceKapisi&) uzerinde kapiAcKomut/kapiKapatKomut/
+// kapiDurdurKomut IC ICE (reentrant) tekrar calisiyordu - dis cagrinin
+// zaten okumus oldugu "durum"/limit degiskenleri bayatlasip reentrant
+// cagrinin yaptigi degisikligin ustune yaziliyordu. Bu, "bazen sadece sol
+// calisiyor, bazen hicbiri, bazen anlik cekip birakiyor" gibi TUTARSIZ ve
+// zamanlamaya bagli davranisin asil kaynagiydi - her testte RS485 trafiginin
+// TAM o milisaniyede gelip gelmemesine gore sonuc degisiyordu. Cozum:
+// burada RS485 komutlarini SERVIS ETME - bekleme kisa tutuluyor
+// (BAHCE_YON_DEGISTIRME_BEKLEME_MS), Kalburum zaten 600ms'de bir tekrar
+// soracagi icin tek bir kacan tur zararsiz/kendi kendini toparlar.
 static void eskiYonBirakmasiniBekle(uint8_t eskiRoleKoilNo) {
-  bahceKritikBolgeAktif = true;
   unsigned long baslangic = millis();
   while (millis() - baslangic < BAHCE_YON_DEGISTIRME_BEKLEME_MS) {
     int durum = r413KanalDurumuOku(eskiRoleKoilNo);
-    if (durum == 0) { bahceKritikBolgeAktif = false; return; }  // R413D08 dogruladi: role gercekten kapali
-    rs485KomutDinle();
+    if (durum == 0) return;  // R413D08 dogruladi: role gercekten kapali
     yield();
   }
-  bahceKritikBolgeAktif = false;
   // Zaman asimi/yanit alinamadi - fire-and-forget fallback, elimizden gelen buydu
 }
 
@@ -263,22 +256,19 @@ static void kilitYaz(BahceKapisi& k, bool aktif) {
 // cekip motoru/PSU'yu zorlar), burada da yazim SONRASI donanimdan okunarak
 // dogrulanir, basarisizsa kisa bir sure icinde tekrar denenir.
 // Reentrancy riski hakkinda bkz eskiYonBirakmasiniBekle notu - burada da
-// ayni koruma (bahceKritikBolgeAktif) kullanilir.
+// ayni sebeple rs485KomutDinle() cagrilmiyor.
 // Donus degeri: true = R413D08 kapaliyi DOGRULADI, false = zaman asimi/yanit
 // yok (fire-and-forget fallback - cagiran taraf watchdog'a devretmeli, bkz
 // bahceRoleWatchdogPoll).
 static bool r413RoleKapatDogrulayarak(uint8_t koilNo) {
-  bahceKritikBolgeAktif = true;
   unsigned long baslangic = millis();
   r413RoleYaz(koilNo, false);
   while (millis() - baslangic < BAHCE_YON_DEGISTIRME_BEKLEME_MS) {
     int durum = r413KanalDurumuOku(koilNo);
-    if (durum == 0) { bahceKritikBolgeAktif = false; return true; }      // dogrulandi: gercekten kapali
+    if (durum == 0) return true;      // dogrulandi: gercekten kapali
     if (durum == 1) r413RoleYaz(koilNo, false);  // hala acik okundu - tekrar dene
-    rs485KomutDinle();
     yield();
   }
-  bahceKritikBolgeAktif = false;
   return false;  // Zaman asimi/yanit yok - fire-and-forget fallback, elimizden gelen buydu
 }
 

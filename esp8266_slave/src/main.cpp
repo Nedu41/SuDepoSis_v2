@@ -1138,18 +1138,7 @@ void rs485KomutDinle() {
 
       if (buffer.startsWith("MASTER:")) {
         String komut = buffer.substring(7);
-        // GUVENLIK (2026-09-15): bahceKritikBolgeAktif true iken bu fonksiyon
-        // ZATEN nested/reentrant cagriliyor olabilir (eskiYonBirakmasiniBekle/
-        // r413RoleKapatDogrulayarak icinden, bkz bahce_kapisi.cpp) - o an
-        // islemekte olan kapi uzerinde YENI bir BAHCE_KAPI* komutunu hemen
-        // calistirmak eski reentrancy hatasini geri getirirdi. NACK donup
-        // erteliyoruz - Kalburum'un kendi retry mekanizmasi (rs485_send_wait_ack)
-        // kisa sure sonra (kritik bolge kapandiktan sonra) tekrar dener.
-        // GET_STATUS gibi durum-degistirmeyen komutlar bu korumanin DISINDA,
-        // normal islenmeye devam eder.
-        if (komut.startsWith("BAHCE_KAPI") && bahceKritikBolgeAktif) {
-          // response zaten "NACK:"+buffer olarak hazir - hicbir sey yapma
-        } else if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
+        if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
           masterGonder();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
@@ -1655,7 +1644,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":7,";  // 2026-09-15: BAHCE_KILIT_PULSE_MS 1000->5000ms (cift kapi role-dogrulama beklemesi failsafe'i erken tuketiyordu, kilit sw geri bildirimine bakmadan dusuyordu)
+  j += "\"bahceWatchdogVer\":5,";  // 2026-09-15: kilit+motor ayni anda baslar (D2/D3 geri bildirimiyle kilit birakma), hareket zaman asimi web'den ayarlanabilir
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
