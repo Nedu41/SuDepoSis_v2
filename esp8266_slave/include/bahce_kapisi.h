@@ -40,6 +40,14 @@ extern BahceKapisi bahceKapi[2];
 void bahceRoleWatchdogPoll();
 extern bool bahceRoleSorunu;  // true = en az bir kapinin "kapat" komutu donanimdan dogrulanamadi (tekrar deneniyor)
 
+// true iken: rolerol yon-degistirme dogrulama beklemesi (eskiYonBirakmasiniBekle/
+// r413RoleKapatDogrulayarak) suruyor - bu sirada rs485KomutDinle() GET_STATUS
+// gibi ZARARSIZ istekleri servis eder (2026-09-15, Kalburum'daki "--" yanip
+// sonme sikayeti icin), ama YENI bir BAHCE_KAPI* komutu (reentrancy riski,
+// bkz bahce_kapisi.cpp notu) calistirmaz - NACK doner, Kalburum'un kendi
+// retry'i kisa sure sonra tekrar dener.
+extern bool bahceKritikBolgeAktif;
+
 // Kapi hareketsizken bile R413D08'in RS485/komut islemeye hala CEVAP VERIP
 // VERMEDIGINI periyodik "durtme" (0x03 okuma, hicbir role degismez) ile
 // kontrol eder - boylece modulun kilitlendigi ANCAK bir kapi komutu
