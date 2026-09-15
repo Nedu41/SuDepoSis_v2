@@ -359,11 +359,16 @@
 //                  GPIO1, GPIO3 (UART0 - USB debug seri portu, bkz platformio.ini)
 //                  GPIO1-14 (TOUCH1-14 - dokunma/kapasitif kanallari, guvenlik-kritik
 //                    butonlar icin ONERILMEZ, bkz GPIO15 yorumu yukarida)
-//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO19, GPIO20, GPIO35,
-//                  GPIO43, GPIO44, GPIO47, GPIO48 (GPIO19/20 native USB-JTAG
+//   SERBEST (gelecekteki eklentiler icin): GPIO11, GPIO19, GPIO20,
+//                  GPIO43, GPIO44 (GPIO19/20 native USB-JTAG
 //                  icin ayrilabilir, bu kart onu kullanmiyorsa serbest -
 //                  DOGRULA). GPIO14 artik bos ama TOUCH/ADC2 riski nedeniyle
-//                  yeni bir buton/anahtar icin ONERILMEZ.
+//                  yeni bir buton/anahtar icin ONERILMEZ. GPIO47 artik Bahce
+//                  Kapisi butonunda, GPIO48 artik Zil Hoparloru'nde kullaniliyor.
+//                  GPIO35 (ve tum GPIO33-37) SAHADA BASARISIZ (2026-09-12,
+//                  multimetreyle 0V) - N16R8 modulunde Octal PSRAM'a dahili
+//                  bagli, disari HIC CIKMIYOR, PSRAM yazilimda kapali olsa
+//                  bile fark etmiyor. ASLA yeni bir sinyal icin denenmesin.
 //   Ekran (ileride): I2C ekran (SSD1306/SH1106 OLED gibi) icin YENI PIN
 //     GEREKMEZ - mevcut AHT10/ADS1115 I2C hattina (GPIO42=SDA, GPIO36=SCL)
 //     farkli adresle bindirilebilir. SPI ekran (CS/DC/RST/SCK/MOSI - 5 sinyal)
@@ -416,16 +421,29 @@
 // uzerinden SCART Pin 19'a cikar (bkz docs/pinout.html - o tel cekilmis ama
 // bir sinyale atanmamisti).
 //
-// GPIO35 secimi (pin atama kontrol listesi):
-//   - touch DEGIL (ESP32-S3'te GPIO1-14 touch'tir, ondan kacinildi)
-//   - strapping/boot pini DEGIL (S3'te 0, 3, 45, 46)
-//   - native USB DEGIL (19/20), UART0/monitor DEGIL (43/44)
-//   - flash/PSRAM'e rezerve DEGIL: bu kart PSRAM'SIZ calisiyor ve komsu
-//     GPIO36/37 (AHT10 SDA, RS485 RX) zaten sahada sorunsuz kullaniliyor
-#define ZIL_HOPARLOR_PIN 35
-// Hoparlor fiziksel olarak baglaninca 1 yapilir - o zamana kadar zil,
-// ALARM_LED_PIN'deki aktif buzzer'da iki vuruslu ritim olarak calar.
-#define ZIL_HOPARLOR_VAR 0
+// GPIO35 DENENDI, sahada multimetre surekli 0V olcdu, LED/hoparlor hic tepki
+// vermedi (2026-09-12). Sonradan SCART Pin 19'un saseye temas ettigi de fark
+// edildi - yani bu 0V'nin harici kisa devreden mi yoksa asagidaki PSRAM
+// kisitindan mi kaynaklandigi kesin ayrilamadi. Arastirma: ESP32-S3-WROOM-1
+// N16R8 (Octal PSRAM'li) modullerde GPIO33-37 modulun PAKETI ICINDE Octal
+// PSRAM cipine donanimsal olarak baglidir - yazilimda PSRAM'i devre disi
+// birakmanin (bu proje PSRAM'siz calisiyor) onemi yok, baglanti fiziksel.
+// Kaynak: Espressif GPIO/RTC GPIO dokumantasyonu + topluluk raporlari
+// (esphome #15907 ve digerleri) - "R8" veya ustu (R8, R8V, R16) iceren
+// modullerde GPIO33-37 GENEL KURAL olarak yeni sinyal icin kullanilmamali.
+// NOT: GPIO36 (AHT10 SDA) ve GPIO37 (RS485 RX) de TEKNIK OLARAK ayni
+// aralikta ve su an calisiyorlar - sans olabilir, GARANTI DEGIL. Ileride bu
+// ikisinde aciklanamayan kararsizlik gorulursen ilk supheli buradir.
+// YENI SECIM: GPIO48 - dokunma/ADC/PSRAM/strapping/UART0 riski YOK,
+// config.h'de baska hicbir #define bu pini kullanmiyor. SAHADA DOGRULANDI:
+// zile basilinca multimetre ~1.5V (PWM ortalamasi) gosterdi, LED yandi.
+#define ZIL_HOPARLOR_PIN 48
+// Not: ALARM_LED_PIN (GPIO5, aktif buzzer) ile pasif hoparlor ARTIK BIRLIKTE
+// calar (VAR=0/1 durumuna gore biri digerini iptal etmiyor) - kullanici
+// talebi (2026-09-12): GPIO35 denemesi sirasinda GPIO5 sessiz kalinca "onu
+// iptal etme" dendi. zilSesAc/zilSesKapat artik kosulsuz GPIO5'i calistirir,
+// VAR=1 iken ayrica LEDC tonu da ekler.
+#define ZIL_HOPARLOR_VAR 1
 #define ZIL_LEDC_KANAL 0
 #define ZIL_TON_DING_HZ 1150
 #define ZIL_TON_DONG_HZ 870

@@ -71,7 +71,7 @@
 │  + Acil lamba GPIO12    │                                 │  D4     Alarm rölesi   │
 │  + Acil buton GPIO15    │                                 │  D5     Nem rölesi     │
 │  + Bahçe butonu GPIO47  │                                 │  D6     PIR (Sudepo)   │
-│  + Zil hoparlörü GPIO35 │                                 │  D13    Depo lambası   │
+│  + Zil hoparlörü GPIO48 │                                 │  D13    Depo lambası   │
 │  + AHT10/MQ6/GP2Y10     │                                 │  A0     Toprak nem     │
 │    (GPIO36/42/10/6/18)  │                                 └────────────────────────┘
 └───────────────────────┘
@@ -91,7 +91,7 @@ ESP8266+Nano üzerinden RS485 ile yönetilir.</p>
 <tr><td>CN3</td><td>MAX3232 (MPPT RS232)</td><td>40, 41</td></tr>
 <tr><td>CN4</td><td>Dreambox Ön Panel (IR Alıcı, Kırmızı LED+Buzzer, Yeşil Power LED, Reset Buton)</td><td>4, 5, — (Power LED beslemeye doğrudan), — (Reset ESP32 EN pinine)</td></tr>
 <tr><td>CN5</td><td>13'lü iç konnektör (RCA/SCART/RS485/güç toplu çıkış)</td><td>7, 8, 9, 12, 13, 17</td></tr>
-<tr><td>CN6</td><td>MQ6 Güç Kontrolü (Sarı tel, GPIO16 → SCART Pin 20) + Laptop Adaptörü Kesme MOSFET (Siyah tel, GPIO21 → SCART Pin 15, 2026-09-06). Kırmızı tel (SCART Pin 19) → <b>Bahçe Kapısı Zil Hoparlörü, GPIO35</b> — yazılım hazır, hoparlör henüz bağlanmadı</td><td>16, 21, 35</td></tr>
+<tr><td>CN6</td><td>MQ6 Güç Kontrolü (Sarı tel, GPIO16 → SCART Pin 20) + Laptop Adaptörü Kesme MOSFET (Siyah tel, GPIO21 → SCART Pin 15, 2026-09-06). Kırmızı tel (SCART Pin 19) → <b>Bahçe Kapısı Zil Hoparlörü, GPIO48</b> (2026-09-12: önce GPIO35 denendi, sahada 0V ölçüldü - sonradan Pin 19'un şaseye temas ettiği de fark edildi, tam net değil ama N16R8'de GPIO33-37 zaten Octal PSRAM'a ayrıldığından GPIO48'e taşındı, LED testi başarılı) — yazılım etkin (ZIL_HOPARLOR_VAR=1)</td><td>16, 21, 48</td></tr>
 </table>
 <p style="font-size:13px;color:var(--muted)">CN1 ve CN2'de her biri iki farklı sinyal taşıyor — aynı kablo demetini paylaşıyorlar ama aralarında elektriksel bağlantı yok, sadece fiziksel yerleşim ortak. Aşağıda her konnektörün ayrıntısı sırasıyla verilmiştir.</p>
 </div>
@@ -187,7 +187,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>8</td><td>Pin3 (AHT10 SDA)</td><td>Pin11 (GP2Y10 Vo)</td></tr>
 <tr><td>9</td><td>Pin7 (AHT10 SCL)</td><td>Pin16 (GP2Y10 LED)</td></tr>
 <tr><td>10</td><td>GND</td><td>GND</td></tr>
-<tr><td>11</td><td>Pin8 (Swan PIR)</td><td>Pin19 (Zil Hoparlörü, GPIO35)</td></tr>
+<tr><td>11</td><td>Pin8 (Swan PIR)</td><td>Pin19 (Zil Hoparlörü, GPIO48)</td></tr>
 <tr><td>12</td><td>Pin20 (MQ6 MOSFET SIG)</td><td>— (boş)</td></tr>
 <tr><td>13</td><td>GND</td><td>GND</td></tr>
 </table>
@@ -237,11 +237,11 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>16 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#222 50%,#ffffff 50%)"></span>Siyah/Beyaz</td><td>—</td><td>GPIO18</td><td>GP2Y10 LED sürücü - CN1 Siyah kablo</td></tr>
 <tr><td>17 &nbsp;<span class="swatch" style="background:#43a047"></span>Yeşil</td><td>—</td><td>GPIO15</td><td>Fiziksel Acil Durum Butonu - CN1 Kırmızı kablo</td></tr>
 <tr><td>18 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#e53935 50%,#ffffff 50%)"></span>Kırmızı/Beyaz</td><td>—</td><td>—</td><td>GND</td></tr>
-<tr><td>19 &nbsp;<span class="swatch" style="background:#fdd835"></span>Sarı</td><td>—</td><td>GPIO35</td><td>Bahçe Kapısı Zil Hoparlörü (pasif, LEDC ton çıkışı) - CN6 Kırmızı kablo. Hoparlör henüz bağlanmadı; bağlanınca config.h'de ZIL_HOPARLOR_VAR=1 yapılır.</td></tr>
+<tr><td>19 &nbsp;<span class="swatch" style="background:#fdd835"></span>Sarı</td><td>—</td><td>GPIO48</td><td>Bahçe Kapısı Zil Hoparlörü (pasif, LEDC ton çıkışı) - CN6 Kırmızı kablo. GPIO35 önce denendi, sahada 0V ölçüldü (sonradan Pin 19'un şaseye temas ettiği de görüldü - kısa devre mi yoksa GPIO33-37/PSRAM kısıtı mı kesin ayrılamadı, bkz aşağıda GPIO33-37 notu), GPIO48'e taşındı ve LED testiyle doğrulandı. config.h'de ZIL_HOPARLOR_VAR=1 (etkin).</td></tr>
 <tr><td>20 &nbsp;<span class="swatch" style="background:linear-gradient(90deg,#1e88e5 50%,#ffffff 50%)"></span>Mavi/Beyaz</td><td>—</td><td>GPIO16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü SIG ucu) - CN6 Sarı kablo</td></tr>
 <tr><td>21 &nbsp;—</td><td>—</td><td>—</td><td>GND</td></tr>
 </table>
-<p style="margin-top:8px;font-size:13px;color:var(--muted)">Pin 15 GND'den ayrılıp GPIO21'e (Laptop Adaptörü MOSFET), Pin 19 da GPIO35'e (Zil Hoparlörü) ayrıldı. Kalan GND pinleri: 4, 5, 9, 13, 14, 18, 21 — yeni bir sinyale ihtiyaç olursa bunlardan biri kesilip izole edilerek açığa çıkarılabilir.</p>
+<p style="margin-top:8px;font-size:13px;color:var(--muted)">Pin 15 GND'den ayrılıp GPIO21'e (Laptop Adaptörü MOSFET), Pin 19 da GPIO48'e (Zil Hoparlörü, GPIO35 denemesi başarısız oldu) ayrıldı. Kalan GND pinleri: 4, 5, 9, 13, 14, 18, 21 — yeni bir sinyale ihtiyaç olursa bunlardan biri kesilip izole edilerek açığa çıkarılabilir.</p>
 </div>
 
 <div class="subsection">
@@ -286,9 +286,9 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><th>Tel Rengi</th><th>Sinyal</th><th>ESP32 GPIO</th></tr>
 <tr><td>Sarı</td><td>MQ6 IRF520 MOSFET SIG ucu → SCART Pin 20'ye gidiyor</td><td>16</td></tr>
 <tr><td>Siyah</td><td>Laptop Adaptörü Kesme MOSFET tetikleme → SCART Pin 15'e gidiyor</td><td>21</td></tr>
-<tr><td>Kırmızı</td><td>Bahçe Kapısı Zil Hoparlörü — SCART Pin 19 üzerinden dışarı çıkar</td><td>GPIO35</td></tr>
+<tr><td>Kırmızı</td><td>Bahçe Kapısı Zil Hoparlörü — SCART Pin 19 üzerinden dışarı çıkar</td><td>GPIO48</td></tr>
 </table>
-<p style="font-size:13px;color:var(--muted)">2026-08-28: MQ6 dışarı taşındığından bu konnektörün görevi IRF520 tetikleme sinyalini taşımaktı. 2026-09-06: boşta duran Siyah tel Laptop Adaptörü Kesme MOSFET sinyaline (GPIO21) ayrıldı. 2026-09-12: Kırmızı tel Bahçe Kapısı Zil Hoparlörü'ne (GPIO35) ayrıldı - hoparlörün kendisi henüz bağlanmadı.</p>
+<p style="font-size:13px;color:var(--muted)">2026-08-28: MQ6 dışarı taşındığından bu konnektörün görevi IRF520 tetikleme sinyalini taşımaktı. 2026-09-06: boşta duran Siyah tel Laptop Adaptörü Kesme MOSFET sinyaline (GPIO21) ayrıldı. 2026-09-12: Kırmızı tel Bahçe Kapısı Zil Hoparlörü'ne önce GPIO35'e ayrıldı, sahada 0V ölçüldü (sonradan Pin 19'un şaseye temas ettiği de fark edildi, tek sebep kesin değil) - aynı gün GPIO48'e taşındı ve LED testiyle doğrulandı, ZIL_HOPARLOR_VAR=1 etkinleştirildi.</p>
 </div>
 
 <div class="section">
@@ -363,7 +363,7 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>39</td><td>MAX485 RS485</td><td>DE + RE (Driver/Receiver Enable)</td><td>HIGH = gönderim, LOW = alım</td></tr>
 <tr><td>4</td><td>IR Alıcı</td><td>OUT/sinyal ucu</td><td>VCC/GND ayrı beslenir</td></tr>
 <tr><td>5</td><td>Alarm LED + Buzzer</td><td>Küçük görsel/sesli uyarı (yerel)</td><td>LED (seri dirençli) ve buzzer paralel, aynı sinyali paylaşır</td></tr>
-<tr><td>35</td><td>Bahçe Kapısı Zil Hoparlörü (PASİF)</td><td>LEDC ton çıkışı (PWM)</td><td>CN6 Kırmızı tel → SCART Pin 19. Asıl zil sesi burada olmalı (Sudepo bahçenin öbür ucunda). GPIO5'teki buzzer AKTİF tip olduğundan perdesi değişmiyor, gerçek iki notalı ding-dong için ayrı pasif hoparlör gerekir. Pin seçimi: touch değil (GPIO1-14 hariç tutuldu), strapping değil (0/3/45/46), USB değil (19/20), UART0 değil (43/44); kart PSRAM'siz çalıştığı için 33-37 serbest (komşu GPIO36/37 zaten kullanımda). Bağlandıktan sonra config.h'de ZIL_HOPARLOR_VAR=1 yapılmalı.</td></tr>
+<tr><td>48</td><td>Bahçe Kapısı Zil Hoparlörü (PASİF)</td><td>LEDC ton çıkışı (PWM)</td><td>CN6 Kırmızı tel → SCART Pin 19. Asıl zil sesi burada olmalı (Sudepo bahçenin öbür ucunda). GPIO5'teki buzzer AKTİF tip olduğundan perdesi değişmiyor - artık ikisi BİRLİKTE çalıyor (biri diğerini iptal etmez). 2026-09-12: önce GPIO35 denendi, sahada multimetreyle SÜREKLİ 0V ölçüldü - sonradan SCART Pin 19'un şaseye temas ettiği de fark edildi (kısa devre bu sonucu bulandırmış olabilir, kesin sebep GPIO33-37/PSRAM kısıtı mı yoksa kısa devre mi ayrılamadı). Yine de bu kart N16R8 (Octal PSRAM) olduğundan GPIO33-37 genel kural olarak kaçınılması gereken bir aralık. GPIO48'e taşındı, LED testiyle doğrulandı. config.h'de ZIL_HOPARLOR_VAR=1.</td></tr>
 <tr><td>17</td><td>PIR2 (Konteyner)</td><td>Hareket sensörü OUT</td><td>HC-SR505 — sabit ~8sn HIGH tutar, HC-SR501'den farklı olarak art arda kenar vermez. 2026-08-20: eski GPIO6'dan buraya taşındı (GP2Y10 sensörüne ADC1 kanalı açmak için)</td></tr>
 <tr><td>7</td><td>Kapı Reed (Konteyner)</td><td>Manyetik switch, digital giriş</td><td>INPUT_PULLUP</td></tr>
 <tr><td>8</td><td>Konteyner Sireni</td><td>MOSFET çıkışı</td><td>Varsayılan HIGH=aktif</td></tr>
@@ -383,11 +383,11 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>18</td><td>GP2Y10 LED Kontrol (doğrudan Pin3'e, MOSFET YOK)</td><td>Dijital çıkış (OUTPUT)</td><td>2026-08-25: MOSFET hiç bağlanmamıştı, doğrudan sensörün Pin3'üne bağlanacak (Sharp: 20mA, harici transistöre gerek yok). LOW=LED açık, HIGH=LED kapalı (Sharp'ın resmi pin fonksiyonu). ~320us'lik darbe içinde GPIO6'dan örnekleme alınır.</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (115200 baud)</td><td>PC'ye USB üzerinden</td></tr>
-<tr><td>26-37</td><td>—</td><td>KULLANILMAZ (Quad Flash + Octal PSRAM)</td><td>Bu kart N16R8 (16MB flash + 8MB PSRAM) — GPIO26-32 flash/PSRAM ortak hat, GPIO33-37 Octal PSRAM'a özel (SPIIO4-7/SPIDQS). GPIO33/34 zaten bu kartta header'a hiç çıkmıyor. NOT: 16MB/PSRAM firmware olarak etkinleştirilmeye çalışıldı, sahada boot loop verdi — proje hâlâ 8MB/DIO/PSRAM'sız çalışıyor, bkz sudepo/04 Sorun-Cozum.</td></tr>
+<tr><td>26-37</td><td>—</td><td>KULLANILMAZ (Quad Flash + Octal PSRAM)</td><td>Bu kart N16R8 (16MB flash + 8MB PSRAM) — GPIO26-32 flash/PSRAM ortak hat, GPIO33-37 Octal PSRAM'a özel (SPIIO4-7/SPIDQS), MODÜLÜN PAKETİ İÇİNDE dahili bağlı - dışarı hiç çıkmaz. Yazılımda PSRAM'ı kapatmanın (proje 8MB/DIO/PSRAM'sız çalışıyor) hiçbir önemi yok, bağlantı donanımsal. 2026-09-12: GPIO35'e zil hoparlörü bağlanmaya çalışıldı, multimetre sürekli 0V gösterdi (sonradan SCART Pin 19'un şaseye temas ettiği de fark edildi - kısa devre mi yoksa bu PSRAM kısıtı mı, kesin ayrılamadı) - GPIO48'e taşınınca sorun çözüldü, LED testiyle doğrulandı (bkz Bahçe Kapısı Zil Hoparlörü satırı). GPIO36 (AHT10 SDA) ve GPIO37 (RS485 RX) de bu aralıkta olmasına rağmen şu an çalışıyor - bu GARANTİ değil, açıklanamayan kararsızlık görülürse ilk şüpheli burasıdır.</td></tr>
 <tr><td>15</td><td>Fiziksel Acil Durum Butonu</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Basışta web'deki Panik butonuyla aynı işlevi tetikler. Dış çıkışı SCART Pin 17 (Yeşil), GND dönüşü herhangi bir GND pininden.</td></tr>
 <tr><td>47</td><td>Bahçe Kapısı (araç girişi) Butonu</td><td>Dijital giriş (INPUT_PULLUP)</td><td>2026-09-08: Kapılar kapalıyken tek basış sadece Kapı 1'i (sol), çift basış (450ms içinde) ikisini birden açar. Herhangi bir kapı açıksa basış ikisini de kapatır; hareket halindeyse (açılıyor/kapanıyor) basış motoru durdurur — ayrı bir Dur/Kapat kontrolü yok. Motor/röle mantığı ESP8266/R413D08 tarafında, buradan sadece RS485 komutu gönderilir. Henüz sahaya fiziksel kablo çekilmedi.</td></tr>
 <tr><td>11, 19, 20</td><td>—</td><td>Serbest (gelecekteki eklentiler) — DİKKAT</td><td>GPIO11 TOUCH11 kanalı, GPIO19/20 native USB-JTAG için ayrılabilir (bu kart onu kullanmıyorsa serbest, doğrulanmadı) — yeni bir buton/anahtar için GPIO11'den kaçının.</td></tr>
-<tr><td>43, 44, 48</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>Dokunma/ADC özelliği yok, güvenli adaylar. GPIO40/41 artık MPPT/MAX3232'de, GPIO16/17/18 artık MQ6/PIR2/GP2Y10'da, GPIO36/42 artık AHT10/ADS1115 I2C'de, GPIO12 artık Acil Durum Lambası'nda (Sarı RCA), GPIO13 artık Swan PIR'da, GPIO21 artık Laptop Adaptörü Kesme (SMD MOSFET, DC taraf) çıkışında, GPIO47 artık Bahçe Kapısı Açma Butonu'nda, GPIO35 artık Bahçe Kapısı Zil Hoparlörü'nde kullanılıyor. İleride ekran eklenirse: I2C ekran (SSD1306 gibi) yeni pin istemez, mevcut GPIO36/42 hattına adres ile bindirilir; SPI ekran (CS/DC/RST/SCK/MOSI, 5 sinyal) için bu serbest pinler yeterli.</td></tr>
+<tr><td>43, 44</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>Dokunma/ADC özelliği yok, güvenli adaylar. GPIO40/41 artık MPPT/MAX3232'de, GPIO16/17/18 artık MQ6/PIR2/GP2Y10'da, GPIO36/42 artık AHT10/ADS1115 I2C'de, GPIO12 artık Acil Durum Lambası'nda (Sarı RCA), GPIO13 artık Swan PIR'da, GPIO21 artık Laptop Adaptörü Kesme (SMD MOSFET, DC taraf) çıkışında, GPIO47 artık Bahçe Kapısı Açma Butonu'nda, GPIO48 artık Bahçe Kapısı Zil Hoparlörü'nde kullanılıyor (GPIO35 denemesi başarısız oldu, bkz yukarıdaki GPIO26-37 notu). İleride ekran eklenirse: I2C ekran (SSD1306 gibi) yeni pin istemez, mevcut GPIO36/42 hattına adres ile bindirilir; SPI ekran (CS/DC/RST/SCK/MOSI, 5 sinyal) için GPIO43/44 + yukarıdaki dikkat listesi yeterli.</td></tr>
 </table>
 <p style="margin-top:8px">Yedek akü (GPIO2) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a> — <b>DİKKAT:</b> bu kılavuz GPIO21'in eski (2026-08-24'te kaldırılan) şarj rölesi işlevini anlatıyor, güncel değil, sadece GPIO2 (akü voltaj izleme) kısmı hâlâ geçerli.</p>
 </div>
