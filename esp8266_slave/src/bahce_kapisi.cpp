@@ -13,7 +13,6 @@ extern SoftwareSerial swSerial;   // main.cpp - RS485 hatti (custom protokol + M
 extern bool bahceKapi1TamKapali, bahceKapi2TamKapali; // main.cpp - Nano D2/D3 tam-kapali limit switch'leri
 extern bool nanoBaglantiVar;      // main.cpp - Nano ile seri haberlesme canli mi
 void masterGonder();              // main.cpp - RS485 durum satirini Kalburum'a gonderir
-void rs485KomutDinle();           // main.cpp - Kalburum'dan gelen RS485 komutlarini dinler/yanitlar
 
 const char* kapiDurumAdi(KapiDurum d) {
   switch (d) {
@@ -33,11 +32,6 @@ bool bahceZilBasili = false;
 unsigned long bahceZilSonCalmaMs = 0;
 unsigned long bahceSwSonBasariliMs = 0;  // 0 = Nano'dan hic gecerli okuma alinmadi
 bool bahceKilitAktif = false;            // solenoid kilit KOMUT durumu (geri besleme sensoru yok)
-// Paylasilan TEK kilit rolesini (bkz config.h BAHCE_KILIT_RELE) kac kapinin
-// KAPI_KILIT_ACILIYOR fazinda bekledigi - iki kapi ayni komutla (birlikte)
-// baslatilinca ikisi de kilide ihtiyac duyar, kilit SADECE ikisi de kendi
-// darbe suresini tamamladiginda kesilir (2026-09-15, bkz kapiAcKomut/kapiPoll).
-static int bahceKilitBekleyenSayisi = 0;
 bool bahceSwGetStatustan = false;         // true = acik sw/zil GET_STATUS'tan geliyor, PIN_READ_ALL gereksiz
 
 // Zil basisinin RS485/web'e tasinan MANDALLI hali - ham "su an basili"
@@ -52,18 +46,6 @@ BahceKapisi bahceKapi[2] = {
   { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI1_RELE_A, BAHCE_KAPI1_RELE_B, BAHCE_KILIT_RELE, BAHCE_KAPI1_ACIK_PIN, BAHCE_KAPI1_AKIM_PIN, false },
   { KAPI_KAPALI, 0, 0, 0, BAHCE_KAPI2_RELE_A, BAHCE_KAPI2_RELE_B, BAHCE_KILIT_RELE, BAHCE_KAPI2_ACIK_PIN, BAHCE_KAPI2_AKIM_PIN, false }
 };
-
-// true iken: eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak dogrulama
-// beklemesi suruyor - bu sirada rs485KomutDinle() GET_STATUS gibi ZARARSIZ
-// istekleri servis eder (2026-09-15, Kalburum'daki "--" yanip sonme
-// sikayeti icin - ladder mantigi geri alindiktan SONRA da devam etti, bu
-// bekleme dongulerinin hep GET_STATUS'u yanitsiz biraktigi ortaya cikti),
-// ama YENI bir BAHCE_KAPI* komutu (reentrancy riski - SU AN islenmekte
-// olan ayni kapi state'ini ic ice degistirebilir) calistirmaz - NACK
-// doner, Kalburum'un kendi retry'i kisa sure sonra tekrar dener. Bu
-// bayrak SADECE bu iki bekleme fonksiyonunda kullanilir, ladder/kilit
-// zamanlamasina hic dokunmaz.
-bool bahceKritikBolgeAktif = false;
 
 uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
   uint16_t crc = 0xFFFF;
@@ -85,21 +67,6 @@ uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
 // dokumanindan (github.com/microrobotics/R413D08) dogrulandi - eskiden
 // yanlislikla standart Write Single Coil formati kullaniliyordu, R413D08
 // bu yuzden hicbir komuta tepki vermiyordu.
-// KOK NEDEN (2026-09-12 sahada bulundu, elle yazma testiyle dogrulandi):
-// kapiKapatKomut/kapiAcKomut gibi cagiranlar art arda BIRDEN FAZLA
-// r413RoleYaz() cagirir (once motoru durdur = 2 cerceve, sonra yeni yonu ac
-// = 1-2 cerceve daha). Eskiden cerceveler arasinda HICBIR bosluk yoktu -
-// fonksiyon DE_PIN'i LOW yapar yapmaz doner, bir sonraki cagri aninda yeni
-// cerceveyi baslatiyordu. Modbus RTU, bir cercevenin bittigini/yenisinin
-// basladigini SADECE araya giren sessizlikten (>=3.5 karakter suresi,
-// 9600 baud'da ~3.6ms) anlar - bu bosluk olmayinca R413D08 art arda gelen
-// cerceveleri TEK BOZUK BLOK sanip SESSIZCE reddediyordu (fire-and-forget
-// oldugundan hata da donmuyor). Tek basina gonderilen bir yazim (test
-// endpoint'i /rs485/r413_write_test) bu yuzden HEP calisiyordu, ama gercek
-// kapi komutlarindaki 3-4 ardisik cerceve cogunlukla kaybolabiliyordu -
-// "komut basarili" diyor ama role hic tepki vermiyordu. Cozum: her
-// cagridan SONRA (fonksiyon donmeden once) yeterli sessizlik birakiliyor,
-// boylece TUM cagiranlar (tek tek degistirmeye gerek kalmadan) korunuyor.
 void r413RoleYaz(uint8_t koilNo, bool acik) {
   uint8_t frame[8];
   frame[0] = R413D08_MODBUS_ADRES;
@@ -113,7 +80,6 @@ void r413RoleYaz(uint8_t koilNo, bool acik) {
   swSerial.write(frame, 8);
   delay(2);
   digitalWrite(RS485_DE_PIN, LOW);
-  delay(5);  // Modbus inter-frame sessizligi (>=3.5 karakter, ~3.6ms @9600) icin pay
 }
 
 // GECICI TEST (bkz bahce_kapisi.h): fire-and-forget DEGIL, gercekten yanit
@@ -153,95 +119,14 @@ String r413DurumSorgula() {
   return hex;
 }
 
-// Tek bir kanalin GERCEK anlik durumunu R413D08'den okur (fire-and-forget
-// DEGIL, function 0x03 READ) - -1 = yanit yok/hata, 0 = kapali, 1 = acik.
-// Yon degistirmeden once "eski role gercekten birakti mi" diye SADECE
-// zamanlamaya degil, donanimin kendi cevabina guvenmek icin (2026-09-12,
-// ikinci sigorta atmasi sonrasi eklendi - salt sabit sureli bekleme
-// yetersiz kaldi, gercek donanimsal onay gerekti).
-static int r413KanalDurumuOku(uint8_t koilNo) {
-  uint8_t frame[8];
-  frame[0] = R413D08_MODBUS_ADRES;
-  frame[1] = 0x03;
-  frame[2] = 0x00; frame[3] = koilNo + 1;
-  frame[4] = 0x00; frame[5] = 0x01;  // 1 kanal oku
-  uint16_t crc = modbusCRC16(frame, 6);
-  frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
-
-  while (swSerial.available()) swSerial.read();
-  digitalWrite(RS485_DE_PIN, HIGH);
-  delayMicroseconds(100);
-  swSerial.write(frame, 8);
-  swSerial.flush();
-  delayMicroseconds(100);
-  digitalWrite(RS485_DE_PIN, LOW);
-
-  uint8_t buf[16];
-  int n = 0;
-  unsigned long t = millis();
-  while (millis() - t < 100 && n < (int)sizeof(buf)) {
-    if (swSerial.available()) { buf[n++] = swSerial.read(); t = millis(); }
-    yield();
-  }
-  delay(5);  // bkz r413RoleYaz - Modbus inter-frame sessizligi
-  // Beklenen yanit: addr,0x03,byteCount(=2),hi,lo,crcLo,crcHi (7 byte)
-  if (n < 5 || buf[0] != R413D08_MODBUS_ADRES || buf[1] != 0x03) return -1;
-  return (buf[3] != 0 || buf[4] != 0) ? 1 : 0;
-}
-
-// Yeni yon rolesini acmadan once ESKI yonun rolesinin GERCEKTEN (R413D08'den
-// okunarak) birakip birakmadigini dogrular - sabit sureli bekleme yerine
-// donanimsal onay, ama R413D08 hic yanit vermezse (fire-and-forget fallback)
-// BAHCE_YON_DEGISTIRME_BEKLEME_MS sonunda yine de devam eder, sonsuza kadar
-// beklemez. Bekleme sirasinda RS485 istekleri (Kalburum GET_STATUS) de
-// servis edilmeye devam eder.
-// ONEMLI (2026-09-13 sahada bulundu - KOK NEDEN, coklu tutarsiz davranisin
-// asil sebebi): burada rs485KomutDinle() cagirmak CIDDI bir reentrancy
-// tehlikesi yaratiyordu - Kalburum'dan TAM bu bekleme sirasinda yeni bir
-// BAHCE_KAPI_AC/KAPAT/DUR komutu gelirse, kapiPoll()'un SU AN islemekte
-// oldugu AYNI kapi (BahceKapisi&) uzerinde kapiAcKomut/kapiKapatKomut/
-// kapiDurdurKomut IC ICE (reentrant) tekrar calisiyordu - dis cagrinin
-// zaten okumus oldugu "durum"/limit degiskenleri bayatlasip reentrant
-// cagrinin yaptigi degisikligin ustune yaziliyordu. Bu, "bazen sadece sol
-// calisiyor, bazen hicbiri, bazen anlik cekip birakiyor" gibi TUTARSIZ ve
-// zamanlamaya bagli davranisin asil kaynagiydi - her testte RS485 trafiginin
-// TAM o milisaniyede gelip gelmemesine gore sonuc degisiyordu. Cozum
-// (2026-09-15 guncellendi, bkz bahceKritikBolgeAktif tanimi yukarida):
-// rs485KomutDinle() ARTIK cagriliyor (GET_STATUS servis edilsin) ama
-// bahceKritikBolgeAktif bayragi YENI bir BAHCE_KAPI* komutunun bu sirada
-// calismasini engelliyor (NACK) - reentrancy riski byle ortadan kalkiyor.
-static void eskiYonBirakmasiniBekle(uint8_t eskiRoleKoilNo) {
-  bahceKritikBolgeAktif = true;
-  unsigned long baslangic = millis();
-  while (millis() - baslangic < BAHCE_YON_DEGISTIRME_BEKLEME_MS) {
-    int durum = r413KanalDurumuOku(eskiRoleKoilNo);
-    if (durum == 0) { bahceKritikBolgeAktif = false; return; }  // R413D08 dogruladi: role gercekten kapali
-    rs485KomutDinle();
-    yield();
-  }
-  bahceKritikBolgeAktif = false;
-  // Zaman asimi/yanit alinamadi - fire-and-forget fallback, elimizden gelen buydu
-}
-
 // Nano'nun genel ANALOG_READ komutuna senkron (bloklayan) sarmalayici.
 // Dijital karsiligi (PIN_READ) artik kullanilmiyor - tum dijital girisler
 // tek seferde PIN_READ_ALL ile okunuyor (bkz bahceNanoPoll).
-// KOK NEDEN (2026-09-13 sahada bulundu): kapiPoll() kapi hareket halindeyken
-// HER 250ms'de bir bu fonksiyonu cagiriyor, eskiden 300ms'e kadar
-// bloklayabiliyordu - bu sure zarfinda ESP8266'nin Kalburum'a RS485 durum
-// gonderimi gecikip/kesilip "Partial message"/"no response" ile
-// sonuclaniyordu (kullanici bulgusu: kapi kapaninca role 3-4sn gec
-// birakiyordu - aslinda role zamaninda birakiyordu ama Kalburum durumu GEC
-// GORUYORDU). Nano'nun normal yanit suresi cok kisa oldugundan (birkac ms)
-// zaman asimi 60ms'e dusuruldu. NOT: burada rs485KomutDinle() BILEREK
-// cagrilmiyor - reentrancy riski icin bkz eskiYonBirakmasiniBekle notu,
-// bu fonksiyon dogrudan kapiPoll()'un AYNI kapi uzerinde calistigi
-// donguden cagrildigi icin risk en yuksek buradaydi.
 static int nanoAnalogOku(int pin) {
   while (Serial.available()) Serial.read();
   Serial.print("ANALOG_READ:"); Serial.println(pin);
   unsigned long t = millis(); String r = ""; bool ok = false;
-  while (millis() - t < 60) {
+  while (millis() - t < 300) {
     if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ANALOG:") >= 0) { ok = true; break; } }
     yield();
   }
@@ -262,83 +147,11 @@ static void kilitYaz(BahceKapisi& k, bool aktif) {
   bahceKilitAktif = aktif;
 }
 
-// KOK NEDEN (2026-09-13 sahada bulundu): r413RoleYaz() fire-and-forget'tir -
-// yazim RS485 uzerinde kaybolursa (Kalburum'un GET_STATUS turuyla cakisma
-// gibi) hicbir hata donmez, yazilim komut basarili sanip durum'u guncelliyor
-// ama role FIILEN enerjili kalabiliyordu (kullanici bulgusu: switch tetiklendi,
-// "durum" yazilimda kapali gorunuyordu, ama R413D08'in kendi Modbus okumasi
-// kapama rolesinin hala ACIK oldugunu gosterdi). Motoru DURDURMAK guvenlik
-// acisindan en kritik islem oldugundan (rolerin acik kalmasi surekli akim
-// cekip motoru/PSU'yu zorlar), burada da yazim SONRASI donanimdan okunarak
-// dogrulanir, basarisizsa kisa bir sure icinde tekrar denenir.
-// Reentrancy riski hakkinda bkz eskiYonBirakmasiniBekle notu - burada da
-// ayni koruma (bahceKritikBolgeAktif) kullanilir.
-// Donus degeri: true = R413D08 kapaliyi DOGRULADI, false = zaman asimi/yanit
-// yok (fire-and-forget fallback - cagiran taraf watchdog'a devretmeli, bkz
-// bahceRoleWatchdogPoll).
-static bool r413RoleKapatDogrulayarak(uint8_t koilNo) {
-  bahceKritikBolgeAktif = true;
-  unsigned long baslangic = millis();
-  r413RoleYaz(koilNo, false);
-  while (millis() - baslangic < BAHCE_YON_DEGISTIRME_BEKLEME_MS) {
-    int durum = r413KanalDurumuOku(koilNo);
-    if (durum == 0) { bahceKritikBolgeAktif = false; return true; }      // dogrulandi: gercekten kapali
-    if (durum == 1) r413RoleYaz(koilNo, false);  // hala acik okundu - tekrar dene
-    rs485KomutDinle();
-    yield();
-  }
-  bahceKritikBolgeAktif = false;
-  return false;  // Zaman asimi/yanit yok - fire-and-forget fallback, elimizden gelen buydu
-}
-
-bool bahceRoleSorunu = false;
-
 static void kapiMotorDurdur(BahceKapisi& k) {
-  bool okA = r413RoleKapatDogrulayarak(k.releA);
-  bool okB = r413RoleKapatDogrulayarak(k.releB);
-  k.durdurmaOnaylanamadi = !(okA && okB);
-  k.sonDurdurmaDenemeMs = millis();
-  if (k.durdurmaOnaylanamadi) {
-    DEBUG_PRINTF("[BAHCE] KAPAT DOGRULANAMADI (releA=%d releB=%d) - watchdog tekrar deneyecek\n", okA, okB);
-  }
+  r413RoleYaz(k.releA, false);
+  r413RoleYaz(k.releB, false);
   k.akimAmper = 0.0;  // motor duruyor, gosterge "0A" gostersin - eski deger yaniltici olmasin
-  // KOK NEDEN (2026-09-13 sahada bulundu): kilit solenoidi SADECE
-  // KAPI_KILIT_ACILIYOR fazinin kendi zaman asimi kontrolunde (kapiPoll)
-  // birakiliyordu. Eger durum bu fazdan (ornegin eski bir reentrancy
-  // kalintisi veya yarida kesilen bir komut yuzunden) BASKA bir yola
-  // gecerse, kilit rolesi ASLA birakilmiyor, sonsuza kadar enerjili
-  // kaliyordu (kullanici bulgusu: "tekli testte selenoid surekli acik
-  // kaliyor"). Motoru durduran HER yol (normal dur, hata, zaman asimi)
-  // artik kilidi de garanti altina alir.
-  if (bahceKilitAktif) kilitYaz(k, false);
-  bahceKilitBekleyenSayisi = 0;  // paylasilan kilit kesildi - bekleyen sayaci da sifirlanmali (bkz kapiAcKomut/kapiPoll)
 }
-
-// Bekleme sirasinda RS485 istekleri (Kalburum'un GET_STATUS'u) servis
-// edilmeye devam etsin diye duz delay() yerine bu kullanilir - bkz zil
-// blok sorunu notu asagida (bahceZilGuncelle).
-static void rs485ServisliBekle(unsigned long sureMs) {
-  unsigned long t = millis();
-  while (millis() - t < sureMs) {
-    rs485KomutDinle();
-    yield();
-  }
-}
-
-// KOK NEDEN - SIGORTA ATMASI (2026-09-12 sahada bulundu): yon degistirirken
-// (motor HALEN kapaniyorken "Ac", ya da acikken/aciliyorken "Kapat" gibi)
-// eski kapiKapatKomut() A rolesini KAPAT komutuyla AYNI ANDA (araya sadece
-// ~2-4ms'lik Modbus cerceve suresi girerek) B rolesini ACIYORDU. 8CH role
-// modulundeki MEKANIK roleler bu kadar hizli birakmayabiliyor (tipik roleler
-// birkac ms ila birkac onlarca ms surer, yuklu/endiktif motor akiminda daha
-// da uzayabilir) - A hala fiziksel kapaliyken B de kapanirsa motor besleme
-// hatlari KISA DEVRE olur, tam da kullanicinin gozlemledigi "sigorta atti"
-// sonucu. (Ac tarafinda bu risk zaten YOKTU - kapiAcKomut once kilit darbesi
-// bekliyor, o darbe suresi zaten dogal bir "roleler tam birakti" payi
-// sagliyor, motoru ancak ondan sonra baslatiyor.) Cozum: motor GERCEKTEN
-// hareket halindeyken kapatilip yeni yon acilmadan once BAHCE_YON_DEGISTIRME_
-// BEKLEME_MS kadar bekleniyor (RS485 istekleri bu sirada da servis edilir).
-// Motor zaten duruyorsa (idle acik/kapali) bu bekleme gereksiz/atlanir.
 
 void kapiTumRoleleriKapat() {
   for (int i = 0; i < 2; i++) {
@@ -347,145 +160,72 @@ void kapiTumRoleleriKapat() {
   }
 }
 
-// ============ IKI KANAT GECIKMELI TETIKLEYICI ============
-// KOK NEDEN - MIMARI DUZELTME (2026-09-15 kullanici bulgusu): eskiden burada
-// TAMAMEN AYRI, elle yazilmis bir "ladder" (rol/kilit yazan kendi state
-// machine'i) vardi - Kalburum'un "iki kapi birden" komutu BUNU, Sudepo'nun
-// kendi butonlari ise kapiAcKomut/kapiKapatKomut'u kullaniyordu. Iki ayri
-// kod yolu = birine yapilan kilit/guvenlik duzeltmesi digerine hic
-// yansimiyordu ("kilit mantigini Kalburum'a yapip Sudepo'ya dokunmuyorsun"
-// - kullanici haklıydı). Simdi TUM kilit/motor mantigi SADECE kapiAcKomut/
-// kapiKapatKomut'ta yasiyor - burada SADECE iki kapinin motorlarinin AYNI
-// ANDA baslamamasi icin (akim baskinindan kacinmak, bkz asagidaki not)
-// ikinci kapiyi bir miktar geciktiren INCE bir tetikleyici var, baska
-// hicbir sey (rol yazma, kilit yonetimi) burada YOK.
-enum BahceCiftTetik { CIFT_YOK, CIFT_AC_BEKLIYOR, CIFT_KAPAT_BEKLIYOR };
-static BahceCiftTetik ciftTetik = CIFT_YOK;
-static unsigned long ciftTetikMs = 0;
+// Gecikmeli (ikinci) kanat komutu - bkz kapiCiftKanatAc/Kapat. 0 = bekleyen yok.
+static unsigned long gecikmeliKomutMs = 0;
+static int gecikmeliKomutKapi = -1;
+static bool gecikmeliKomutAc = false;
 
-// ACILIS: Kapi2/SAG hemen kapiAcKomut ile baslar (kendi kilit-darbe+motor
-// sirasini kapiAcKomut/kapiPoll yonetir), Kapi1/SOL ~BAHCE_IKILI_ADIM_AC_MS
-// sonra ayni sekilde baslatilir - motorlar es zamanli baslamaz (ortak
-// beslemede gerilim dususu/asiri akim riski), ama kilit/motor mantigi
-// TEK yerden (kapiAcKomut) gelir.
-void bahceIkisiniAc() {
-  kapiAcKomut(1, true);  // Kapi2/SAG hemen baslar
-  ciftTetik = CIFT_AC_BEKLIYOR;
-  ciftTetikMs = millis();
+// 2 kanatli kapilarin temel kurali: kanatlar orta noktada bindirdigi icin
+// ayni anda hareket EDEMEZ. Acilista ust kanat once, kapanista en son -
+// aradaki gecikme config.h'de (ticari kartlardaki "leaf delay/phase shift").
+void kapiCiftKanatAc() {
+  int once = BAHCE_ONCE_ACILAN_KAPI, sonra = 1 - BAHCE_ONCE_ACILAN_KAPI;
+  kapiAcKomut(once, true);
+  gecikmeliKomutKapi = sonra;
+  gecikmeliKomutAc = true;
+  gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_AC_MS;
 }
 
-// KAPANIS: Kapi1/SOL hemen kapiKapatKomut ile baslar, Kapi2/SAG
-// ~BAHCE_IKILI_ADIM_KAPA_MS sonra baslatilir.
-void bahceIkisiniKapat() {
-  kapiKapatKomut(0, true);  // Kapi1/SOL hemen baslar
-  ciftTetik = CIFT_KAPAT_BEKLIYOR;
-  ciftTetikMs = millis();
+void kapiCiftKanatKapat() {
+  // Kapanista sira TERS: ustteki kanat en son kapanmali ki digerinin ustune otursun.
+  int once = 1 - BAHCE_ONCE_ACILAN_KAPI, sonra = BAHCE_ONCE_ACILAN_KAPI;
+  kapiKapatKomut(once, true);
+  gecikmeliKomutKapi = sonra;
+  gecikmeliKomutAc = false;
+  gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_KAPA_MS;
 }
 
-// kapiPoll()'un basinda her dongude cagrilir - bekleyen ikinci kapi
-// komutunu zamani gelince tetikler.
-static void ciftTetikPoll() {
-  if (ciftTetik == CIFT_YOK) return;
-  // Guvenlik: ilk kapi (veya baska bir sebeple) HENUZ BASLAMADAN HATA'ya
-  // dusmusse, bekleyen ikinci komut hic tetiklenmez (2026-09-15 kullanici
-  // bulgusu - eskiden ladder bunu atlayip digre kanadi da baslatiyordu).
-  if (bahceKapi[0].durum == KAPI_HATA || bahceKapi[1].durum == KAPI_HATA) {
-    ciftTetik = CIFT_YOK;
-    return;
-  }
-  unsigned long simdi = millis();
-  if (ciftTetik == CIFT_AC_BEKLIYOR) {
-    if (simdi - ciftTetikMs >= BAHCE_IKILI_ADIM_AC_MS) {
-      kapiAcKomut(0, true);  // Kapi1/SOL
-      ciftTetik = CIFT_YOK;
-    }
-  } else if (ciftTetik == CIFT_KAPAT_BEKLIYOR) {
-    if (simdi - ciftTetikMs >= BAHCE_IKILI_ADIM_KAPA_MS) {
-      kapiKapatKomut(1, true);  // Kapi2/SAG
-      ciftTetik = CIFT_YOK;
-    }
-  }
-}
+void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
 
 // Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
 // motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
-// Kullanici bulgusu (2026-09-12): kapi zaten tam aciksken tekrar "Ac"
-// butonuna basilinca eski kod hicbir sey kontrol etmeden kilit-darbe +
-// acma sekansini yeniden baslatiyordu - kanat zaten acik son switch'e
-// dayanmisken motoru tekrar o yone suruyordu (gereksiz asinma/asiri akim
-// riski). Simdi komut verilmeden once GERCEK limit switch durumuna (taze
-// okumaysa) bakilir; zaten o konumdaysa sadece durum senkronize edilir,
-// role/motor/kilit'e hic dokunulmaz.
-static bool bahceSwTazeMi() {
-  return (bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
-}
-
-// Tek kapi (Sudepo'nun kendi Kapi1/Kapi2 butonlari veya fiziksel
-// BAHCE_KAPI1_AC butonu) icin dogrudan komut - iki kapiyi BIRLIKTE/sirali
-// yonetmek icin bkz bahceIkisiniAc()/bahceIkisiniKapat() yukarida.
-KapiKomutSonuc kapiAcKomut(int i, bool birlikte) {
+void kapiAcKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
-  if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return KAPI_KOMUT_ZATEN_HAREKETTE;
-  bool acikLimit = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
-  if (bahceSwTazeMi() && acikLimit) { k.durum = KAPI_ACIK; return KAPI_KOMUT_ZATEN_ORADA; }  // zaten tam acik - tekrar surme
+  if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
   kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
-  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_KILIT_ACILIYOR;
-  bahceKilitBekleyenSayisi++;  // bkz kapiPoll KILIT_ACILIYOR dali - kilit SADECE herkes bittiginde kesilir
-  return KAPI_KOMUT_BASLADI;
 }
 
-KapiKomutSonuc kapiKapatKomut(int i, bool birlikte) {
+void kapiKapatKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
-  if (k.durum == KAPI_HAREKET_KAPA) return KAPI_KOMUT_ZATEN_HAREKETTE;
-  // NOT: kapiTamKapaliMi() (D0/D1) her basarili GET_STATUS yanitinda tazelenir,
-  // bahceSwSonBasariliMs (=bahceSwTazeMi()) ise D7/D9 ACIK switch/zil verisinin
-  // tazeligini takip eder - IKISI FARKLI ALANLAR, o yuzden burada sadece Nano
-  // baglantisinin canli olup olmadigina (nanoBaglantiVar) bakiliyor.
-  if (nanoBaglantiVar && kapiTamKapaliMi(i)) { k.durum = KAPI_KAPALI; return KAPI_KOMUT_ZATEN_ORADA; }  // zaten tam kapali - tekrar surme
+  if (k.durum == KAPI_HAREKET_KAPA) return;
   kapiMotorDurdur(k);
-  // Bkz yukaridaki "SIGORTA ATMASI" notu (ikinci kez atti, 2026-09-12) -
-  // artik SADECE zamanlamaya guvenilmiyor, R413D08'den eski (Ac) rolenin
-  // GERCEKTEN birakip birakmadigi donanimdan okunarak dogrulaniyor. Motor
-  // hareketsiz olsa bile (idle) bu kontrol ucretsiz/hizli (role zaten kapali
-  // okunur, aninda devam eder) - o yuzden kosulsuz her zaman calisir.
-  eskiYonBirakmasiniBekle(k.releA);
-  r413RoleYaz(k.releB, true);  // releaseA zaten kapiMotorDurdur() ile kapatildi, tekrar yazmaya gerek yok
+  r413RoleYaz(k.releA, false);
+  r413RoleYaz(k.releB, true);
   k.hareketBaslangicMs = millis();
   k.hataAsiriAkim = false;
-  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_HAREKET_KAPA;
-  return KAPI_KOMUT_BASLADI;
 }
 
 // Motoru dogrudan verilen yone alir (kilit-darbe sekansi YOK) - sadece
 // zaten hareket halindeki bir kanadi aninda ters yone almak icin (bkz
-// kapiPoll asiri akim guvenligi). Buraya HER ZAMAN motor fiilen calisirken
-// (asiri akim/ters yon guvenligi) girilir, o yuzden settle-bekleme HER
-// ZAMAN uygulanir (yukaridaki kapiKapatKomut'taki kosullu halinden farkli).
+// kapiPoll asiri akim guvenligi).
 static void kapiYoneAyarla(BahceKapisi& k, KapiDurum yon, unsigned long now) {
-  if (yon == KAPI_HAREKET_AC) {
-    r413RoleYaz(k.releB, false);
-    eskiYonBirakmasiniBekle(k.releB);
-    r413RoleYaz(k.releA, true);
-  } else {
-    r413RoleYaz(k.releA, false);
-    eskiYonBirakmasiniBekle(k.releA);
-    r413RoleYaz(k.releB, true);
-  }
+  if (yon == KAPI_HAREKET_AC) { r413RoleYaz(k.releB, false); r413RoleYaz(k.releA, true); }
+  else { r413RoleYaz(k.releA, false); r413RoleYaz(k.releB, true); }
   k.hareketBaslangicMs = now;
   k.durum = yon;
 }
 
 void kapiDurdurKomut(int i) {
-  // Henuz baslamamis bekleyen ikinci kapi tetigi varsa onu da iptal et -
-  // yoksa "Dur" dedikten saniyeler sonra diger kanat kendi kendine baslardi.
-  ciftTetik = CIFT_YOK;
+  // Henuz baslamamis gecikmeli kanat komutu varsa onu da iptal et - yoksa
+  // "Dur" dedikten saniyeler sonra diger kanat kendi kendine hareket ederdi.
+  kapiGecikmeliKomutIptal();
   BahceKapisi& k = bahceKapi[i];
   // Sadece gercekten hareket halindeyse dokun - BAHCE_KAPI_DUR komutu iki
   // kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
@@ -496,122 +236,25 @@ void kapiDurdurKomut(int i) {
   k.durum = KAPI_HATA;
 }
 
-// Bir kapinin "kapat" komutu ilk denemede dogrulanamadiysa (R413D08 gecici
-// kilitlenme/RS485 cakismasi), buradan pes etmeden BAHCE_ROLE_WATCHDOG_
-// ARALIK_MS'de bir tekrar denenir - motorun kapali durum/HATA/zaman asimina
-// ragmen fiilen enerjili kalmasina karsi son savunma hatti (bkz bahce_kapisi.h
-// notu, 2026-09-15 sahada 5+ dakika enerjili kalma vakasi).
-//
-// KOK NEDEN - REGRESYON (2026-09-15, ayni gun ikinci bulgu): ilk surumde bu
-// fonksiyon k.durum'a HIC bakmadan calisiyordu. kapiAcKomut/kapiKapatKomut
-// YENI bir harekete baslarken de ONCE kapiMotorDurdur() cagirir (ters yonden
-// kalmis olabilecek roleyi kapatmak icin) - R413D08'in okuma yaniti ROLE ZATEN
-// KAPALIYKEN BILE arada bir gecici olarak basarisiz/gecikmeli donebiliyor
-// (bilinen bir R413D08 protokol-uyum zayifligi, bkz github.com/microrobotics/
-// R413D08 issue #1 ve genel Modbus RTU role modulu forumlari). Bu durumda
-// durdurmaOnaylanamadi YANLISLIKLA true oluyordu - kapi hemen ardindan kilit/
-// motor rolesini ACARKEN, watchdog'un 1sn'lik tekrar-deneme araligi TAM
-// kilit-darbe suresiyle (BAHCE_KILIT_PULSE_MS=1000ms) cakisip motoru
-// ACAR ACMAZ tekrar KAPATIYORDU ("role cekiyor ama hemen birakiyor").
-// COZUM: watchdog SADECE kapinin durumu "durmus/durmali" ise (KAPI_KAPALI/
-// KAPI_ACIK/KAPI_HATA) mudahale eder - kapi BILEREK hareket halindeyken
-// (KAPI_KILIT_ACILIYOR/KAPI_HAREKET_AC/KAPI_HAREKET_KAPA) o an surmekte olan
-// GERCEK harekete asla karismaz; o hareketi durdurmak kapiPoll()'un kendi
-// limit switch/zaman asimi/asiri akim mantigina aittir.
-void bahceRoleWatchdogPoll() {
-  unsigned long now = millis();
-  bool sorunVar = false;
-  // KOK NEDEN - 2. REGRESYON (2026-09-15, ayni gun UCUNCU bulgu): yukaridaki
-  // per-kapi durum kontrolu TEK KAPI komutlarini (kapiAcKomut/kapiKapatKomut,
-  // durum'u ANINDA KILIT_ACILIYOR/HAREKET_AC/KAPA yapar) korurken, CIFT KAPI
-  // ladder-mantik sekansini (bahceIkisiniAc/Kapat + ikiliSekansPoll) KORUMUYORDU
-  // - o sekans Kapi1'in (bahceKapi[0]) durum'unu kilit-tutma fazinda (Role5
-  // HIGH, ~1sn) HIC degistirmiyor, eskisi (orn. KAPI_KAPALI) gibi kaliyor.
-  // Watchdog bunu "durmus olmali" saniyor, 1sn sonra (TAM kilit-tutma suresiyle
-  // CAKISARAK) bahceKilitAktif'i erken kesiyordu - kilit kapi hareket etmeye
-  // baslamadan/motor tam calisirken birakilinca kanat hala mekanik kilitliyken
-  // motor zorlanip ASIRI AKIM veriyordu (kullanici bulgusu: "cift kapi ac"
-  // asiri akim, "tek kapi ac" sorunsuz - tam bu farktan kaynaklaniyordu).
-  // COZUM: iki kapi tetigi bekliyorken (ciftTetik != CIFT_YOK) watchdog
-  // HICBIR kapiya dokunmaz - paylasilan kilit rolesi bu sirada baska bir
-  // kapinin "motor durdur" cagrisiyla YANLISLIKLA erken kesilmesin diye.
-  bool ciftKapiBekliyor = (ciftTetik != CIFT_YOK);
-  for (int i = 0; i < 2; i++) {
-    BahceKapisi& k = bahceKapi[i];
-    bool hareketIstiyor = ciftKapiBekliyor || (k.durum == KAPI_KILIT_ACILIYOR || k.durum == KAPI_HAREKET_AC || k.durum == KAPI_HAREKET_KAPA);
-    if (hareketIstiyor) continue;  // bilerek hareket ediyor - watchdog karismaz
-    if (!k.durdurmaOnaylanamadi) continue;
-    if (now - k.sonDurdurmaDenemeMs >= BAHCE_ROLE_WATCHDOG_ARALIK_MS) {
-      DEBUG_PRINTF("[BAHCE] WATCHDOG: KAPI%d kapatma tekrar deneniyor\n", i + 1);
-      kapiMotorDurdur(k);  // kendi ici k.durdurmaOnaylanamadi/sonDurdurmaDenemeMs'i gunceller
-    }
-    if (k.durdurmaOnaylanamadi) sorunVar = true;
-  }
-  bahceRoleSorunu = sorunVar;
-}
-
-bool r413ModulSagliksiz = false;
-
-// "Durtme" sinyali: hicbir roleyi degistirmeden sadece kanal 1'i okur (0x03
-// READ) - R413D08 cevap veriyorsa modul canli/komut isliyor demektir. Kapi
-// hareket halindeyken zaten baska okumalar oluyor, bu yuzden burada sadece
-// IKI kapi da tam hareketsizken calisir - gereksiz RS485 trafigi olmasin.
-void r413SaglikPoll() {
-  static unsigned long sonKontrolMs = 0;
-  bool hareketVar = (ciftTetik != CIFT_YOK);  // bekleyen ikinci kapi tetigi varsa da RS485/Modbus hatti mesgul sayilir
-  for (int i = 0; i < 2 && !hareketVar; i++) {
-    KapiDurum d = bahceKapi[i].durum;
-    if (d == KAPI_HAREKET_AC || d == KAPI_HAREKET_KAPA || d == KAPI_KILIT_ACILIYOR) hareketVar = true;
-  }
-  if (hareketVar) return;
-  unsigned long now = millis();
-  if (now - sonKontrolMs < R413_SAGLIK_KONTROL_ARALIK_MS) return;
-  sonKontrolMs = now;
-  int durum = r413KanalDurumuOku(bahceKapi[0].releA);  // sadece OKUR, hicbir role degismez
-  r413ModulSagliksiz = (durum < 0);
-  if (r413ModulSagliksiz) DEBUG_PRINTLN("[BAHCE] R413D08 saglik kontrolu: yanit yok");
-}
-
-// GUVENLIK (2026-09-15 kullanici bulgusu): "birlikte" (iki kanat ayni komutla
-// baslatilmis) bir hareket sirasinda bir kanat HATA'ya duserse (asiri akim
-// -sonrasi da asiri akim- veya zaman asimi), DIGER kanat eskiden hareketine
-// DEVAM EDIYORDU - kullanici bunu acik bir guvenlik hatasi olarak bildirdi.
-// Bu fonksiyon eslesmis diger kanadi (henuz baslamamis KAPI_KILIT_ACILIYOR
-// fazinda bile olsa) hemen durdurur ve HATA'ya ceker - kapiMotorDurdur zaten
-// ortak kilidi de (bahceKilitAktif ise) birakir.
-static void birliktekiDigerKanadiDurdur(int i, const char* sebep) {
-  BahceKapisi& k = bahceKapi[i];
-  if (!k.birlikte) return;
-  BahceKapisi& diger = bahceKapi[1 - i];
-  if (diger.durum == KAPI_KILIT_ACILIYOR || diger.durum == KAPI_HAREKET_AC || diger.durum == KAPI_HAREKET_KAPA) {
-    kapiMotorDurdur(diger);
-    diger.durum = KAPI_HATA;
-    DEBUG_PRINTF("[KAPI%d] eslesmis kanat durduruldu (diger kanat hata verdi: %s)\n", 2 - i, sebep);
-  }
-}
-
 void kapiPoll() {
   unsigned long now = millis();
 
-  bahceRoleWatchdogPoll();  // bkz yukarida - dogrulanamayan "kapat" komutlarini pes etmeden tekrar dener
-  r413SaglikPoll();  // bkz yukarida - kapi hareketsizken bile modulun canli oldugunu periyodik dogrular
-  ciftTetikPoll();  // bkz yukarida - iki kapi komutunda ikinci kapiyi geciktirerek tetikler
+  // Bekleyen ikinci kanat komutu zamani geldiyse baslat (kanat gecikmesi).
+  if (gecikmeliKomutMs != 0 && (long)(now - gecikmeliKomutMs) >= 0) {
+    int k = gecikmeliKomutKapi;
+    bool ac = gecikmeliKomutAc;
+    kapiGecikmeliKomutIptal();
+    if (k >= 0) { if (ac) kapiAcKomut(k, true); else kapiKapatKomut(k, true); }
+  }
 
   for (int i = 0; i < 2; i++) {
     BahceKapisi& k = bahceKapi[i];
     if (k.durum == KAPI_KILIT_ACILIYOR) {
       if (now - k.kilitPulseBaslangicMs >= BAHCE_KILIT_PULSE_MS) {
-        // Paylasilan TEK kilit rolesi - iki kapi birlikte acilirken SADECE
-        // ikisi de kendi darbe suresini tamamladiginda kesilir (bkz
-        // bahceKilitBekleyenSayisi tanimi yukarida). Tek kapi komutunda
-        // (birlikte=false) sayac zaten 1'den 0'a iner, davranis degismez.
-        if (bahceKilitBekleyenSayisi > 0) bahceKilitBekleyenSayisi--;
-        if (bahceKilitBekleyenSayisi == 0) kilitYaz(k, false);
+        kilitYaz(k, false);  // kilit darbesi bitti, motoru baslat
         r413RoleYaz(k.releB, false);
-        eskiYonBirakmasiniBekle(k.releB);  // bkz "SIGORTA ATMASI" notu - donanimsal onay
         r413RoleYaz(k.releA, true);
         k.hareketBaslangicMs = now;
-        k.akimPeakAmper = 0.0;
         k.durum = KAPI_HAREKET_AC;
       }
       continue;
@@ -629,17 +272,10 @@ void kapiPoll() {
     bool kapaliLimit = nanoBaglantiVar && kapiTamKapaliMi(i);
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
-    if (akimRaw >= 0) {
-      k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
-      if (k.akimAmper > k.akimPeakAmper) k.akimPeakAmper = k.akimAmper;  // bu hareketin en yuksegi (2026-09-15 kullanici talebi - esik ayari icin referans)
-    }
+    if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
-#if BAHCE_ASIRI_AKIM_KONTROL_AKTIF
     bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
-#else
-    bool asiriAkim = false;  // bkz config.h - motor/ACS712 henuz takili degilken gecici kapali
-#endif
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
       kapiMotorDurdur(k);
@@ -655,7 +291,6 @@ void kapiPoll() {
         // motoru durdurup HATA'ya gec, kullanicinin mudahalesini bekle.
         k.durum = KAPI_HATA;
         DEBUG_PRINTF("[KAPI%d] HATA: ters yon sonrasi da asiri akim\n", i + 1);
-        birliktekiDigerKanadiDurdur(i, "asiri akim");
       } else {
         // Guvenlik: arac/insan sikismasi ihtimaline karsi motoru DURDURMAK
         // yetmez, ters yone hareket ettirilir (UL 325 engel-geri-donus
@@ -685,7 +320,6 @@ void kapiPoll() {
       kapiMotorDurdur(k);
       k.durum = KAPI_HATA;
       DEBUG_PRINTF("[KAPI%d] HATA: zaman asimi\n", i + 1);
-      birliktekiDigerKanadiDurdur(i, "zaman asimi");
     }
   }
 }
@@ -707,6 +341,7 @@ static int pinDegerAyikla(const String& r, int pin) {
 
 void bahceNanoPoll() {
   static unsigned long sonPollMs = 0;
+  static bool oncekiBasili = false;
   unsigned long now = millis();
   bool hareketVar = false;
   for (int i = 0; i < 2; i++) {
@@ -742,20 +377,6 @@ void bahceNanoPoll() {
 
 // Zil butonunun yukselen kenarini isler - hem GET_STATUS hem (eski firmware'de)
 // PIN_READ_ALL yolundan cagrilir, mantik tek yerde kalsin diye.
-// KOK NEDEN (2026-09-12 sahada bulundu): asagidaki iki TONE_PLAY komutu
-// eskiden delay()/bloklayan while-ACK dongusuyle yaziliyordu (~1080ms toplam).
-// Bu sure boyunca ESP8266'nin ana loop()'u tamamen bloke oluyor, Kalburum'dan
-// gelen RS485 "GET_STATUS" istegine YANIT VEREMIYORDU. Kalburum 400ms'de
-// zaman asimina ugrayip "no response" diyor, gecikmis yanit da bir sonraki
-// 600ms'lik dongunun basindaki tampon temizlemesiyle SESSIZCE atiliyordu -
-// zil mandal penceresi (1500ms) bu yuzden sistematik olarak kaciriliyordu
-// (rastgele degil, her seferinde ayni zamanlamayla). Sudepo'nun KENDI
-// buzzer'i (bu fonksiyonun cagirdigi Nano TONE_PLAY) hep calindigi icin
-// sorun gizli kaldi - sadece Kalburum'a giden RS485 durumu etkileniyordu.
-// Cozum: bekleme dongulerinde rs485KomutDinle() de cagrilir, boylece
-// RS485 istekleri ton calarken bile servis edilmeye devam eder. Ayni
-// yardimci fonksiyon asagida role yon degistirme settle-bekleme icin de
-// kullaniliyor (bkz kapiYonDegistirRoleYaz).
 void bahceZilGuncelle(bool basili) {
   static bool oncekiBasili = false;
   unsigned long now = millis();
@@ -763,17 +384,18 @@ void bahceZilGuncelle(bool basili) {
   if (basili && !oncekiBasili) {
     bahceZilSonCalmaMs = now;
     // Kalburum'un zili poll sirasini beklemesin - durumu ANINDA gonder.
+    // Zil nadir bir olay oldugu icin bu ek gonderim hatti yormaz.
     masterGonder();
     DEBUG_PRINTLN("[ZIL] basildi, ding-dong calinacak");
     while (Serial.available()) Serial.read();
     Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON1_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
     unsigned long tz = millis();
-    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } rs485KomutDinle(); yield(); }
-    rs485ServisliBekle(BAHCE_ZIL_TON_SURE_MS + 30);
+    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } yield(); }
+    delay(BAHCE_ZIL_TON_SURE_MS + 30);
     while (Serial.available()) Serial.read();
     Serial.print("TONE_PLAY:"); Serial.print(NANO_BUZZER_PIN); Serial.print(","); Serial.print(BAHCE_ZIL_TON2_HZ); Serial.print(","); Serial.println(BAHCE_ZIL_TON_SURE_MS);
     tz = millis();
-    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } rs485KomutDinle(); yield(); }
+    while (millis() - tz < 300) { if (Serial.available()) { String ra = Serial.readStringUntil('\n'); if (ra.indexOf("ACK") >= 0) break; } yield(); }
   }
   oncekiBasili = basili;
 }

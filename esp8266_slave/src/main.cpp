@@ -261,8 +261,8 @@ void varsayilanAyarlar() {
   ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
   ayar.bahceAkim1SifirRaw = 512;
   ayar.bahceAkim2SifirRaw = 512;
-  ayar.bahceAkim1EsikA = 3.6;
-  ayar.bahceAkim2EsikA = 3.6;
+  ayar.bahceAkim1EsikA = 4.0;
+  ayar.bahceAkim2EsikA = 4.0;
 }
 
 void ayarlariKaydet() {
@@ -326,8 +326,8 @@ void ayarlariYukle() {
     if (akimGecersiz) {
       ayar.bahceAkim1SifirRaw = 512;
       ayar.bahceAkim2SifirRaw = 512;
-      ayar.bahceAkim1EsikA = 3.6;
-      ayar.bahceAkim2EsikA = 3.6;
+      ayar.bahceAkim1EsikA = 4.0;
+      ayar.bahceAkim2EsikA = 4.0;
       ayarlariKaydet();
     }
   }
@@ -990,7 +990,7 @@ void masterGonder() {
   // Master tarafı 400 byte okuyor (rs485_read_line), üst sınır orası.
   char buf[384];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BAHCE1PK=%.2f,BAHCE2PK=%.2f,BSW=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BSW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     // K1/K2 tel formati ve polaritesi BILEREK degistirilmedi (1 = kanat tam
@@ -1022,19 +1022,13 @@ void masterGonder() {
     (int)bahceKapi[1].durum,
     bahceKapi[0].akimAmper,
     bahceKapi[1].akimAmper,
-    bahceKapi[0].akimPeakAmper,
-    bahceKapi[1].akimPeakAmper,
     // Tek alanda bitmask - her giris icin ayri "AD=deger" yazmak mesaji ~40
     // byte uzatirdi (buffer payi icin bkz yukaridaki buf[384] notu).
     // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
-    // bit3=kilit enerjili, bit4=limit switch okumasi taze,
-    // bit5=Kapi1 "kapat" donanimdan dogrulanamadi (bkz bahceRoleWatchdogPoll),
-    // bit6=Kapi2 ayni, bit7=R413D08 idle-saglik kontrolu basarisiz (bkz r413SaglikPoll)
+    // bit3=kilit enerjili, bit4=limit switch okumasi taze
     (bahceKapi1TamAcik ? 1 : 0) | (bahceKapi2TamAcik ? 2 : 0) |
       (bahceZilMandalliMi() ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
-      (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0) |
-      (bahceKapi[0].durdurmaOnaylanamadi ? 32 : 0) | (bahceKapi[1].durdurmaOnaylanamadi ? 64 : 0) |
-      (r413ModulSagliksiz ? 128 : 0)
+      (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0)
   );
   rs485Gonder(buf);
 }
@@ -1130,42 +1124,24 @@ void rs485KomutDinle() {
 
       if (buffer.startsWith("MASTER:")) {
         String komut = buffer.substring(7);
-        if (komut.startsWith("BAHCE_KAPI") && bahceKritikBolgeAktif) {
-          // eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak SU AN AYNI kapi
-          // uzerinde dogrulama bekliyor - reentrancy riski (bkz bahce_kapisi.h
-          // bahceKritikBolgeAktif notu). response zaten "NACK:"+buffer olarak
-          // hazir, hicbir sey yapma - Kalburum'un kendi retry'i kisa sure
-          // sonra tekrar dener.
-        } else if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
+        if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
           masterGonder();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
-          // 2026-09-13: kullanicinin sahada TAM olarak tarif ettigi ladder-
-          // mantik sekansi - bkz bahce_kapisi.cpp bahceIkisiniAc() ve
-          // config.h BAHCE_IKILI_ADIM_AC_MS.
-          bahceIkisiniAc();
+          // Konteyner/ESP32 web toggle'indan ya da fiziksel butona CIFT basisla
+          // gelir. Kanatlar bindirmeli oldugu icin AYNI ANDA baslatilmaz -
+          // kapiCiftKanatAc ikinci kanadi gecikmeli baslatir (bkz config.h
+          // BAHCE_KANAT_GECIKME_*). birlikte=true: biri sikisirsa digeri de
+          // ayni ters yone alinir (bkz kapiPoll).
+          kapiCiftKanatAc();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI1_AC") {
           // Fiziksel butona TEK basisla gelir - sadece sol kanat (Kapi 1) acilir.
           kapiAcKomut(0, false);
           response = "ACK:" + komut;
-        } else if (komut == "BAHCE_KAPI2_AC") {
-          kapiAcKomut(1, false);
-          response = "ACK:" + komut;
-        } else if (komut == "BAHCE_KAPI1_KAPAT") {
-          kapiKapatKomut(0, false);
-          response = "ACK:" + komut;
-        } else if (komut == "BAHCE_KAPI2_KAPAT") {
-          kapiKapatKomut(1, false);
-          response = "ACK:" + komut;
-        } else if (komut == "BAHCE_KAPI1_DUR") {
-          kapiDurdurKomut(0);
-          response = "ACK:" + komut;
-        } else if (komut == "BAHCE_KAPI2_DUR") {
-          kapiDurdurKomut(1);
-          response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_KAPAT") {
-          bahceIkisiniKapat();
+          // Kapanista sira TERS - ustteki kanat en son kapanir (bkz kapiCiftKanatKapat).
+          kapiCiftKanatKapat();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_DUR") {
           kapiDurdurKomut(0);
@@ -1614,26 +1590,8 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 
 // ============ DURUM JSON ============
 String durumJson() {
-  // KOK NEDEN ADAYI (2026-09-15, kullanici geri bildirimi: "dun sorun yoktu,
-  // bugunku degisikliklerden kaynaklaniyor"): bu fonksiyon bugun eklenen
-  // pek cok yeni alanla (tepe akim, role_sorunu, r413 saglik, freeHeap/
-  // resetReason, vb.) 50'den fazla ayri String "+=" cagrisina cikti - her
-  // "+=" mevcut kapasiteyi asinca String kendi buffer'ini YENIDEN ayirip
-  // eskisini serbest birakiyor (ESP8266 heap'i kucuk/parcalanmaya hassas).
-  // Bu fonksiyon HEM her /durum istegi HEM her dakika SSE push'ta calisiyor -
-  // olculen kronik dusuk heap'in (11-15KB) ve zaman zaman goruen kilitlenme/
-  // kopmalarin en olasi ortak sebebi. reserve() ile baslangicta TEK seferde
-  // yeterli buffer ayrilip tekrar tekrar yeniden-ayirma/parcalanma onlenir.
-  String j;
-  j.reserve(1400);
-  j += "{"; // OTA test icin derleme zamani degistirici
+  String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
-  // TANI AMACLI (2026-09-15, tekrarlayan RS485/HTTP kopmasinin GERCEK
-  // sebebini kanitla - heap tukenmesi/String parcalanmasi mi, WDT/exception
-  // reset mi, yoksa baska bir sey mi - daha fazla korlemesine mimari
-  // degisiklik yapmadan ONCE somut veri).
-  j += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
-  j += "\"resetReason\":\"" + ESP.getResetReason() + "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
@@ -1648,9 +1606,6 @@ String durumJson() {
   j += "\"bahceZil\":" + String(bahceZilMandalliMi() ? "true" : "false") + ",";
   j += "\"bahceKilit\":" + String(bahceKilitAktif ? "true" : "false") + ",";
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
-  j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
-  j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":14,";  // 2026-09-15: durumJson() String parcalanmasi - reserve(1400) ile tekrar-tekrar yeniden-ayirma onlendi, bugun eklenen 50+ alanin toplam etkisi (SSE fix ile birlikte)
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
@@ -1849,28 +1804,13 @@ void ssePush() {
   if (!sseAktif) return;
   if (!sseClient.connected()) { sseAktif = false; return; }
   String data = "data: " + durumJson() + "\n\n";
-  size_t yazilan = sseClient.print(data);
-  // Zaman asimina ugrarsa (bkz handleSSE setTimeout notu) print() beklenenden
-  // az byte doner - stale baglantiyi hemen kapat, bir sonraki dakika AYNI
-  // bloklanmayi tekrar yasamayalim.
-  if (yazilan < data.length()) { sseClient.stop(); sseAktif = false; }
+  sseClient.print(data);
 }
 
 void handleSSE() {
   if (sseAktif) { sseClient.stop(); sseAktif = false; }
   sseClient = server.client();
   sseClient.setNoDelay(true);
-  // KOK NEDEN ADAYI (2026-09-15, kullanici "dakikada bir birkac sn kopuyor"
-  // bulgusu - bahce kapisi degisiklikleriyle ILGISIZ, tamamen ayri bir yol):
-  // WiFiClient varsayilan yazma zaman asimi ESP8266 core'da ~5000ms. sseClient
-  // "connected()" gorunse bile (yari-acik/stale TCP baglanti - orn. tarayici
-  // sekmesi arka plana atilip WiFi roaming/uyku yasarsa) ssePush()'taki
-  // sseClient.print() bu sureye kadar BLOKE olabilir - loop() durur, o sirada
-  // RS485 GET_STATUS'a cevap verilemez. ssePush() dakikada bir (olcumYap ile,
-  // DAY_MEASURE_INTERVAL=60s) tetiklendigi icin "dakikada bir birkac sn kopma"
-  // deseniyle BIREBIR ortusuyor. Kisa bir yazma zaman asimi ile bu bloklanma
-  // en fazla birkac yuz ms'e indirilir.
-  sseClient.setTimeout(300);
   sseClient.print(
     "HTTP/1.1 200 OK\r\n"
     "Content-Type: text/event-stream\r\n"
@@ -2661,30 +2601,21 @@ void setup() {
     if (ok) { int eq = r.indexOf('='); if (eq >= 0) deger = r.substring(eq+1).toInt(); }
     server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"pin\":" + String(pin) + ",\"deger\":" + String(deger) + ",\"reply\":\"" + r + "\"}");
   });
-  // ===== BAHCE KAPISI (R413D08 + limit switch/akim) =====
+  // ===== BAHCE KAPISI (R413D08 + limit switch/akim, henuz saha kurulumu yok) =====
   // ?kapi=1 veya ?kapi=2 (2 kanat). Ornek: /api/kapi/ac?kapi=1
   server.on("/api/kapi/ac", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
     int kapi = server.arg("kapi").toInt();
     if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
-    // Kullanici bulgusu (2026-09-13): eskiden burasi ic korumalardan biri
-    // (zaten o yonde/pozisyonda oldugu icin) sessizce hicbir sey yapmadan
-    // dondugunde bile hep "basarili" mesaji gonderiyordu - "1. basista bir
-    // sey olmuyor, 2. basista calisiyor" hissinin kaynagi buydu. Artik
-    // kapiAcKomut'un GERCEK sonucuna gore mesaj degisir.
-    KapiKomutSonuc sonuc = kapiAcKomut(kapi - 1);
-    String mesaj = (sonuc == KAPI_KOMUT_BASLADI) ? "Kilit aciliyor, ardindan motor baslayacak" :
-                   (sonuc == KAPI_KOMUT_ZATEN_ORADA) ? "Zaten tam acik" : "Zaten hareket ediyor (ac)";
-    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + mesaj + "\"}");
+    kapiAcKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kilit aciliyor, ardindan motor baslayacak\"}");
   });
   server.on("/api/kapi/kapat", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
     int kapi = server.arg("kapi").toInt();
     if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
-    KapiKomutSonuc sonuc = kapiKapatKomut(kapi - 1);
-    String mesaj = (sonuc == KAPI_KOMUT_BASLADI) ? "Kapaniyor" :
-                   (sonuc == KAPI_KOMUT_ZATEN_ORADA) ? "Zaten tam kapali" : "Zaten hareket ediyor (kapa)";
-    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + mesaj + "\"}");
+    kapiKapatKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kapaniyor\"}");
   });
   server.on("/api/kapi/dur", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
@@ -2694,25 +2625,8 @@ void setup() {
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
   });
   server.on("/api/kapi/durum", []() {
-    // "durum" (KapiDurum enum) sadece NIYET/komut bilgisidir - komut
-    // gonderilir gonderilmez "aciliyor"a gecer, kanat fiziksel olarak hic
-    // kimildamamis olsa bile, ve son tamamlanan hareketten sonra guncellenmez
-    // (kullanici bulgusu 2026-09-12: kapi fiilen kapaliyken sayfada hala
-    // "Acik" yaziyordu - eski bir "acik" komutundan kalma durum, sonradan
-    // kapi elle/farkli yoldan kapansa bile enum hic guncellenmemis). Kalburum
-    // tarafinda ayni sorun cozulmustu (bkz web_ui.h), burada da ayni mantikla
-    // "konum" alani ekleniyor: GERCEK pozisyon SADECE limit switch'lerden.
-    bool swTaze = (bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
-    bool kapaliLimit[2] = { bahceKapi1TamKapali, bahceKapi2TamKapali };
-    bool acikLimit[2] = { bahceKapi1TamAcik, bahceKapi2TamAcik };
-    String konum[2];
-    for (int i = 0; i < 2; i++) {
-      bool celiski = kapaliLimit[i] && acikLimit[i];
-      konum[i] = !swTaze ? "bilinmiyor" : (celiski ? "celiski" : (kapaliLimit[i] ? "kapali" : (acikLimit[i] ? "acik" : "ara")));
-    }
-    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"konum\":\"" + konum[0] + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + ",\"role_sorunu\":" + String(bahceKapi[0].durdurmaOnaylanamadi ? "true" : "false") + ",\"akim\":" + String(bahceKapi[0].akimAmper, 2) + ",\"akim_tepe\":" + String(bahceKapi[0].akimPeakAmper, 2) + "},";
-    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"konum\":\"" + konum[1] + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + ",\"role_sorunu\":" + String(bahceKapi[1].durdurmaOnaylanamadi ? "true" : "false") + ",\"akim\":" + String(bahceKapi[1].akimAmper, 2) + ",\"akim_tepe\":" + String(bahceKapi[1].akimPeakAmper, 2) + "},";
-    j += "\"sw_taze\":" + String(swTaze ? "true" : "false") + "}";
+    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + "},";
+    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + "}}";
     server.send(200, "application/json", j);
   });
   // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden
