@@ -1130,7 +1130,13 @@ void rs485KomutDinle() {
 
       if (buffer.startsWith("MASTER:")) {
         String komut = buffer.substring(7);
-        if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
+        if (komut.startsWith("BAHCE_KAPI") && bahceKritikBolgeAktif) {
+          // eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak SU AN AYNI kapi
+          // uzerinde dogrulama bekliyor - reentrancy riski (bkz bahce_kapisi.h
+          // bahceKritikBolgeAktif notu). response zaten "NACK:"+buffer olarak
+          // hazir, hicbir sey yapma - Kalburum'un kendi retry'i kisa sure
+          // sonra tekrar dener.
+        } else if (komut == "REQUEST_ESP8266" || komut == "REQUEST_NANO") {
           masterGonder();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
@@ -1626,7 +1632,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":9,";  // 2026-09-15: v8'de sahada 3.5dk HTTP kilitlenmesi bulundu - "esas anda kilit+motor / switch-geri-bildirim" yaklasimi TAMAMEN geri alindi, dunku kanitlanmis ladder sekansina donuldu
+  j += "\"bahceWatchdogVer\":11,";  // 2026-09-15: MIMARI DUZELTME - Kalburum cift kapi komutu artik Sudepo'nun kendi butonlarinin kullandigi AYNI kapiAcKomut/kapiKapatKomut'u cagiriyor (eski ayri ladder role/kilit mantigi kaldirildi), paylasilan kilit sayacla yonetiliyor, zaman asimi 20->35sn
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
