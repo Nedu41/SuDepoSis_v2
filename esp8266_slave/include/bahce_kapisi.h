@@ -19,27 +19,60 @@ struct BahceKapisi {
   float akimAmper = 0.0;  // son olculen deger (kapiPoll'da sadece hareket halindeyken guncellenir), RS485/web'e tasinir
   bool hataAsiriAkim = false;
   bool birlikte = false;  // bu hareket iki kanadin BIRLIKTE komutuyla mi baslatildi (bkz kapiAcKomut/kapiKapatKomut)
+  bool durdurmaOnaylanamadi = false;  // R413D08 "kapat" komutunu dogrulamadi (modul kilitlenmis/yanit vermiyor olabilir) - bkz bahceRoleWatchdogPoll
+  unsigned long sonDurdurmaDenemeMs = 0;
 };
 extern BahceKapisi bahceKapi[2];
+
+// KOK NEDEN (2026-09-15 sahada bulundu - GUVENLIK ACIGI): R413D08 motor
+// kalkis anindaki akim/gerilim darbesi veya RS485 hat cakismasiyla komut
+// islemeyi KESIP kilitlenebiliyor - kapiMotorDurdur() "kapat" yazip 600ms
+// icinde dogrulayamayinca (BAHCE_YON_DEGISTIRME_BEKLEME_MS) tek seferlik
+// fire-and-forget fallback ile pes ediyordu, motor modul elle power-cycle
+// edilene kadar (sahada 5+ dakika) enerjili kalabiliyordu. Artik dogrulama
+// basarisiz olan her kanal icin bu watchdog loop()'ta surekli (pes etmeden)
+// "kapat" komutunu tekrarlar - modul kendini toparlarsa (RS485 gecici
+// tikanikligi) motor birkac saniye icinde kesilir; modul gercekten
+// kilitliyse (power-cycle gerekiyorsa) bahceRoleSorunu bayragi web/RS485
+// durumunda GORUNUR kalir, operator "basarili" sanip yanlis guvende
+// hissetmez.
+void bahceRoleWatchdogPoll();
+extern bool bahceRoleSorunu;  // true = en az bir kapinin "kapat" komutu donanimdan dogrulanamadi (tekrar deneniyor)
+
+// Kapi hareketsizken bile R413D08'in RS485/komut islemeye hala CEVAP VERIP
+// VERMEDIGINI periyodik "durtme" (0x03 okuma, hicbir role degismez) ile
+// kontrol eder - boylece modulun kilitlendigi ANCAK bir kapi komutu
+// denendiginde degil, ONCEDEN fark edilir. Kapi hareket halindeyken zaten
+// surekli okunuyor (bkz r413KanalDurumuOku cagrilari), o yuzden bu fonksiyon
+// sadece IDLE durumda calisir - RS485/Modbus hattini gereksiz mesgul etmez.
+void r413SaglikPoll();
+extern bool r413ModulSagliksiz;  // true = R413D08 son saglik sorgusuna (idle iken) yanit vermedi
 
 // Modbus fonksiyon 0x05 (Write Single Coil) - koilNo 0-tabanli kanal (0-7).
 void r413RoleYaz(uint8_t koilNo, bool acik);
 
 void kapiTumRoleleriKapat();
+// kapiAcKomut/kapiKapatKomut'un GERCEK sonucu - eskiden ikisi de void'di ve
+// /api/kapi/ac|kapat handler'lari icerikten bagimsiz hep "basarili" mesaji
+// donuyordu. Kullanici bulgusu (2026-09-13): bazen "Kapat" basinca sayfa
+// basarili dese de role hic tepki vermiyordu, 2. basista calisiyordu - kok
+// neden, ic korumalardan biri (zaten o yonde hareket ediyor / zaten o
+// pozisyonda) sessizce hicbir sey yapmadan donuyor ama handler yine de
+// "Kapaniyor" diyordu. Artik cagiran taraf GERCEKTE ne oldugunu gorebiliyor.
+enum KapiKomutSonuc { KAPI_KOMUT_BASLADI, KAPI_KOMUT_ZATEN_ORADA, KAPI_KOMUT_ZATEN_HAREKETTE };
 // birlikte=true: asiri akimda SADECE bu kanat degil, DIGER kanat da (hareket
 // halindeyse) ayni ters yone alinir - iki kanat birlikte acilip/kapanirken
 // biri sikisirsa ikisi de geri doner. Tek kanat komutunda (birlikte=false,
 // varsayilan) sadece o kanat etkilenir.
-void kapiAcKomut(int i, bool birlikte = false);
-void kapiKapatKomut(int i, bool birlikte = false);
+KapiKomutSonuc kapiAcKomut(int i, bool birlikte = false);
+KapiKomutSonuc kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
 
-// Iki kanadi SIRALI baslatir - bindirmeli kanatlar ayni anda hareket edemez
-// (ticari kapi otomasyon kartlarindaki "leaf delay / phase shift" kurali).
-// Acilista ust kanat once, kapanista en son; gecikme config.h'de.
-void kapiCiftKanatAc();
-void kapiCiftKanatKapat();
-void kapiGecikmeliKomutIptal();
+// Iki kapiyi TEK bir ladder-mantik sekansi olarak yonetir (2026-09-13,
+// kullanicinin sahada dogruladigi tam sira/zamanlama) - bkz config.h
+// BAHCE_IKILI_ADIM_AC_MS/KAPA_MS ve bahce_kapisi.cpp'deki ayrintili notlar.
+void bahceIkisiniAc();
+void bahceIkisiniKapat();
 void kapiPoll();
 // Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
 // kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano

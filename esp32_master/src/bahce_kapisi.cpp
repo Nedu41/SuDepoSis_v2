@@ -70,6 +70,16 @@ bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
   return ok;
 }
 
+// kapi=1/2: sadece o kanat (esp8266_slave BAHCE_KAPI1_AC/KAPI2_KAPAT vb. -
+// bkz rs485KomutDinle) - kapi verilmezse eskisi gibi ikisi birden (ladder
+// sekansi, bahceIkisiniAc/Kapat).
+bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply) {
+  String cmd = "MASTER:BAHCE_KAPI" + String(kapi) + "_" + String(aksiyon) + "\n";
+  bool ok = rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  if (ok) last_rs485_update_ms = millis();
+  return ok;
+}
+
 void handleAPI_BahceKapi() {
   if (!server.hasArg("durum")) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum eksik\"}");
@@ -81,7 +91,12 @@ void handleAPI_BahceKapi() {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"durum ac/kapat/dur olmali\"}");
     return;
   }
+  int kapi = server.hasArg("kapi") ? server.arg("kapi").toInt() : 0;
+  if (kapi != 0 && kapi != 1 && kapi != 2) {
+    server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}");
+    return;
+  }
   String reply;
-  bool ok = bahceKapiKomutGonder(aksiyon, reply);
+  bool ok = (kapi == 0) ? bahceKapiKomutGonder(aksiyon, reply) : bahceKapiTekKomutGonder(kapi, aksiyon, reply);
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Komut gonderildi" : "Sudepo yanit vermedi") + "\"}");
 }
