@@ -445,22 +445,12 @@ struct NanoIOStatus {
   uint8_t bahce_kapi2_durum = 0;
   float bahce_kapi1_akim = 0.0;  // ACS712 5A, sadece motor hareket halindeyken >0 (bkz esp8266_slave bahce_kapisi.cpp)
   float bahce_kapi2_akim = 0.0;
-  float bahce_kapi1_akim_tepe = 0.0;  // bu hareketin en yuksegi - esik ayari icin referans (2026-09-15)
-  float bahce_kapi2_akim_tepe = 0.0;
   // RS485 BSW bitmask alanindan (bkz esp8266_slave masterGonder)
   bool bahce_kapi1_tam_acik = false;
   bool bahce_kapi2_tam_acik = false;
   bool bahce_zil = false;
   bool bahce_kilit = false;
   bool bahce_sw_taze = false;   // false = limit switch okumasi bayat, konum BILINMIYOR
-  // GUVENLIK (2026-09-15 sahada bulundu): R413D08 motor kalkis darbesi/RS485
-  // cakismasiyla kilitlenip "kapat" komutuna cevap vermeyebiliyor - ESP8266
-  // tarafi (bkz bahceRoleWatchdogPoll/r413SaglikPoll) bunu pes etmeden tekrar
-  // dener ama Kalburum panelinde de GORUNUR olmasi lazim, yoksa operator
-  // motorun hala enerjili kalabildigini fark etmez.
-  bool bahce_kapi1_role_sorunu = false;  // "kapat" komutu donanimdan dogrulanamadi, tekrar deneniyor
-  bool bahce_kapi2_role_sorunu = false;
-  bool r413_modul_sagliksiz = false;     // idle-saglik kontrolu (durtme) yanit alamadi
   String status = "OK";
   unsigned long last_update_ms = 0;
   // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
@@ -894,16 +884,10 @@ void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
 #if ZIL_HOPARLOR_VAR
-  // Pasif zil hoparloru - gercek iki notali ding-dong icin LEDC tonu.
-  // GPIO48 bu kartta (DevKitC-1) ayni zamanda uzerindeki WS2812 RGB LED'in
-  // veri hatti - ledcWriteTone(0) pini "kapatsa" bile LEDC hattinda kalinca
-  // WS2812 rastgele/gecerli olmayan veri gorup surekli acik/donuk bir renkte
-  // kalabiliyordu (2026-09-12 sahada gozlemlendi). Cozum: bosta LEDC'den
-  // TAMAMEN ayrilip duz OUTPUT LOW yapiliyor, tona ihtiyac oldugunda
-  // zilSesAc() tekrar ledcAttachPin cagiriyor (bkz asagida).
+  // Pasif zil hoparloru - gercek iki notali ding-dong icin LEDC tonu
   ledcSetup(ZIL_LEDC_KANAL, 2000, 8);
-  pinMode(ZIL_HOPARLOR_PIN, OUTPUT);
-  digitalWrite(ZIL_HOPARLOR_PIN, LOW);
+  ledcAttachPin(ZIL_HOPARLOR_PIN, ZIL_LEDC_KANAL);
+  ledcWriteTone(ZIL_LEDC_KANAL, 0);
 #endif
   pinMode(KONTEYNER_SIREN_PIN, OUTPUT);
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
@@ -975,27 +959,19 @@ static uint8_t zilAdim = 0;                // 0 = calmiyor
 static unsigned long zilAdimBaslangicMs = 0;
 
 static void zilSesAc(uint16_t frekansHz) {
-  // GPIO5 aktif buzzer HER ZAMAN calar (perde degismez, sadece ac/kapa) -
-  // pasif hoparlor varsa (VAR=1) AYRICA gercek iki notali ton da eklenir.
-  // Ikisi birbirini iptal etmez (kullanici talebi, 2026-09-12).
-  (void)frekansHz;
-  digitalWrite(ALARM_LED_PIN, HIGH);
 #if ZIL_HOPARLOR_VAR
-  // Ton suresince LEDC'ye baglan, bitince zilSesKapat() tekrar duz GPIO'ya
-  // dondurur - boylece GPIO48'deki WS2812 sadece zil calarken "gorur",
-  // bosta duz LOW kalir.
-  ledcAttachPin(ZIL_HOPARLOR_PIN, ZIL_LEDC_KANAL);
   ledcWriteTone(ZIL_LEDC_KANAL, frekansHz);
+#else
+  (void)frekansHz;  // aktif buzzer - perde degistirilemez, sadece ac/kapa
+  digitalWrite(ALARM_LED_PIN, HIGH);
 #endif
 }
 
 static void zilSesKapat() {
-  digitalWrite(ALARM_LED_PIN, LOW);
 #if ZIL_HOPARLOR_VAR
   ledcWriteTone(ZIL_LEDC_KANAL, 0);
-  ledcDetachPin(ZIL_HOPARLOR_PIN);
-  pinMode(ZIL_HOPARLOR_PIN, OUTPUT);
-  digitalWrite(ZIL_HOPARLOR_PIN, LOW);
+#else
+  digitalWrite(ALARM_LED_PIN, LOW);
 #endif
 }
 
@@ -1249,9 +1225,11 @@ void alarmLedGuncelle() {
   }
 
   if (!alarmVar) {
-    // Zil GPIO5'i HER ZAMAN kullanir (hoparlor olsun olmasin, 2026-09-12) -
-    // desenini ortasindan kesmesin.
+    // Zil ayni pini paylasiyorsa (hoparlor yokken) desenini ortasindan
+    // kesmesin. Ayri hoparlor varsa bu cakisma zaten olmaz.
+#if !ZIL_HOPARLOR_VAR
     if (zilCaliyorMu()) return;
+#endif
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
   }
@@ -1567,15 +1545,7 @@ String telegramBekleyenMetin = "";
 String telegramBekleyenReplyMarkup = ""; // bkz telegramAksiyonButonlariJson()
 unsigned long telegramIlkDenemeMs = 0;
 #define TELEGRAM_RETRY_SURESI_MS (2UL * 60UL * 1000UL) // basarisizsa bu kadar sure tekrar denenir, sonra vazgecilir
-// KOK NEDEN ADAYI (2026-09-15 kullanici bulgusu - Kalburum periyodik olarak
-// birkac saniyeligine yanit vermiyordu, Sudepo'dan BAGIMSIZ): bu polling
-// HER 4 saniyede bir loop() icinde SENKRON/BLOKLAYICI bir HTTPS/TLS istegi
-// (api.telegram.org) yapiyordu, http.setTimeout(5000) ile en kotu durumda
-// 5sn'ye kadar TUM sistemi (RS485/web sunucusu dahil) dondurebiliyordu -
-// ag gecikmesi/Telegram sunucusu yavasladiginda bu risk gerceklesiyordu.
-// Kalici/dogru cozum (ayri FreeRTOS task, bkz mpptTask ornegi) daha buyuk
-// bir degisiklik - simdilik risk payini kucultmek icin sıklık dusuruldu.
-#define TELEGRAM_UPDATE_POLL_INTERVAL_MS (10UL * 1000UL) // inline buton (Sustur/Onayla/Panik Iptal) getUpdates polling araligi
+#define TELEGRAM_UPDATE_POLL_INTERVAL_MS (4UL * 1000UL) // inline buton (Sustur/Onayla/Panik Iptal) getUpdates polling araligi
 
 // Kullanici talebiyle: Telegram alarm bildirimi ac/kapa ayari (Ayarlar
 // sekmesi) - NVS'de kalici, varsayilan acik (eski davranisla ayni).
@@ -1793,10 +1763,7 @@ void telegramGuncellemeleriKontrolEt() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  // Bkz yukaridaki TELEGRAM_UPDATE_POLL_INTERVAL_MS notu - bu istek loop()'u
-  // bloke ediyor, zaman asimi kisa tutularak en kotu durumdaki dondurma
-  // suresi sinirlaniyor (5000 -> 1500ms).
-  http.setTimeout(1500);
+  http.setTimeout(5000);
   http.begin(client, url);
   int code = http.GET();
   if (code != HTTP_CODE_OK) { http.end(); return; }
@@ -2251,10 +2218,6 @@ void parse_esp8266_data(String payload) {
       nanoStatus.bahce_kapi1_akim = value.toFloat();
     } else if (key == "BAHCE2A") {
       nanoStatus.bahce_kapi2_akim = value.toFloat();
-    } else if (key == "BAHCE1PK") {
-      nanoStatus.bahce_kapi1_akim_tepe = value.toFloat();
-    } else if (key == "BAHCE2PK") {
-      nanoStatus.bahce_kapi2_akim_tepe = value.toFloat();
     } else if (key == "BSW") {
       uint8_t m = (uint8_t)value.toInt();
       nanoStatus.bahce_kapi1_tam_acik = (m & 1);
@@ -2268,9 +2231,6 @@ void parse_esp8266_data(String payload) {
       }
       nanoStatus.bahce_kilit          = (m & 8);
       nanoStatus.bahce_sw_taze        = (m & 16);
-      nanoStatus.bahce_kapi1_role_sorunu = (m & 32);
-      nanoStatus.bahce_kapi2_role_sorunu = (m & 64);
-      nanoStatus.r413_modul_sagliksiz    = (m & 128);
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -3361,16 +3321,11 @@ String durumJson() {
   doc["nano"]["bahce_kapi2"] = nanoStatus.bahce_kapi2_durum;
   doc["nano"]["bahce_kapi1_akim"] = nanoStatus.bahce_kapi1_akim;
   doc["nano"]["bahce_kapi2_akim"] = nanoStatus.bahce_kapi2_akim;
-  doc["nano"]["bahce_kapi1_akim_tepe"] = nanoStatus.bahce_kapi1_akim_tepe;
-  doc["nano"]["bahce_kapi2_akim_tepe"] = nanoStatus.bahce_kapi2_akim_tepe;
   doc["nano"]["bahce_kapi1_tam_acik"] = nanoStatus.bahce_kapi1_tam_acik;
   doc["nano"]["bahce_kapi2_tam_acik"] = nanoStatus.bahce_kapi2_tam_acik;
   doc["nano"]["bahce_zil"] = nanoStatus.bahce_zil;
   doc["nano"]["bahce_kilit"] = nanoStatus.bahce_kilit;
   doc["nano"]["bahce_sw_taze"] = nanoStatus.bahce_sw_taze;
-  doc["nano"]["bahce_kapi1_role_sorunu"] = nanoStatus.bahce_kapi1_role_sorunu;
-  doc["nano"]["bahce_kapi2_role_sorunu"] = nanoStatus.bahce_kapi2_role_sorunu;
-  doc["nano"]["r413_modul_sagliksiz"] = nanoStatus.r413_modul_sagliksiz;
 
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;

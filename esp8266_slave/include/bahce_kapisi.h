@@ -17,7 +17,6 @@ struct BahceKapisi {
   uint8_t releA, releB, releKilit;
   int acikPin, akimPin;
   float akimAmper = 0.0;  // son olculen deger (kapiPoll'da sadece hareket halindeyken guncellenir), RS485/web'e tasinir
-  float akimPeakAmper = 0.0;  // bu hareketin en yuksek olculen amperi - esik ayari icin referans
   bool hataAsiriAkim = false;
   bool birlikte = false;  // bu hareket iki kanadin BIRLIKTE komutuyla mi baslatildi (bkz kapiAcKomut/kapiKapatKomut)
 };
