@@ -1626,7 +1626,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":3,";  // 2026-09-15: ladder sekansi + birlikte-hata-durdur + tepe akim duzeltmeleri - dogrulama icin
+  j += "\"bahceWatchdogVer\":9,";  // 2026-09-15: v8'de sahada 3.5dk HTTP kilitlenmesi bulundu - "esas anda kilit+motor / switch-geri-bildirim" yaklasimi TAMAMEN geri alindi, dunku kanitlanmis ladder sekansina donuldu
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
