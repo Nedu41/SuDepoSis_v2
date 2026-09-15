@@ -203,8 +203,6 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           </div>
         </div>
         <div class="row" style="column-gap:16px;row-gap:16px;margin-top:16px;align-items:center;flex-wrap:wrap">
-          <div><span class="led led-big" id="db8-kapi1"></span> Kapı1 Kapalı Sw</div>
-          <div><span class="led led-big" id="db8-kapi2"></span> Kapı2 Kapalı Sw</div>
           <div><span class="led led-big" id="db8-pir"></span> PIR</div>
           <div><span class="led led-big" id="db8-kacak"></span> Kaçak</div>
           <div><span class="led led-big" id="db8-role"></span> Siren</div>
@@ -245,7 +243,14 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
           <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:8px;font-size:11px;color:var(--muted)">
+          <span><span class="led" id="db-bahce-sw-k1"></span> Sol Kapalı</span>
+          <span><span class="led" id="db-bahce-sw-k2"></span> Sağ Kapalı</span>
+          <span><span class="led" id="db-bahce-sw-a1"></span> Sol Açık</span>
+          <span><span class="led" id="db-bahce-sw-a2"></span> Sağ Açık</span>
+        </div>
         <div class="row" style="margin-top:8px"><button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button></div>
+        <div id="db-bahce-role-uyari" hidden style="margin-top:8px;font-size:11px;color:var(--danger)">⚠ Röle modülü sorunlu - detay için Kontrol sekmesine bakın</div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
@@ -268,7 +273,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 
     <div class="card">
       <h3>Bahçe Kapısı</h3>
-      <p style="font-size:12px;color:var(--muted);margin-top:-4px">Araç girişi, 2 kanat - motor/röle Sudepo (ESP8266) tarafında. Henüz saha kurulumu yok, komutlar donanım bağlanınca çalışır.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">Araç girişi, 2 kanat - motor/röle Sudepo (ESP8266) tarafında.</p>
       <div class="bahce-sim-sarmal">
         <div class="bahce-akim" id="bahce-akim1">--</div>
         <div class="bahce-sim">
@@ -293,7 +298,18 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row" style="margin-top:8px">
         <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
       </div>
+      <div class="row" style="justify-content:center;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn" style="font-size:11px;padding:4px 10px" onclick="bahceKapiKomutTek(1,'ac')">Kapı1 Aç</button>
+        <button class="btn" style="font-size:11px;padding:4px 10px" onclick="bahceKapiKomutTek(1,'kapat')">Kapı1 Kapat</button>
+        <button class="btn" style="font-size:11px;padding:4px 10px" onclick="bahceKapiKomutTek(2,'ac')">Kapı2 Aç</button>
+        <button class="btn" style="font-size:11px;padding:4px 10px" onclick="bahceKapiKomutTek(2,'kapat')">Kapı2 Kapat</button>
+      </div>
       <div id="bahce-kapi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+      <div id="bahce-role-uyari" hidden style="margin-top:10px;padding:8px 10px;border:1px solid var(--danger);border-radius:6px;background:rgba(255,0,0,.08);font-size:12px;color:var(--text)">
+        <b style="color:var(--danger)">⚠ Röle modülü (R413D08) sorunlu</b>
+        <div id="bahce-role-uyari-detay" style="margin-top:4px;color:var(--muted)"></div>
+        <div style="margin-top:4px;color:var(--muted)">Olası nedenler: motor kalkış anındaki gerilim/akım darbesiyle modülün kilitlenmesi, RS485 hat çakışması/gürültüsü, gevşek A/B veya ortak GND bağlantısı. Sistem otomatik tekrar deniyor; düzelmezse R413D08'in kendi beslemesini (VCC/GND) kısa süre kesip tekrar vermeyi deneyin.</div>
+      </div>
     </div>
 
     <div class="card" style="border:2px solid var(--danger)">
@@ -723,77 +739,72 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
   </div>
 
   <div id="bilgiler" class="section">
+    <p style="font-size:13px;color:var(--muted)"><b>Not:</b> Detaylı/güncel pinout tabloları artık tek yerde tutuluyor: <code>esp32_master/docs/pinout.html</code> ve <code>esp8266_slave/docs/pinout.html</code> (repo içinde). Aşağıdaki kartlar sadece hızlı özet — tam kablolama/tarihçe/notlar için o dosyalara bakın.</p>
+
     <details class="card zone-konteyner">
-      <summary>ESP32 Master Pinout (Konteyner)</summary>
+      <summary>ESP32 Master Pinout (Konteyner) — özet</summary>
       <table class="table">
-        <tr><th>Pin</th><th>GPIO</th><th>Modül</th><th>Fonksiyon / Bağlantı</th></tr>
-        <tr><td>RX (UART1)</td><td>37</td><td>MAX485 RS485</td><td>RO (Alıcı)</td></tr>
-        <tr><td>TX (UART1)</td><td>38</td><td>MAX485 RS485</td><td>DI (Verici)</td></tr>
-        <tr><td>-</td><td>39</td><td>MAX485 RS485</td><td>DE/RE (Enable)</td></tr>
-        <tr><td>UART0</td><td>1/3</td><td>Debug Serial</td><td>9600 baud (USB programlama/monitör)</td></tr>
-        <tr><td>D4</td><td>4</td><td>IR Alıcı Modülü</td><td>OUT/sinyal ucu bu pine; VCC/GND ayrı (3.3V veya 5V modüle göre) besleme hattından</td></tr>
-        <tr><td>D5</td><td>5</td><td>Kırmızı LED + Buzzer</td><td>İkisi PARALEL bu pine bağlı (pin tasarrufu) - LED'e seri direnç (~220-330Ω) şart, buzzer aktif tip olmalı (kendi osilatörü olan, doğrudan HIGH/LOW ile çalışan)</td></tr>
-        <tr><td>-</td><td>6</td><td>GP2Y10 (duman/toz sensörü) analog çıkış (Vo)</td><td>ADC1 kanal 5 — 2026-08-20'de PIR2'den boşaltıldı</td></tr>
-        <tr><td>D17</td><td>17</td><td>PIR HC-SR505 (Konteyner)</td><td>OUT ucu bu pine; VCC/GND sensörün kendi besleme uçlarından (mini tip, 3.3-5V) — eski GPIO6'dan buraya taşındı</td></tr>
-        <tr><td>D7</td><td>7</td><td>Kapı Reed Switch</td><td>Bir ucu bu pine, diğer ucu GND'ye (dahili pull-up kullanılıyor, ek direnç gerekmez)</td></tr>
-        <tr><td>D8</td><td>8</td><td>Alarm Sireni Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif (Sudepo Zonu'ndaki "Alarm Rölesi" ile aynı mantık)</td></tr>
-        <tr><td>D9</td><td>9</td><td>Uyarı Lambası Rölesi</td><td>Röle modülünün IN ucu bu pine; varsayılan HIGH=aktif - siren ile birlikte VEYA Onaylı modda "Sessiz (Lamba)" onayında tek başına yanar</td></tr>
-        <tr><td>RX (UART2)</td><td>41</td><td>MAX3232 (MPPT, RS232)</td><td>R1OUT ucu bu pine (MAX3232 çip pin adı - modül silkscreen'i "TX"/"RX" farklı yazabilir, işleve göre bağlayın) - MPPT şarj kontrolcüden akü/PV/yük verisi, ESP8266 hattından (UART1) tamamen ayrı. MPPT'nin portu RS485 DEĞİL, RS232 (bkz not) - MAX485 kullanılmaz. Eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı.</td></tr>
-        <tr><td>TX (UART2)</td><td>40</td><td>MAX3232 (MPPT, RS232)</td><td>T1IN ucu bu pine</td></tr>
-        <tr><td>ADC1</td><td>2</td><td>Yedek Akü (gerilim bölücü)</td><td>3x12V paralel yedek akü bankasının voltajını izler — salt-okunur, hiçbir röleyi tetiklemez</td></tr>
-        <tr><td>-</td><td>21</td><td>Serbest (kullanılmıyor)</td><td>2026-08-24: eski yedek akü şarj rölesi mantığı kaldırıldı (Schulzz PWM solar kontrolcü artık donanımsal yapıyor). 2026-08-28: Acil Durum Lambası da buradan Sarı RCA/GPIO12'ye taşındı, GPIO21 tamamen boşta</td></tr>
-        <tr><td>-</td><td>12</td><td>Acil Durum Lambası (MOSFET tetikleme)</td><td>Sarı RCA üzerinden dışarı çıkar (2026-08-28) — manuel web butonu VEYA panik/Konteyner-alarm durumunda doğrudan/otomatik yanar, onay beklemez</td></tr>
-        <tr><td>I2C SDA</td><td>36</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>Konteyner'e özel, elle I2C protokolüyle okunur</td></tr>
-        <tr><td>I2C SCL</td><td>42</td><td>AHT10 + ADS1115 (Sıcaklık/Nem, Ana Güç)</td><td>-</td></tr>
-        <tr><td>ADC1</td><td>10</td><td>MQ6 (gaz sensörü, analog çıkış)</td><td>Eşik aşılınca panik gibi anında Konteyner alarmını tetikler (bkz Ayarlar → Konteyner Alarm Ayarları, Gaz Alarm Eşiği)</td></tr>
-        <tr><td>-</td><td>16</td><td>MQ6 Güç Kontrolü (IRF520 MOSFET modülü)</td><td>2026-08-26: Adaptif döngü — gündüz ana güç ≥26V'da sürekli açık, gece/düşük güçte yedek akü doluluğuna göre 3dk/6dk/10dk'da bir 60sn açılıp kapanır (bkz main.cpp mq6EtkinCycleMs()) - IRF520 modülünün SIG ucu bu pine. Dış çıkışı SCART Pin 20 (Mavi/Beyaz).</td></tr>
-        <tr><td>-</td><td>18</td><td>GP2Y10 (duman/toz sensörü) LED sürücü kontrol</td><td>MOSFET modülü üzerinden, ~320us darbe — Ayarlar → Konteyner Alarm Ayarları, Duman Alarm Eşiği</td></tr>
-        <tr><td>-</td><td>47</td><td>Bahçe Kapısı (araç girişi) Açma Butonu</td><td>2026-09-07: INPUT_PULLUP, basışta RS485 ile Sudepo/ESP8266'ya <code>MASTER:BAHCE_KAPI_AC</code> gönderir, iki kanat birlikte açılır. Henüz sahaya fiziksel kablo çekilmedi.</td></tr>
-      </table>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Not:</b> Reed switch'in ve Swan PIR'in "açık/kapalı" okuma yönü (HIGH=açık mı kapalı mı) kablolamaya göre ters olabilir - <code>/api/status</code>'taki <code>konteyner.kapi_acik</code> / <code>konteyner.swan_pir</code> alanlarından gerçek davranışı görüp gerekirse kod tarafında (main.cpp, <code>konteynerSensorleriOku()</code>) tek satır değiştirerek düzeltilir. Siren/Lamba röleleriniz aktif-LOW ise aynı şekilde <code>alarmLedGuncelle()</code>'daki <code>digitalWrite</code> satırları ters çevrilir. MPPT bağlantısı için adım adım kılavuz: <code>docs/mppt-baglanti-kilavuzu.html</code>; yedek akü kablolaması için: <code>docs/yedek-aku-baglanti-kilavuzu.html</code>.</p>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px"><b>Serbest/kullanılabilir GPIO'lar</b> (ileride yeni eklenti için): 35, 43, 44, 48. <b>Asla kullanılmaması gerekenler:</b> 0, 3, 45, 46 (strapping/boot pinleri), 26-32 (Quad Flash için ayrılmış).</p>
-    </details>
-
-    <details class="card zone-sudepo">
-      <summary>ESP8266 Slave Pinout</summary>
-      <table class="table">
-        <tr><th>Pin (NodeMCU)</th><th>GPIO</th><th>Modül</th><th>Fonksiyon</th></tr>
-        <tr><td>D0</td><td>16</td><td>MAX485</td><td>DI (RS485 TX)</td></tr>
-        <tr><td>D7</td><td>13</td><td>MAX485</td><td>RO (RS485 RX)</td></tr>
-        <tr><td>D3</td><td>0</td><td>MAX485</td><td>DE/RE (Enable)</td></tr>
-        <tr><td>D5</td><td>14</td><td>HC-SR04</td><td>TRIG</td></tr>
-        <tr><td>D6</td><td>12</td><td>HC-SR04</td><td>ECHO</td></tr>
-        <tr><td>D1</td><td>5</td><td>DS1307 RTC</td><td>SCL</td></tr>
-        <tr><td>D2</td><td>4</td><td>DS1307 RTC</td><td>SDA</td></tr>
-        <tr><td>RX (D9)</td><td>3</td><td>Arduino Nano</td><td>UART0 RX ← Nano TX</td></tr>
-        <tr><td>TX (D10)</td><td>1</td><td>Arduino Nano</td><td>UART0 TX → Nano RX</td></tr>
-        <tr><td>A0</td><td>ADC0</td><td>Toprak Nem</td><td>Analog nem sensörü</td></tr>
+        <tr><th>GPIO</th><th>Modül</th></tr>
+        <tr><td>37, 38, 39</td><td>MAX485 RS485 (RO/DI/DE-RE)</td></tr>
+        <tr><td>1, 3</td><td>Debug Serial (UART0)</td></tr>
+        <tr><td>4</td><td>IR Alıcı</td></tr>
+        <tr><td>5</td><td>Alarm LED + Buzzer (aktif tip)</td></tr>
+        <tr><td>6</td><td>GP2Y10 duman sensörü (Vo)</td></tr>
+        <tr><td>17</td><td>PIR HC-SR505 (Konteyner)</td></tr>
+        <tr><td>7</td><td>Kapı Reed Switch</td></tr>
+        <tr><td>8, 9</td><td>Siren / Uyarı Lambası röleleri</td></tr>
+        <tr><td>40, 41</td><td>MAX3232 MPPT (RS232)</td></tr>
+        <tr><td>2</td><td>Yedek Akü (ADC)</td></tr>
+        <tr><td>21</td><td>Laptop Adaptörü Kesme (SMD MOSFET)</td></tr>
+        <tr><td>12</td><td>Acil Durum Lambası</td></tr>
+        <tr><td>13</td><td>Swan Quad PET PIR</td></tr>
+        <tr><td>15</td><td>Fiziksel Acil Durum Butonu</td></tr>
+        <tr><td>36, 42</td><td>AHT10 + ADS1115 (I2C)</td></tr>
+        <tr><td>10, 16</td><td>MQ6 gaz sensörü + güç kontrolü</td></tr>
+        <tr><td>18</td><td>GP2Y10 LED sürücü kontrol</td></tr>
+        <tr><td>48</td><td>Bahçe Kapısı Zil Hoparlörü (pasif)</td></tr>
+        <tr><td>47</td><td>Bahçe Kapısı Açma Butonu</td></tr>
+        <tr><td>43, 44</td><td>Serbest (güvenli aday)</td></tr>
+        <tr><td>0, 3, 45, 46, 26-32</td><td>KULLANILMAZ (strapping/flash/PSRAM)</td></tr>
       </table>
     </details>
 
     <details class="card zone-sudepo">
-      <summary>Arduino Nano IO (v2 Pin Planı)</summary>
+      <summary>ESP8266 Slave Pinout — özet</summary>
       <table class="table">
-        <tr><th>Pin</th><th>Modül</th><th>Fonksiyon</th></tr>
-        <tr><td>D0 (RX)</td><td>ESP8266 TX</td><td>Seri haberleşme</td></tr>
-        <tr><td>D1 (TX)</td><td>ESP8266 RX</td><td>Seri haberleşme</td></tr>
-        <tr><td>D2</td><td>Kapı 1 sensör</td><td>INPUT_PULLUP</td></tr>
-        <tr><td>D3</td><td>Kapı 2 sensör</td><td>INPUT_PULLUP</td></tr>
-        <tr><td>D4</td><td>Alarm rölesi</td><td>OUTPUT (varsayılan LOW=aktif, NC röle) - polarite web'den (/role/polarite) çalışırken de değiştirilip EEPROM'a kalıcı yazılabilir</td></tr>
-        <tr><td>D5</td><td>Nem rölesi</td><td>OUTPUT</td></tr>
-        <tr><td>D6</td><td>PIR HC-SR501 hareket sensörü</td><td>INPUT - ESP8266 PIN_READ:6 ile okur (Nano kodu değişmez)</td></tr>
-        <tr><td>D7</td><td>Bahçe Kapısı 1 (araç girişi) tam açık limit switch</td><td>INPUT_PULLUP - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
-        <tr><td>D9</td><td>Bahçe Kapısı 2 tam açık limit switch</td><td>INPUT_PULLUP - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
-        <tr><td>D10</td><td>Zil butonu</td><td>INPUT_PULLUP - 2026-09-07, basılınca D12 buzzer'da ding-dong çalar</td></tr>
-        <tr><td>D11</td><td>Yedek GPIO</td><td>ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik</td></tr>
-        <tr><td>D12</td><td>Pasif buzzer</td><td>TONE_PLAY/TONE_STOP komutlarıyla - açılış melodisi, PIR "ön uyarı" bipi, zil</td></tr>
-        <tr><td>D13</td><td>Depo iç lamba rölesi</td><td>OUTPUT (sadece lamba)</td></tr>
-        <tr><td>A1 (=15)</td><td>Bahçe Kapısı 1 motor akım sensörü (ACS712 5A)</td><td>ANALOG_READ ile okunur - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
-        <tr><td>A2 (=16)</td><td>Bahçe Kapısı 2 motor akım sensörü (ACS712 5A)</td><td>ANALOG_READ ile okunur - 2026-09-07, henüz sahaya bağlanmadı</td></tr>
-        <tr><td>A3-A5</td><td>Yedek GPIO</td><td>Analog + digital I/O</td></tr>
-        <tr><td>A6-A7</td><td>Yedek</td><td>Sadece analog input</td></tr>
+        <tr><th>Pin (NodeMCU)</th><th>GPIO</th><th>Modül</th></tr>
+        <tr><td>D0</td><td>16</td><td>MAX485 DI (TX)</td></tr>
+        <tr><td>D7</td><td>13</td><td>MAX485 RO (RX)</td></tr>
+        <tr><td>D3</td><td>0</td><td>MAX485 DE/RE</td></tr>
+        <tr><td>D5</td><td>14</td><td>HC-SR04 TRIG</td></tr>
+        <tr><td>D6</td><td>12</td><td>HC-SR04 ECHO</td></tr>
+        <tr><td>D1</td><td>5</td><td>DS1307 RTC SCL</td></tr>
+        <tr><td>D2</td><td>4</td><td>DS1307 RTC SDA</td></tr>
+        <tr><td>RX (D9)</td><td>3</td><td>Arduino Nano UART0</td></tr>
+        <tr><td>TX (D10)</td><td>1</td><td>Arduino Nano UART0</td></tr>
+        <tr><td>A0</td><td>ADC0</td><td>Toprak Nem</td></tr>
       </table>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL | ANALOG_READ:<pin> (A0-A5, 2026-09-07 eklendi)</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Ayrıca 3. RS485 node'u: <b>R413D08</b> (8CH Modbus röle sürücü, adres 1) — Nano'ya bağlı değil, kapının yanında; bahçe kapısı motor kontrolü. Detay: <code>docs/pinout.html</code> Modül 4b/4c.</p>
+    </details>
+
+    <details class="card zone-sudepo">
+      <summary>Arduino Nano IO — özet</summary>
+      <table class="table">
+        <tr><th>Pin</th><th>Modül</th></tr>
+        <tr><td>D0/D1</td><td>ESP8266 seri haberleşme</td></tr>
+        <tr><td>D2 / D3</td><td>Bahçe Kapısı Sol/Sağ TAM KAPALI limit switch (alarm sensörü DEĞİL)</td></tr>
+        <tr><td>D4</td><td>Depo Alarm rölesi</td></tr>
+        <tr><td>D5</td><td>Nem rölesi</td></tr>
+        <tr><td>D6</td><td>PIR HC-SR501</td></tr>
+        <tr><td>D7 / D9</td><td>Bahçe Kapısı Sol/Sağ TAM AÇIK limit switch</td></tr>
+        <tr><td>D10</td><td>Zil butonu</td></tr>
+        <tr><td>D11</td><td>Yedek GPIO</td></tr>
+        <tr><td>D12</td><td>Pasif buzzer</td></tr>
+        <tr><td>D13</td><td>Depo iç lamba rölesi</td></tr>
+        <tr><td>A1 / A2</td><td>Bahçe Kapısı Sol/Sağ motor akım (ACS712 5A)</td></tr>
+        <tr><td>A3-A7</td><td>Yedek I/O</td></tr>
+      </table>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>GPIO Komut Protokolü (ESP→Nano):</b> PIN_MODE:<pin>,<mod> | PIN_WRITE:<pin>,<0/1> | PIN_READ:<pin> | PIN_READ_ALL | ANALOG_READ:<pin></p>
     </details>
 
     <details class="card">
@@ -805,7 +816,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <details class="card">
       <summary>Güncelleme Aralıkları</summary>
       <div id="guncelleme-bilgi" class="kv" style="font-size:13px">Yükleniyor...</div>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 5sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">SSE (anlık push): ESP8266/Nano'dan yeni veri gelir gelmez, en geç 1sn'de bir yedek olarak. Tarayıcı 1sn'de bir de yedek polling yapar (SSE koparsa fark edilmesin diye).</p>
     </details>
 
     <details class="card">
@@ -1188,9 +1199,6 @@ function renderUI(d){
   // sicaklik icin kullanilan ayni tazelik esigiyle '--' gosterilir)
   // Sudepo Zonu Sensorleri karti (Konteyner Sensorleri ile ayni LED deseni,
   // kullanici talebi 2026-08-28) - baglanti yoksa hepsi sonuk kalir.
-  // Bahce kapisi tam-kapali limit switch'i: kapali = yesil (normal konum)
-  { const e=$('#db8-kapi1'); if(e) e.classList.toggle('ok', esp8266Ok && !!d.nano.bahce_kapi1_tam_kapali); }
-  { const e=$('#db8-kapi2'); if(e) e.classList.toggle('ok', esp8266Ok && !!d.nano.bahce_kapi2_tam_kapali); }
   { const e=$('#db8-role');  if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.relay); }
   { const e=$('#db8-lamba'); if(e) e.classList.toggle('on', esp8266Ok && !!d.nano.lamp); }
   { const e=$('#db8-pir');   if(e) e.classList.toggle('on', esp8266Ok && !!(alarmMask & 4)); }
@@ -1265,6 +1273,25 @@ function renderUI(d){
     ledAyarla('bahce-sw-a2','ok',acik[1]);
     ledAyarla('bahce-kilit-led','ok',!!n.bahce_kilit);
     ledAyarla('bahce-zil-led','pending',!!n.bahce_zil);
+    ledAyarla('db-bahce-sw-k1','mavi',kapali[0]);
+    ledAyarla('db-bahce-sw-a1','ok',acik[0]);
+    ledAyarla('db-bahce-sw-k2','mavi',kapali[1]);
+    ledAyarla('db-bahce-sw-a2','ok',acik[1]);
+    // GUVENLIK: R413D08 "kapat" komutunu dogrulayamadiysa ya da idle-saglik
+    // kontrolune (durtme) yanit vermiyorsa - bkz esp8266_slave bahceRoleWatchdogPoll/
+    // r413SaglikPoll. Motor fiilen enerjili kalabilecegi icin bu HER ZAMAN
+    // gorunur olmali, esp8266Ok yanlis olsa bile son bilinen hali gostermeye devam eder.
+    { const k1=!!n.bahce_kapi1_role_sorunu, k2=!!n.bahce_kapi2_role_sorunu, mod=!!n.r413_modul_sagliksiz;
+      const sorunVar = k1||k2||mod;
+      const detayParcalar=[];
+      if(k1) detayParcalar.push('Kapı1 "kapat" komutu doğrulanamadı, tekrar deneniyor');
+      if(k2) detayParcalar.push('Kapı2 "kapat" komutu doğrulanamadı, tekrar deneniyor');
+      if(mod) detayParcalar.push('Modül hareketsizken bile yanıt vermiyor');
+      const detay=detayParcalar.join(' · ');
+      const el=$('#bahce-role-uyari'); if(el) el.hidden=!sorunVar;
+      const de=$('#bahce-role-uyari-detay'); if(de) de.textContent=detay;
+      const db=$('#db-bahce-role-uyari'); if(db) db.hidden=!sorunVar;
+    }
     // Toggle butonu uc hali karsilar - ayri bir Dur butonu yok: hareket
     // komutu varken "Dur"; kanatlardan biri tam kapali degilse "Kapat";
     // ikisi de tam kapaliysa "Ac".
@@ -1398,7 +1425,7 @@ function renderUI(d){
   if(bfi) bfi.textContent='Firmware derleme tarihi: '+(d.build_date||'-')+' | Çalışma süresi: '+fmtSure(d.uptime_sec||0);
   const gb=$('#guncelleme-bilgi');
   if(gb){
-    gb.innerHTML='<p><span class=info-label>RS485 poll</span><b>'+(d.rs485_interval_ms||'-')+' ms</b></p><p><span class=info-label>Son ESP8266 verisi</span><b>'+(d.esp8266_last_sec!=null?d.esp8266_last_sec+' sn önce':'-')+'</b></p><p><span class=info-label>Tarayıcı bağlantısı</span><b>'+(_es?'SSE (anlık)':'Polling (5sn)')+'</b></p>';
+    gb.innerHTML='<p><span class=info-label>RS485 poll</span><b>'+(d.rs485_interval_ms||'-')+' ms</b></p><p><span class=info-label>Son ESP8266 verisi</span><b>'+(d.esp8266_last_sec!=null?d.esp8266_last_sec+' sn önce':'-')+'</b></p><p><span class=info-label>Tarayıcı bağlantısı</span><b>'+(_es?'SSE (anlık)':'Polling (1sn)')+'</b></p>';
   }
   const agap=$('#ag-ap-bilgi'); if(agap) agap.textContent=d.ap_ssid||'-';
 }
@@ -1483,6 +1510,9 @@ function toggleLamba(){
 }
 function bahceKapiKomut(durum){
   sendCommand(null, '/api/bahce_kapi?durum='+durum, '#bahce-kapi-sonuc');
+}
+function bahceKapiKomutTek(kapi, durum){
+  sendCommand(null, '/api/bahce_kapi?durum='+durum+'&kapi='+kapi, '#bahce-kapi-sonuc');
 }
 function bahceKapiToggle(){
   bahceKapiKomut(bahceHareketVar ? 'dur' : (bahceAcikSayilirmi ? 'kapat' : 'ac'));
@@ -1983,7 +2013,7 @@ function bildirimIzniIste(){
 }
 bildirimIzniDurumGuncelle();
 connectSSE();
-setInterval(guncelle, 5000); guncelle();
+setInterval(guncelle, 1000); guncelle();
 yedekDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 function alarmLoguYukle(){

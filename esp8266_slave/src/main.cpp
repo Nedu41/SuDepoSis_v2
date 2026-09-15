@@ -261,8 +261,8 @@ void varsayilanAyarlar() {
   ayar.moistureKontrolBitisDakika = MOISTURE_KONTROL_BITIS_DAKIKA_VARSAYILAN;
   ayar.bahceAkim1SifirRaw = 512;
   ayar.bahceAkim2SifirRaw = 512;
-  ayar.bahceAkim1EsikA = 4.0;
-  ayar.bahceAkim2EsikA = 4.0;
+  ayar.bahceAkim1EsikA = 3.6;
+  ayar.bahceAkim2EsikA = 3.6;
 }
 
 void ayarlariKaydet() {
@@ -326,8 +326,8 @@ void ayarlariYukle() {
     if (akimGecersiz) {
       ayar.bahceAkim1SifirRaw = 512;
       ayar.bahceAkim2SifirRaw = 512;
-      ayar.bahceAkim1EsikA = 4.0;
-      ayar.bahceAkim2EsikA = 4.0;
+      ayar.bahceAkim1EsikA = 3.6;
+      ayar.bahceAkim2EsikA = 3.6;
       ayarlariKaydet();
     }
   }
@@ -1025,10 +1025,14 @@ void masterGonder() {
     // Tek alanda bitmask - her giris icin ayri "AD=deger" yazmak mesaji ~40
     // byte uzatirdi (buffer payi icin bkz yukaridaki buf[384] notu).
     // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
-    // bit3=kilit enerjili, bit4=limit switch okumasi taze
+    // bit3=kilit enerjili, bit4=limit switch okumasi taze,
+    // bit5=Kapi1 "kapat" donanimdan dogrulanamadi (bkz bahceRoleWatchdogPoll),
+    // bit6=Kapi2 ayni, bit7=R413D08 idle-saglik kontrolu basarisiz (bkz r413SaglikPoll)
     (bahceKapi1TamAcik ? 1 : 0) | (bahceKapi2TamAcik ? 2 : 0) |
       (bahceZilMandalliMi() ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
-      (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0)
+      (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0) |
+      (bahceKapi[0].durdurmaOnaylanamadi ? 32 : 0) | (bahceKapi[1].durdurmaOnaylanamadi ? 64 : 0) |
+      (r413ModulSagliksiz ? 128 : 0)
   );
   rs485Gonder(buf);
 }
@@ -1128,20 +1132,32 @@ void rs485KomutDinle() {
           masterGonder();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_AC") {
-          // Konteyner/ESP32 web toggle'indan ya da fiziksel butona CIFT basisla
-          // gelir. Kanatlar bindirmeli oldugu icin AYNI ANDA baslatilmaz -
-          // kapiCiftKanatAc ikinci kanadi gecikmeli baslatir (bkz config.h
-          // BAHCE_KANAT_GECIKME_*). birlikte=true: biri sikisirsa digeri de
-          // ayni ters yone alinir (bkz kapiPoll).
-          kapiCiftKanatAc();
+          // 2026-09-13: kullanicinin sahada TAM olarak tarif ettigi ladder-
+          // mantik sekansi - bkz bahce_kapisi.cpp bahceIkisiniAc() ve
+          // config.h BAHCE_IKILI_ADIM_AC_MS.
+          bahceIkisiniAc();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI1_AC") {
           // Fiziksel butona TEK basisla gelir - sadece sol kanat (Kapi 1) acilir.
           kapiAcKomut(0, false);
           response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI2_AC") {
+          kapiAcKomut(1, false);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI1_KAPAT") {
+          kapiKapatKomut(0, false);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI2_KAPAT") {
+          kapiKapatKomut(1, false);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI1_DUR") {
+          kapiDurdurKomut(0);
+          response = "ACK:" + komut;
+        } else if (komut == "BAHCE_KAPI2_DUR") {
+          kapiDurdurKomut(1);
+          response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_KAPAT") {
-          // Kapanista sira TERS - ustteki kanat en son kapanir (bkz kapiCiftKanatKapat).
-          kapiCiftKanatKapat();
+          bahceIkisiniKapat();
           response = "ACK:" + komut;
         } else if (komut == "BAHCE_KAPI_DUR") {
           kapiDurdurKomut(0);
@@ -1606,6 +1622,8 @@ String durumJson() {
   j += "\"bahceZil\":" + String(bahceZilMandalliMi() ? "true" : "false") + ",";
   j += "\"bahceKilit\":" + String(bahceKilitAktif ? "true" : "false") + ",";
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
+  j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
+  j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
@@ -2601,21 +2619,30 @@ void setup() {
     if (ok) { int eq = r.indexOf('='); if (eq >= 0) deger = r.substring(eq+1).toInt(); }
     server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"pin\":" + String(pin) + ",\"deger\":" + String(deger) + ",\"reply\":\"" + r + "\"}");
   });
-  // ===== BAHCE KAPISI (R413D08 + limit switch/akim, henuz saha kurulumu yok) =====
+  // ===== BAHCE KAPISI (R413D08 + limit switch/akim) =====
   // ?kapi=1 veya ?kapi=2 (2 kanat). Ornek: /api/kapi/ac?kapi=1
   server.on("/api/kapi/ac", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
     int kapi = server.arg("kapi").toInt();
     if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
-    kapiAcKomut(kapi - 1);
-    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kilit aciliyor, ardindan motor baslayacak\"}");
+    // Kullanici bulgusu (2026-09-13): eskiden burasi ic korumalardan biri
+    // (zaten o yonde/pozisyonda oldugu icin) sessizce hicbir sey yapmadan
+    // dondugunde bile hep "basarili" mesaji gonderiyordu - "1. basista bir
+    // sey olmuyor, 2. basista calisiyor" hissinin kaynagi buydu. Artik
+    // kapiAcKomut'un GERCEK sonucuna gore mesaj degisir.
+    KapiKomutSonuc sonuc = kapiAcKomut(kapi - 1);
+    String mesaj = (sonuc == KAPI_KOMUT_BASLADI) ? "Kilit aciliyor, ardindan motor baslayacak" :
+                   (sonuc == KAPI_KOMUT_ZATEN_ORADA) ? "Zaten tam acik" : "Zaten hareket ediyor (ac)";
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + mesaj + "\"}");
   });
   server.on("/api/kapi/kapat", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
     int kapi = server.arg("kapi").toInt();
     if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
-    kapiKapatKomut(kapi - 1);
-    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kapaniyor\"}");
+    KapiKomutSonuc sonuc = kapiKapatKomut(kapi - 1);
+    String mesaj = (sonuc == KAPI_KOMUT_BASLADI) ? "Kapaniyor" :
+                   (sonuc == KAPI_KOMUT_ZATEN_ORADA) ? "Zaten tam kapali" : "Zaten hareket ediyor (kapa)";
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + mesaj + "\"}");
   });
   server.on("/api/kapi/dur", []() {
     if (!server.hasArg("kapi")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi gerekli\"}"); return; }
@@ -2625,8 +2652,25 @@ void setup() {
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
   });
   server.on("/api/kapi/durum", []() {
-    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + "},";
-    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + "}}";
+    // "durum" (KapiDurum enum) sadece NIYET/komut bilgisidir - komut
+    // gonderilir gonderilmez "aciliyor"a gecer, kanat fiziksel olarak hic
+    // kimildamamis olsa bile, ve son tamamlanan hareketten sonra guncellenmez
+    // (kullanici bulgusu 2026-09-12: kapi fiilen kapaliyken sayfada hala
+    // "Acik" yaziyordu - eski bir "acik" komutundan kalma durum, sonradan
+    // kapi elle/farkli yoldan kapansa bile enum hic guncellenmemis). Kalburum
+    // tarafinda ayni sorun cozulmustu (bkz web_ui.h), burada da ayni mantikla
+    // "konum" alani ekleniyor: GERCEK pozisyon SADECE limit switch'lerden.
+    bool swTaze = (bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
+    bool kapaliLimit[2] = { bahceKapi1TamKapali, bahceKapi2TamKapali };
+    bool acikLimit[2] = { bahceKapi1TamAcik, bahceKapi2TamAcik };
+    String konum[2];
+    for (int i = 0; i < 2; i++) {
+      bool celiski = kapaliLimit[i] && acikLimit[i];
+      konum[i] = !swTaze ? "bilinmiyor" : (celiski ? "celiski" : (kapaliLimit[i] ? "kapali" : (acikLimit[i] ? "acik" : "ara")));
+    }
+    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"konum\":\"" + konum[0] + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + ",\"role_sorunu\":" + String(bahceKapi[0].durdurmaOnaylanamadi ? "true" : "false") + "},";
+    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"konum\":\"" + konum[1] + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + ",\"role_sorunu\":" + String(bahceKapi[1].durdurmaOnaylanamadi ? "true" : "false") + "},";
+    j += "\"sw_taze\":" + String(swTaze ? "true" : "false") + "}";
     server.send(200, "application/json", j);
   });
   // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden

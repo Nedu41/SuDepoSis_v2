@@ -451,6 +451,14 @@ struct NanoIOStatus {
   bool bahce_zil = false;
   bool bahce_kilit = false;
   bool bahce_sw_taze = false;   // false = limit switch okumasi bayat, konum BILINMIYOR
+  // GUVENLIK (2026-09-15 sahada bulundu): R413D08 motor kalkis darbesi/RS485
+  // cakismasiyla kilitlenip "kapat" komutuna cevap vermeyebiliyor - ESP8266
+  // tarafi (bkz bahceRoleWatchdogPoll/r413SaglikPoll) bunu pes etmeden tekrar
+  // dener ama Kalburum panelinde de GORUNUR olmasi lazim, yoksa operator
+  // motorun hala enerjili kalabildigini fark etmez.
+  bool bahce_kapi1_role_sorunu = false;  // "kapat" komutu donanimdan dogrulanamadi, tekrar deneniyor
+  bool bahce_kapi2_role_sorunu = false;
+  bool r413_modul_sagliksiz = false;     // idle-saglik kontrolu (durtme) yanit alamadi
   String status = "OK";
   unsigned long last_update_ms = 0;
   // FIX (kullanici sikayeti, 2026-08-27): eskiden "Nano online" SADECE bu
@@ -884,10 +892,16 @@ void konteynerDonanimiInit() {
   pinMode(ALARM_LED_PIN, OUTPUT);
   digitalWrite(ALARM_LED_PIN, LOW);
 #if ZIL_HOPARLOR_VAR
-  // Pasif zil hoparloru - gercek iki notali ding-dong icin LEDC tonu
+  // Pasif zil hoparloru - gercek iki notali ding-dong icin LEDC tonu.
+  // GPIO48 bu kartta (DevKitC-1) ayni zamanda uzerindeki WS2812 RGB LED'in
+  // veri hatti - ledcWriteTone(0) pini "kapatsa" bile LEDC hattinda kalinca
+  // WS2812 rastgele/gecerli olmayan veri gorup surekli acik/donuk bir renkte
+  // kalabiliyordu (2026-09-12 sahada gozlemlendi). Cozum: bosta LEDC'den
+  // TAMAMEN ayrilip duz OUTPUT LOW yapiliyor, tona ihtiyac oldugunda
+  // zilSesAc() tekrar ledcAttachPin cagiriyor (bkz asagida).
   ledcSetup(ZIL_LEDC_KANAL, 2000, 8);
-  ledcAttachPin(ZIL_HOPARLOR_PIN, ZIL_LEDC_KANAL);
-  ledcWriteTone(ZIL_LEDC_KANAL, 0);
+  pinMode(ZIL_HOPARLOR_PIN, OUTPUT);
+  digitalWrite(ZIL_HOPARLOR_PIN, LOW);
 #endif
   pinMode(KONTEYNER_SIREN_PIN, OUTPUT);
   digitalWrite(KONTEYNER_SIREN_PIN, LOW);
@@ -959,19 +973,27 @@ static uint8_t zilAdim = 0;                // 0 = calmiyor
 static unsigned long zilAdimBaslangicMs = 0;
 
 static void zilSesAc(uint16_t frekansHz) {
-#if ZIL_HOPARLOR_VAR
-  ledcWriteTone(ZIL_LEDC_KANAL, frekansHz);
-#else
-  (void)frekansHz;  // aktif buzzer - perde degistirilemez, sadece ac/kapa
+  // GPIO5 aktif buzzer HER ZAMAN calar (perde degismez, sadece ac/kapa) -
+  // pasif hoparlor varsa (VAR=1) AYRICA gercek iki notali ton da eklenir.
+  // Ikisi birbirini iptal etmez (kullanici talebi, 2026-09-12).
+  (void)frekansHz;
   digitalWrite(ALARM_LED_PIN, HIGH);
+#if ZIL_HOPARLOR_VAR
+  // Ton suresince LEDC'ye baglan, bitince zilSesKapat() tekrar duz GPIO'ya
+  // dondurur - boylece GPIO48'deki WS2812 sadece zil calarken "gorur",
+  // bosta duz LOW kalir.
+  ledcAttachPin(ZIL_HOPARLOR_PIN, ZIL_LEDC_KANAL);
+  ledcWriteTone(ZIL_LEDC_KANAL, frekansHz);
 #endif
 }
 
 static void zilSesKapat() {
+  digitalWrite(ALARM_LED_PIN, LOW);
 #if ZIL_HOPARLOR_VAR
   ledcWriteTone(ZIL_LEDC_KANAL, 0);
-#else
-  digitalWrite(ALARM_LED_PIN, LOW);
+  ledcDetachPin(ZIL_HOPARLOR_PIN);
+  pinMode(ZIL_HOPARLOR_PIN, OUTPUT);
+  digitalWrite(ZIL_HOPARLOR_PIN, LOW);
 #endif
 }
 
@@ -1225,11 +1247,9 @@ void alarmLedGuncelle() {
   }
 
   if (!alarmVar) {
-    // Zil ayni pini paylasiyorsa (hoparlor yokken) desenini ortasindan
-    // kesmesin. Ayri hoparlor varsa bu cakisma zaten olmaz.
-#if !ZIL_HOPARLOR_VAR
+    // Zil GPIO5'i HER ZAMAN kullanir (hoparlor olsun olmasin, 2026-09-12) -
+    // desenini ortasindan kesmesin.
     if (zilCaliyorMu()) return;
-#endif
     if (ledDurum) { ledDurum = false; digitalWrite(ALARM_LED_PIN, LOW); }
     return;
   }
@@ -2231,6 +2251,9 @@ void parse_esp8266_data(String payload) {
       }
       nanoStatus.bahce_kilit          = (m & 8);
       nanoStatus.bahce_sw_taze        = (m & 16);
+      nanoStatus.bahce_kapi1_role_sorunu = (m & 32);
+      nanoStatus.bahce_kapi2_role_sorunu = (m & 64);
+      nanoStatus.r413_modul_sagliksiz    = (m & 128);
     } else if (key == "MOISTURE_RAW") {
       sensorData.moisture_raw = value.toInt();
     } else if (key == "MOISTURE_PCT") {
@@ -3326,6 +3349,9 @@ String durumJson() {
   doc["nano"]["bahce_zil"] = nanoStatus.bahce_zil;
   doc["nano"]["bahce_kilit"] = nanoStatus.bahce_kilit;
   doc["nano"]["bahce_sw_taze"] = nanoStatus.bahce_sw_taze;
+  doc["nano"]["bahce_kapi1_role_sorunu"] = nanoStatus.bahce_kapi1_role_sorunu;
+  doc["nano"]["bahce_kapi2_role_sorunu"] = nanoStatus.bahce_kapi2_role_sorunu;
+  doc["nano"]["r413_modul_sagliksiz"] = nanoStatus.r413_modul_sagliksiz;
 
   doc["alarm"]["leak"] = alarmStatus.leak_alarm;
   doc["alarm"]["low_level"] = alarmStatus.low_level_alarm;
