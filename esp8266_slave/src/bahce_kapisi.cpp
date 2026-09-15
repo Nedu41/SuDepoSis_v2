@@ -279,11 +279,11 @@ void kapiPoll() {
       if (k.akimAmper > k.akimPeakAmper) k.akimPeakAmper = k.akimAmper;  // bu hareketin en yuksegi - esik ayari icin referans
     }
 
-    bool zamanAsimi = (now - k.hareketBaslangicMs) > bahceMaxHareketMsGetir();
+    bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
     // Motor kalkis aninda (ilk ~1sn) dogal bir akim darbesi cekiyor - bu
-    // NORMAL, sikisma/ariza degil (kullanici bulgusu, 2026-09-15). Bu sure
-    // icinde asiri akim kontrolu YAPILMAZ, k.hareketBaslangicMs'den (motorun
-    // GERCEKTEN calismaya basladigi an) itibaren olculur.
+    // NORMAL, sikisma/ariza degil. Bu sure icinde asiri akim kontrolu
+    // YAPILMAZ, k.hareketBaslangicMs'den (motorun GERCEKTEN calismaya
+    // basladigi an) itibaren olculur.
     bool baslangicPayindaMi = (now - k.hareketBaslangicMs) < BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS;
     bool asiriAkim = !baslangicPayindaMi && akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 

@@ -124,7 +124,6 @@ struct Ayarlar {
   uint16_t bahceAkim2SifirRaw;  // Kapi2 (SAG) 0A'deki ham ADC okumasi (varsayilan 512)
   float bahceAkim1EsikA;        // Kapi1 sikisma/asiri akim esigi, Amper (varsayilan 4.0)
   float bahceAkim2EsikA;        // Kapi2 sikisma/asiri akim esigi, Amper (varsayilan 4.0)
-  uint16_t bahceMaxHareketSaniye;  // kapi hareket zaman asimi, saniye (varsayilan 30)
 };
 Ayarlar ayar;
 
@@ -264,7 +263,6 @@ void varsayilanAyarlar() {
   ayar.bahceAkim2SifirRaw = 512;
   ayar.bahceAkim1EsikA = 4.0;
   ayar.bahceAkim2EsikA = 4.0;
-  ayar.bahceMaxHareketSaniye = BAHCE_MAX_HAREKET_SANIYE_VARSAYILAN;
 }
 
 void ayarlariKaydet() {
@@ -330,12 +328,6 @@ void ayarlariYukle() {
       ayar.bahceAkim2SifirRaw = 512;
       ayar.bahceAkim1EsikA = 4.0;
       ayar.bahceAkim2EsikA = 4.0;
-      ayarlariKaydet();
-    }
-    // bahceMaxHareketSaniye struct'a SONRADAN eklendi - eski EEPROM'dan
-    // yuklenen cihazlarda gecersiz/rastgele olabilir.
-    if (ayar.bahceMaxHareketSaniye < 5 || ayar.bahceMaxHareketSaniye > 120) {
-      ayar.bahceMaxHareketSaniye = BAHCE_MAX_HAREKET_SANIYE_VARSAYILAN;
       ayarlariKaydet();
     }
   }
@@ -1903,7 +1895,7 @@ void handleSetTime() {
 // ayni adlarla /ayarlar/kaydet'e POST edilir, bkz web/app.js).
 String ayarlarJSON() {
   String j = "{";
-  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + ",\"bahceAkim1SifirRaw\":" + String(ayar.bahceAkim1SifirRaw) + ",\"bahceAkim2SifirRaw\":" + String(ayar.bahceAkim2SifirRaw) + ",\"bahceAkim1EsikA\":" + String(ayar.bahceAkim1EsikA, 1) + ",\"bahceAkim2EsikA\":" + String(ayar.bahceAkim2EsikA, 1) + ",\"bahceMaxHareketSaniye\":" + String(ayar.bahceMaxHareketSaniye) + "}";
+  j += "\"bosMesafe\":" + String(ayar.bosMesafe,1) + ",\"doluMesafe\":" + String(ayar.doluMesafe,1) + ",\"kapasite\":" + String(ayar.depoKapasiteLitre,0) + ",\"alarmYuzde\":" + String(ayar.alarmSeviyeYuzde,0) + ",\"geceBaslangic\":" + String(ayar.geceBaslangicSaat) + ",\"geceBitis\":" + String(ayar.geceBitisSaat) + ",\"minDolumLitre\":" + String(ayar.minDolumLitre,0) + ",\"kacakEsikDakika\":" + String(ayar.kacakEsikDakika) + ",\"depoYatay\":" + String(ayar.depoYatay) + ",\"moistureAutomatic\":" + String(ayar.moistureAutomatic ? "true" : "false") + ",\"moistureThresholdLow\":" + String(ayar.moistureThresholdLow) + ",\"moistureThresholdHigh\":" + String(ayar.moistureThresholdHigh) + ",\"triggerGunduz\":" + String(ayar.alarmTriggerGunduz) + ",\"triggerGece\":" + String(ayar.alarmTriggerGece) + ",\"alarmMod\":" + String(ayar.alarmMod) + ",\"alarmSensorEtkin\":" + String(ayar.alarmSensorEtkin) + ",\"alarmMaskSesli\":" + String(ayar.alarmMaskSesli) + ",\"alarmMaskSessiz\":" + String(ayar.alarmMaskSessiz) + ",\"alarmMaskOnayli\":" + String(ayar.alarmMaskOnayli) + ",\"alarmOutputSesli\":" + String(ayar.alarmOutputSesli) + ",\"alarmOutputSessiz\":" + String(ayar.alarmOutputSessiz) + ",\"pirPencereSaniye\":" + String(ayar.pirPencereSaniye) + ",\"pirMinTetiklenme\":" + String(ayar.pirMinTetiklenme) + ",\"sirenGecikmeSaniye\":" + String(ayar.sirenGecikmeSaniye) + ",\"sirenChirpMs\":" + String(ayar.sirenChirpMs) + ",\"sirenBeklemeSaniye\":" + String(ayar.sirenBeklemeSaniye) + ",\"sirenAktifSaniye\":" + String(ayar.sirenAktifSaniye) + ",\"sirenMaxDakika\":" + String(ayar.sirenMaxDakika) + ",\"moistureKontrolGunMask\":" + String(ayar.moistureKontrolGunMask) + ",\"moistureKontrolBaslangicSaat\":" + String(ayar.moistureKontrolBaslangicSaat) + ",\"moistureKontrolBaslangicDakika\":" + String(ayar.moistureKontrolBaslangicDakika) + ",\"moistureKontrolBitisSaat\":" + String(ayar.moistureKontrolBitisSaat) + ",\"moistureKontrolBitisDakika\":" + String(ayar.moistureKontrolBitisDakika) + ",\"bahceAkim1SifirRaw\":" + String(ayar.bahceAkim1SifirRaw) + ",\"bahceAkim2SifirRaw\":" + String(ayar.bahceAkim2SifirRaw) + ",\"bahceAkim1EsikA\":" + String(ayar.bahceAkim1EsikA, 1) + ",\"bahceAkim2EsikA\":" + String(ayar.bahceAkim2EsikA, 1) + "}";
   return j;
 }
 void handleGetSettings() {
@@ -1914,7 +1906,6 @@ void handleGetSettings() {
 // sagliyoruz (bkz bahce_kapisi.h).
 uint16_t bahceAkimSifirRawGetir(int kapiIndex) { return kapiIndex == 0 ? ayar.bahceAkim1SifirRaw : ayar.bahceAkim2SifirRaw; }
 float bahceAkimEsikAGetir(int kapiIndex) { return kapiIndex == 0 ? ayar.bahceAkim1EsikA : ayar.bahceAkim2EsikA; }
-unsigned long bahceMaxHareketMsGetir() { return (unsigned long)ayar.bahceMaxHareketSaniye * 1000UL; }
 // 2026-09-08 kullanici talebi: ayarlari bilgisayara dosya olarak kaydedip
 // (yedek) sonradan geri yukleyebilme. Indirme: mevcut ayarlarJSON() +
 // Content-Disposition ile tarayici otomatik dosya olarak kaydeder. Geri
@@ -1996,7 +1987,6 @@ void handleSaveSettings() {
   if (server.hasArg("bahceAkim2SifirRaw")) { int v = server.arg("bahceAkim2SifirRaw").toInt(); if (v < 0) v = 0; if (v > 1023) v = 1023; ayar.bahceAkim2SifirRaw = v; }
   if (server.hasArg("bahceAkim1EsikA")) { float v = server.arg("bahceAkim1EsikA").toFloat(); if (v < 0.1) v = 0.1; if (v > 20) v = 20; ayar.bahceAkim1EsikA = v; }
   if (server.hasArg("bahceAkim2EsikA")) { float v = server.arg("bahceAkim2EsikA").toFloat(); if (v < 0.1) v = 0.1; if (v > 20) v = 20; ayar.bahceAkim2EsikA = v; }
-  if (server.hasArg("bahceMaxHareketSaniye")) { int v = server.arg("bahceMaxHareketSaniye").toInt(); if (v < 5) v = 5; if (v > 120) v = 120; ayar.bahceMaxHareketSaniye = v; }
   ayarlariKaydet(); olcumYap();
   server.send(200, "application/json", "{\"mesaj\":\"Ayarlar kaydedildi\",\"basarili\":true}");
 }
