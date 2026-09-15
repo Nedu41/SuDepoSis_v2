@@ -280,7 +280,12 @@ void kapiPoll() {
     }
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > bahceMaxHareketMsGetir();
-    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
+    // Motor kalkis aninda (ilk ~1sn) dogal bir akim darbesi cekiyor - bu
+    // NORMAL, sikisma/ariza degil (kullanici bulgusu, 2026-09-15). Bu sure
+    // icinde asiri akim kontrolu YAPILMAZ, k.hareketBaslangicMs'den (motorun
+    // GERCEKTEN calismaya basladigi an) itibaren olculur.
+    bool baslangicPayindaMi = (now - k.hareketBaslangicMs) < BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS;
+    bool asiriAkim = !baslangicPayindaMi && akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
       kapiMotorDurdur(k);
