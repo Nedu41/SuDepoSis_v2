@@ -69,11 +69,6 @@ KapiKomutSonuc kapiAcKomut(int i, bool birlikte = false);
 KapiKomutSonuc kapiKapatKomut(int i, bool birlikte = false);
 void kapiDurdurKomut(int i);
 
-// Iki kapiyi TEK bir ladder-mantik sekansi olarak yonetir (2026-09-13,
-// kullanicinin sahada dogruladigi tam sira/zamanlama) - bkz config.h
-// BAHCE_IKILI_ADIM_AC_MS/KAPA_MS ve bahce_kapisi.cpp'deki ayrintili notlar.
-void bahceIkisiniAc();
-void bahceIkisiniKapat();
 void kapiPoll();
 // Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
 // kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano
@@ -103,5 +98,6 @@ String r413DurumSorgula();
 // basina AYRI ACS712 kalibrasyonu (kapiIndex: 0=Kapi1, 1=Kapi2).
 uint16_t bahceAkimSifirRawGetir(int kapiIndex);
 float bahceAkimEsikAGetir(int kapiIndex);
+unsigned long bahceMaxHareketMsGetir();  // web'den ayarlanabilir kapi hareket zaman asimi (2026-09-15 kullanici talebi)
 
 #endif
