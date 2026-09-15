@@ -228,16 +228,7 @@
 // AYNI ANDA baslar, bkz kapiAcKomut). Bu deger simdi SADECE kilitYonetimPoll
 // icin bir UST SINIR/failsafe: Nano/switch hic yanit vermezse (D2/D3
 // okunamiyorsa) kilit en fazla bu kadar enerjili kalir.
-// KOK NEDEN (2026-09-15, ayni gun - kullanici sahada "kilit bir an tetiklenip
-// birakiyor" bulgusu): bu deger 1000ms iken, CIFT KAPI acilisinda iki kapinin
-// ARKA ARKAYA calisan role-dogrulama beklemeleri (eskiYonBirakmasiniBekle, her
-// biri modul yanitina gore birkac yuz ms surebilir) bu 1 saniyeyi TEK BASINA
-// tuketebiliyordu - kilitYonetimPoll ilk kez calistigunda zaten zaman asimi
-// dolmus oluyor, GERCEK switch durumuna hic bakilmadan kilit kesiliyordu.
-// 5000ms'e cikarildi - normal calismada hicbir zaman bu sinira TAKILMAZ
-// (gercek birakma HER ZAMAN D2/D3 geri bildirimiyle, cok daha erken olur),
-// sadece Nano/switch GERCEKTEN yanit vermezse bu kadar (ust sinir) beklenir.
-#define BAHCE_KILIT_PULSE_MS 5000
+#define BAHCE_KILIT_PULSE_MS 1000
 
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
