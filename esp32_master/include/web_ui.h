@@ -1227,6 +1227,7 @@ function renderUI(d){
     const acik  =[!!n.bahce_kapi1_tam_acik,   !!n.bahce_kapi2_tam_acik];
     const durum =[esp8266Ok?(n.bahce_kapi1||0):-1, esp8266Ok?(n.bahce_kapi2||0):-1];
     const akim  =[n.bahce_kapi1_akim||0, n.bahce_kapi2_akim||0];
+    const akimTepe=[n.bahce_kapi1_akim_tepe||0, n.bahce_kapi2_akim_tepe||0];
     let hareketKomutuVar=false, tamKapaliDegilVar=false;
     for(let i=0;i<2;i++){
       const dd=durum[i];
@@ -1261,7 +1262,7 @@ function renderUI(d){
       // Akim SUREKLI gorunur (kullanici talebi) - motor dururken 0.00A
       // gonderilir, bu da gecerli bir olcum. ESP8266 yoksa "--".
       const ae=$('#bahce-akim'+(i+1));
-      if(ae){ ae.textContent = esp8266Ok ? akim[i].toFixed(2)+'A' : '--'; ae.classList.toggle('pasif', !esp8266Ok || !motorDonuyor); }
+      if(ae){ ae.textContent = esp8266Ok ? akim[i].toFixed(2)+'A' : '--'; ae.classList.toggle('pasif', !esp8266Ok || !motorDonuyor); ae.title = esp8266Ok ? ('Bu hareketin tepe akimi: '+akimTepe[i].toFixed(2)+'A') : ''; }
     }
     // Limit switch / kilit / zil LED'leri. Kapali sw = normal konum (yesil),
     // acik sw = kapi acik (kirmizi), kilit enerjili = kilit birakilmis

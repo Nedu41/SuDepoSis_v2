@@ -445,6 +445,8 @@ struct NanoIOStatus {
   uint8_t bahce_kapi2_durum = 0;
   float bahce_kapi1_akim = 0.0;  // ACS712 5A, sadece motor hareket halindeyken >0 (bkz esp8266_slave bahce_kapisi.cpp)
   float bahce_kapi2_akim = 0.0;
+  float bahce_kapi1_akim_tepe = 0.0;  // bu hareketin en yuksegi - esik ayari icin referans (2026-09-15)
+  float bahce_kapi2_akim_tepe = 0.0;
   // RS485 BSW bitmask alanindan (bkz esp8266_slave masterGonder)
   bool bahce_kapi1_tam_acik = false;
   bool bahce_kapi2_tam_acik = false;
@@ -2238,6 +2240,10 @@ void parse_esp8266_data(String payload) {
       nanoStatus.bahce_kapi1_akim = value.toFloat();
     } else if (key == "BAHCE2A") {
       nanoStatus.bahce_kapi2_akim = value.toFloat();
+    } else if (key == "BAHCE1PK") {
+      nanoStatus.bahce_kapi1_akim_tepe = value.toFloat();
+    } else if (key == "BAHCE2PK") {
+      nanoStatus.bahce_kapi2_akim_tepe = value.toFloat();
     } else if (key == "BSW") {
       uint8_t m = (uint8_t)value.toInt();
       nanoStatus.bahce_kapi1_tam_acik = (m & 1);
@@ -3344,6 +3350,8 @@ String durumJson() {
   doc["nano"]["bahce_kapi2"] = nanoStatus.bahce_kapi2_durum;
   doc["nano"]["bahce_kapi1_akim"] = nanoStatus.bahce_kapi1_akim;
   doc["nano"]["bahce_kapi2_akim"] = nanoStatus.bahce_kapi2_akim;
+  doc["nano"]["bahce_kapi1_akim_tepe"] = nanoStatus.bahce_kapi1_akim_tepe;
+  doc["nano"]["bahce_kapi2_akim_tepe"] = nanoStatus.bahce_kapi2_akim_tepe;
   doc["nano"]["bahce_kapi1_tam_acik"] = nanoStatus.bahce_kapi1_tam_acik;
   doc["nano"]["bahce_kapi2_tam_acik"] = nanoStatus.bahce_kapi2_tam_acik;
   doc["nano"]["bahce_zil"] = nanoStatus.bahce_zil;

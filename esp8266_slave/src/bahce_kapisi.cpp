@@ -339,6 +339,13 @@ static unsigned long ikiliAdimMs = 0;
 void bahceIkisiniAc() {
   kapiMotorDurdur(bahceKapi[0]);
   kapiMotorDurdur(bahceKapi[1]);
+  // birlikte=true: bir kanat asiri akim/zaman asimindan HATA verirse (bkz
+  // kapiPoll) diger kanat da (henuz hareket etmemis olsa bile) durdurulur -
+  // ladder sekansi "iki kanat birlikte" komutu oldugu icin BIREBIR ayni
+  // guvenlik kapsamina girmeli (2026-09-15 kullanici bulgusu: biri hata
+  // verince digeri calismaya devam ediyordu).
+  bahceKapi[0].birlikte = true;
+  bahceKapi[1].birlikte = true;
   kilitYaz(bahceKapi[0], true);  // Role5 HIGH (ortak kilit)
   ikiliAdim = AC_ADIM_KILIT;
   ikiliAdimMs = millis();
@@ -348,10 +355,13 @@ void bahceIkisiniAc() {
 void bahceIkisiniKapat() {
   kapiMotorDurdur(bahceKapi[0]);
   kapiMotorDurdur(bahceKapi[1]);
+  bahceKapi[0].birlikte = true;  // bkz bahceIkisiniAc() ayni gerekce
+  bahceKapi[1].birlikte = true;
   BahceKapisi& k1 = bahceKapi[0];
   r413RoleYaz(k1.releB, true);  // Role2 HIGH
   k1.durum = KAPI_HAREKET_KAPA;
   k1.hataAsiriAkim = false;
+  k1.akimPeakAmper = 0.0;
   k1.hareketBaslangicMs = millis();
   ikiliAdim = KAPA_ADIM_KAPI1;
   ikiliAdimMs = millis();
@@ -360,6 +370,18 @@ void bahceIkisiniKapat() {
 // kapiPoll()'un basinda her dongude cagrilir - zamani gelen adimi yurutur.
 static void ikiliSekansPoll() {
   if (ikiliAdim == IKILI_YOK) return;
+  // Guvenlik (2026-09-15 kullanici bulgusu): sekans surerken bir kanat HATA'ya
+  // dusmusse (asiri akim/zaman asimi, bkz kapiPoll + birliktekiDigerKanadiDurdur)
+  // sekans hemen iptal edilir - aksi halde ladder, HATA vermis/durmus kanadin
+  // yaninda HENUZ BASLAMAMIS diger kanadi da baslatmaya devam ederdi. Ortak
+  // kilit de burada garanti altina alinir (motoru durduran diger kod yollari
+  // zaten kendi kilidini birakiyor, ama sekans AC_ADIM_KILIT/KAPI2 fazindaysa
+  // kilit henuz hicbir "motor durdur" cagrisindan gecmemis olabilir).
+  if (bahceKapi[0].durum == KAPI_HATA || bahceKapi[1].durum == KAPI_HATA) {
+    if (bahceKilitAktif) kilitYaz(bahceKapi[0], false);
+    ikiliAdim = IKILI_YOK;
+    return;
+  }
   unsigned long simdi = millis();
   switch (ikiliAdim) {
     case AC_ADIM_KILIT:
@@ -368,6 +390,7 @@ static void ikiliSekansPoll() {
         r413RoleYaz(k2.releA, true);  // Role3 HIGH (Kapi2/SAG acma)
         k2.durum = KAPI_HAREKET_AC;
         k2.hataAsiriAkim = false;
+        k2.akimPeakAmper = 0.0;
         k2.hareketBaslangicMs = simdi;
         ikiliAdim = AC_ADIM_KAPI2;
         ikiliAdimMs = simdi;
@@ -379,6 +402,7 @@ static void ikiliSekansPoll() {
         r413RoleYaz(k1.releA, true);  // Role1 HIGH (Kapi1/SOL acma)
         k1.durum = KAPI_HAREKET_AC;
         k1.hataAsiriAkim = false;
+        k1.akimPeakAmper = 0.0;
         k1.hareketBaslangicMs = simdi;
         ikiliAdim = AC_ADIM_KAPI1;
         ikiliAdimMs = simdi;
@@ -396,6 +420,7 @@ static void ikiliSekansPoll() {
         r413RoleYaz(k2.releB, true);  // Role4 HIGH (Kapi2/SAG kapama)
         k2.durum = KAPI_HAREKET_KAPA;
         k2.hataAsiriAkim = false;
+        k2.akimPeakAmper = 0.0;
         k2.hareketBaslangicMs = simdi;
         ikiliAdim = IKILI_YOK;
       }
@@ -429,6 +454,7 @@ KapiKomutSonuc kapiAcKomut(int i, bool birlikte) {
   kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_KILIT_ACILIYOR;
   return KAPI_KOMUT_BASLADI;
@@ -452,6 +478,7 @@ KapiKomutSonuc kapiKapatKomut(int i, bool birlikte) {
   r413RoleYaz(k.releB, true);  // releaseA zaten kapiMotorDurdur() ile kapatildi, tekrar yazmaya gerek yok
   k.hareketBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_HAREKET_KAPA;
   return KAPI_KOMUT_BASLADI;
@@ -494,14 +521,46 @@ void kapiDurdurKomut(int i) {
 // kilitlenme/RS485 cakismasi), buradan pes etmeden BAHCE_ROLE_WATCHDOG_
 // ARALIK_MS'de bir tekrar denenir - motorun kapali durum/HATA/zaman asimina
 // ragmen fiilen enerjili kalmasina karsi son savunma hatti (bkz bahce_kapisi.h
-// notu, 2026-09-15 sahada 5+ dakika enerjili kalma vakasi). k.durum ne olursa
-// olsun (KAPI_HATA/KAPI_ACIK/KAPI_KAPALI dahil) calisir - cunku sorun tam da
-// yazilimin "durduruldu" sandigi ama donanimin dogrulamadigi durumdur.
+// notu, 2026-09-15 sahada 5+ dakika enerjili kalma vakasi).
+//
+// KOK NEDEN - REGRESYON (2026-09-15, ayni gun ikinci bulgu): ilk surumde bu
+// fonksiyon k.durum'a HIC bakmadan calisiyordu. kapiAcKomut/kapiKapatKomut
+// YENI bir harekete baslarken de ONCE kapiMotorDurdur() cagirir (ters yonden
+// kalmis olabilecek roleyi kapatmak icin) - R413D08'in okuma yaniti ROLE ZATEN
+// KAPALIYKEN BILE arada bir gecici olarak basarisiz/gecikmeli donebiliyor
+// (bilinen bir R413D08 protokol-uyum zayifligi, bkz github.com/microrobotics/
+// R413D08 issue #1 ve genel Modbus RTU role modulu forumlari). Bu durumda
+// durdurmaOnaylanamadi YANLISLIKLA true oluyordu - kapi hemen ardindan kilit/
+// motor rolesini ACARKEN, watchdog'un 1sn'lik tekrar-deneme araligi TAM
+// kilit-darbe suresiyle (BAHCE_KILIT_PULSE_MS=1000ms) cakisip motoru
+// ACAR ACMAZ tekrar KAPATIYORDU ("role cekiyor ama hemen birakiyor").
+// COZUM: watchdog SADECE kapinin durumu "durmus/durmali" ise (KAPI_KAPALI/
+// KAPI_ACIK/KAPI_HATA) mudahale eder - kapi BILEREK hareket halindeyken
+// (KAPI_KILIT_ACILIYOR/KAPI_HAREKET_AC/KAPI_HAREKET_KAPA) o an surmekte olan
+// GERCEK harekete asla karismaz; o hareketi durdurmak kapiPoll()'un kendi
+// limit switch/zaman asimi/asiri akim mantigina aittir.
 void bahceRoleWatchdogPoll() {
   unsigned long now = millis();
   bool sorunVar = false;
+  // KOK NEDEN - 2. REGRESYON (2026-09-15, ayni gun UCUNCU bulgu): yukaridaki
+  // per-kapi durum kontrolu TEK KAPI komutlarini (kapiAcKomut/kapiKapatKomut,
+  // durum'u ANINDA KILIT_ACILIYOR/HAREKET_AC/KAPA yapar) korurken, CIFT KAPI
+  // ladder-mantik sekansini (bahceIkisiniAc/Kapat + ikiliSekansPoll) KORUMUYORDU
+  // - o sekans Kapi1'in (bahceKapi[0]) durum'unu kilit-tutma fazinda (Role5
+  // HIGH, ~1sn) HIC degistirmiyor, eskisi (orn. KAPI_KAPALI) gibi kaliyor.
+  // Watchdog bunu "durmus olmali" saniyor, 1sn sonra (TAM kilit-tutma suresiyle
+  // CAKISARAK) bahceKilitAktif'i erken kesiyordu - kilit kapi hareket etmeye
+  // baslamadan/motor tam calisirken birakilinca kanat hala mekanik kilitliyken
+  // motor zorlanip ASIRI AKIM veriyordu (kullanici bulgusu: "cift kapi ac"
+  // asiri akim, "tek kapi ac" sorunsuz - tam bu farktan kaynaklaniyordu).
+  // COZUM: ladder sekansi surerken (ikiliAdim != IKILI_YOK) watchdog HICBIR
+  // kapiya dokunmaz - sekansin kendi zamanlamasi bitene kadar butun koruma
+  // bu bayraga devredilir.
+  bool ladderSekansiSuruyor = (ikiliAdim != IKILI_YOK);
   for (int i = 0; i < 2; i++) {
     BahceKapisi& k = bahceKapi[i];
+    bool hareketIstiyor = ladderSekansiSuruyor || (k.durum == KAPI_KILIT_ACILIYOR || k.durum == KAPI_HAREKET_AC || k.durum == KAPI_HAREKET_KAPA);
+    if (hareketIstiyor) continue;  // bilerek hareket ediyor - watchdog karismaz
     if (!k.durdurmaOnaylanamadi) continue;
     if (now - k.sonDurdurmaDenemeMs >= BAHCE_ROLE_WATCHDOG_ARALIK_MS) {
       DEBUG_PRINTF("[BAHCE] WATCHDOG: KAPI%d kapatma tekrar deneniyor\n", i + 1);
@@ -520,8 +579,8 @@ bool r413ModulSagliksiz = false;
 // IKI kapi da tam hareketsizken calisir - gereksiz RS485 trafigi olmasin.
 void r413SaglikPoll() {
   static unsigned long sonKontrolMs = 0;
-  bool hareketVar = false;
-  for (int i = 0; i < 2; i++) {
+  bool hareketVar = (ikiliAdim != IKILI_YOK);  // ladder sekansinin kilit-tutma fazinda durum henuz degismemis olabilir
+  for (int i = 0; i < 2 && !hareketVar; i++) {
     KapiDurum d = bahceKapi[i].durum;
     if (d == KAPI_HAREKET_AC || d == KAPI_HAREKET_KAPA || d == KAPI_KILIT_ACILIYOR) hareketVar = true;
   }
@@ -532,6 +591,24 @@ void r413SaglikPoll() {
   int durum = r413KanalDurumuOku(bahceKapi[0].releA);  // sadece OKUR, hicbir role degismez
   r413ModulSagliksiz = (durum < 0);
   if (r413ModulSagliksiz) DEBUG_PRINTLN("[BAHCE] R413D08 saglik kontrolu: yanit yok");
+}
+
+// GUVENLIK (2026-09-15 kullanici bulgusu): "birlikte" (iki kanat ayni komutla
+// baslatilmis) bir hareket sirasinda bir kanat HATA'ya duserse (asiri akim
+// -sonrasi da asiri akim- veya zaman asimi), DIGER kanat eskiden hareketine
+// DEVAM EDIYORDU - kullanici bunu acik bir guvenlik hatasi olarak bildirdi.
+// Bu fonksiyon eslesmis diger kanadi (henuz baslamamis KAPI_KILIT_ACILIYOR
+// fazinda bile olsa) hemen durdurur ve HATA'ya ceker - kapiMotorDurdur zaten
+// ortak kilidi de (bahceKilitAktif ise) birakir.
+static void birliktekiDigerKanadiDurdur(int i, const char* sebep) {
+  BahceKapisi& k = bahceKapi[i];
+  if (!k.birlikte) return;
+  BahceKapisi& diger = bahceKapi[1 - i];
+  if (diger.durum == KAPI_KILIT_ACILIYOR || diger.durum == KAPI_HAREKET_AC || diger.durum == KAPI_HAREKET_KAPA) {
+    kapiMotorDurdur(diger);
+    diger.durum = KAPI_HATA;
+    DEBUG_PRINTF("[KAPI%d] eslesmis kanat durduruldu (diger kanat hata verdi: %s)\n", 2 - i, sebep);
+  }
 }
 
 void kapiPoll() {
@@ -550,6 +627,7 @@ void kapiPoll() {
         eskiYonBirakmasiniBekle(k.releB);  // bkz "SIGORTA ATMASI" notu - donanimsal onay
         r413RoleYaz(k.releA, true);
         k.hareketBaslangicMs = now;
+        k.akimPeakAmper = 0.0;
         k.durum = KAPI_HAREKET_AC;
       }
       continue;
@@ -567,7 +645,10 @@ void kapiPoll() {
     bool kapaliLimit = nanoBaglantiVar && kapiTamKapaliMi(i);
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
-    if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+    if (akimRaw >= 0) {
+      k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+      if (k.akimAmper > k.akimPeakAmper) k.akimPeakAmper = k.akimAmper;  // bu hareketin en yuksegi (2026-09-15 kullanici talebi - esik ayari icin referans)
+    }
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
 #if BAHCE_ASIRI_AKIM_KONTROL_AKTIF
@@ -590,6 +671,7 @@ void kapiPoll() {
         // motoru durdurup HATA'ya gec, kullanicinin mudahalesini bekle.
         k.durum = KAPI_HATA;
         DEBUG_PRINTF("[KAPI%d] HATA: ters yon sonrasi da asiri akim\n", i + 1);
+        birliktekiDigerKanadiDurdur(i, "asiri akim");
       } else {
         // Guvenlik: arac/insan sikismasi ihtimaline karsi motoru DURDURMAK
         // yetmez, ters yone hareket ettirilir (UL 325 engel-geri-donus
@@ -619,6 +701,7 @@ void kapiPoll() {
       kapiMotorDurdur(k);
       k.durum = KAPI_HATA;
       DEBUG_PRINTF("[KAPI%d] HATA: zaman asimi\n", i + 1);
+      birliktekiDigerKanadiDurdur(i, "zaman asimi");
     }
   }
 }

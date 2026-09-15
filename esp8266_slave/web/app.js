@@ -105,7 +105,8 @@ function bahceKapiMetinOlustur(d){
   var konumMetin=bahceKonumEtiket[d.konum]||'--';
   var hareketVar=(d.durum=='aciliyor'||d.durum=='kapaniyor'||d.durum=='kilit_aciliyor');
   var metin=konumMetin+(hareketVar?(' -> '+(bahceKapiDurumEtiket[d.durum]||d.durum)):'');
-  return metin+(d.asiri_akim?' (asiri akim!)':'');
+  var tepe=(d.akim_tepe||0)>0?(' [tepe: '+d.akim_tepe.toFixed(2)+'A]'):'';
+  return metin+(d.asiri_akim?' (asiri akim!)':'')+tepe;
 }
 function bahceKapiDurumYukle(){fetch('/api/kapi/durum').then(r=>r.json()).then(function(d){bahceKapiDurum[1]=d.kapi1.durum;bahceKapiDurum[2]=d.kapi2.durum;var t1=bahceKapiMetinOlustur(d.kapi1);var t2=bahceKapiMetinOlustur(d.kapi2);['bahceKapi1DurumText','anaKapi1DurumText'].forEach(function(id){var e=document.getElementById(id);if(e)e.innerHTML=t1;});['bahceKapi2DurumText','anaKapi2DurumText'].forEach(function(id){var e=document.getElementById(id);if(e)e.innerHTML=t2;});}).catch(()=>{});}
 var canliInterval=null;
