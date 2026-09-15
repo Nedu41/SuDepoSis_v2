@@ -32,33 +32,6 @@ ESP8266WebServer server(80);
 RTC_DS1307 rtc;
 bool rtcHazir = false;
 
-// KOK NEDEN ADAYI (2026-09-15 kullanici bulgusu - RTC pili/baglantisi
-// arizalandiginda I2C hatti kilitlenip TUM sistemi (RS485 dahil) birkac
-// saniyeligine donduruyor olabilir): ESP8266'nin Wire kutuphanesi bit-banged
-// yazilim I2C'dir - bir I2C cihazi (DS1307) islem ORTASINDA (orn. pil
-// bitip cip aniden enerjisiz kalirsa) SDA hattini LOW'da birakip giderse,
-// hat "takili" kalir ve sonraki HER Wire islemi (rtc.begin() dahil) uzun
-// sure/sinirsiz bekleyebilir - normal "cihaz hic yok" durumundan (ki bu
-// hizlica/temiz basarisiz olur) FARKLI, cok daha tehlikeli bir durum.
-// COZUM: her Wire.begin() cagrisindan ONCE SCL'yi manuel 9 kez darbeleyip
-// (takili kalmis bir slave'in SDA'yi birakmasini saglar) STOP kosulu
-// gonderiyoruz - bu, donanimsal pil/baglanti arizasinda bile sistemin
-// GERI KAZANILABILIR kalmasini saglar. setClockStretchLimit ile de tekil
-// bir I2C transferinin ust siniri kisitlanir.
-static void i2cHattiKurtar() {
-  pinMode(RTC_SCL, OUTPUT);
-  pinMode(RTC_SDA, INPUT_PULLUP);
-  for (int i = 0; i < 9; i++) {
-    digitalWrite(RTC_SCL, HIGH); delayMicroseconds(5);
-    digitalWrite(RTC_SCL, LOW); delayMicroseconds(5);
-  }
-  // STOP kosulu: SCL HIGH'ken SDA'yi LOW'dan HIGH'a cek.
-  pinMode(RTC_SDA, OUTPUT);
-  digitalWrite(RTC_SDA, LOW); delayMicroseconds(5);
-  digitalWrite(RTC_SCL, HIGH); delayMicroseconds(5);
-  digitalWrite(RTC_SDA, HIGH); delayMicroseconds(5);
-}
-
 // ============ KAYIT DOSYALARI ============
 const char* KAYIT_DOSYASI = "/kayitlar.csv";
 const char* TUKETIM_DOSYASI = "/tuketim.csv";
@@ -1017,7 +990,7 @@ void masterGonder() {
   // Master tarafı 400 byte okuyor (rs485_read_line), üst sınır orası.
   char buf[384];
   snprintf(buf, sizeof(buf),
-    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BAHCE1PK=%.2f,BAHCE2PK=%.2f,BSW=%d\n",
+    "ESP8266:LEVEL=%.1f,PCT=%.1f,LITRE=%.0f,TEMP=%.1f,MODE=%s,K1=%d,K2=%d,R=%d,LAMBA=%d,NANO=%d,ALARM=%d,ERR=%d,RTC=%d,LEAK=%d,LEAK_DK=%lu,FILL=%d,MOISTURE_RAW=%d,MOISTURE_PCT=%.1f,MOISTURE_OUTPUT=%d,MOISTURE_AUTO=%d,MOISTURE_LOW=%d,MOISTURE_HIGH=%d,ALARM_MOD=%d,ALARM_MUTE=%d,ALARM_PENDING=%d,PANIC=%d,TRIG_MASK=%d,BATTERY_LOW=%d,BAHCE1=%d,BAHCE2=%d,BAHCE1A=%.2f,BAHCE2A=%.2f,BSW=%d\n",
     sonSeviyeCm, sonYuzde, sonLitre, 0.0,
     geceModuMu() ? "night" : "day",
     // K1/K2 tel formati ve polaritesi BILEREK degistirilmedi (1 = kanat tam
@@ -1049,8 +1022,6 @@ void masterGonder() {
     (int)bahceKapi[1].durum,
     bahceKapi[0].akimAmper,
     bahceKapi[1].akimAmper,
-    bahceKapi[0].akimPeakAmper,
-    bahceKapi[1].akimPeakAmper,
     // Tek alanda bitmask - her giris icin ayri "AD=deger" yazmak mesaji ~40
     // byte uzatirdi (buffer payi icin bkz yukaridaki buf[384] notu).
     // bit0=Kapi1 tam acik, bit1=Kapi2 tam acik, bit2=zil basili,
@@ -1621,10 +1592,6 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 String durumJson() {
   String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
-  // TANI (2026-09-15): kopmalarin gercek sebebini (heap/reset) kanitlamak icin.
-  j += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
-  j += "\"resetReason\":\"" + ESP.getResetReason() + "\",";
-  j += "\"rtcHazir\":" + String(rtcHazir ? "true" : "false") + ",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
@@ -2493,9 +2460,7 @@ void setup() {
   if (!LittleFS.exists(KAYIT_DOSYASI)) { File f = LittleFS.open(KAYIT_DOSYASI, "w"); if (f) f.close(); }
   if (!LittleFS.exists(TUKETIM_DOSYASI)) { File f = LittleFS.open(TUKETIM_DOSYASI, "w"); if (f) f.close(); }
   if (!LittleFS.exists(TUKETIM_GECMIS_DOSYASI)) { File f = LittleFS.open(TUKETIM_GECMIS_DOSYASI, "w"); if (f) f.close(); }
-  i2cHattiKurtar();
   Wire.begin(RTC_SDA, RTC_SCL);
-  Wire.setClockStretchLimit(200);  // bkz i2cHattiKurtar notu - tek I2C transferinin ust siniri
   delay(100);
   if (!rtc.begin()) {
     rtcHazir = false;
@@ -2660,8 +2625,8 @@ void setup() {
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
   });
   server.on("/api/kapi/durum", []() {
-    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + ",\"akim\":" + String(bahceKapi[0].akimAmper, 2) + ",\"akim_tepe\":" + String(bahceKapi[0].akimPeakAmper, 2) + "},";
-    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + ",\"akim\":" + String(bahceKapi[1].akimAmper, 2) + ",\"akim_tepe\":" + String(bahceKapi[1].akimPeakAmper, 2) + "}}";
+    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + "},";
+    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + "}}";
     server.send(200, "application/json", j);
   });
   // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden
@@ -2764,9 +2729,7 @@ void loop() {
   static unsigned long sonRtcDenemeMs = 0;
   if (!rtcHazir && simdiMs - sonRtcDenemeMs >= 30000UL) {
     sonRtcDenemeMs = simdiMs;
-    i2cHattiKurtar();  // bkz tanim yukarida - takili kalmis I2C hattini kurtarir
     Wire.begin(RTC_SDA, RTC_SCL);
-    Wire.setClockStretchLimit(200);
     if (rtc.begin()) {
       rtcHazir = true;
       DEBUG_PRINTLN("[RTC] Yeniden baglanildi");

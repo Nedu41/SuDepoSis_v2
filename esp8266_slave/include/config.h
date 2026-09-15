@@ -246,11 +246,6 @@
 // buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
 #define BAHCE_MAX_HAREKET_MS 20000UL
 
-// Motor kalkis aninda dogal bir akim darbesi cekiyor - bu sure icinde
-// asiri akim kontrolu yapilmaz (kullanici bulgusu: "ilk kalkis anindaki
-// asiri akim normal ama bu hataya sebep oluyor").
-#define BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS 1000UL
-
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
 // Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
 // web arayüzünden (Ayarlar > Bahçe Kapısı) ayarlanabilir - bkz struct
