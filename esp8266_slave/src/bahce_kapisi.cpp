@@ -196,6 +196,7 @@ void kapiAcKomut(int i, bool birlikte) {
   kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_KILIT_ACILIYOR;
 }
@@ -208,6 +209,7 @@ void kapiKapatKomut(int i, bool birlikte) {
   r413RoleYaz(k.releB, true);
   k.hareketBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimPeakAmper = 0.0;  // yeni hareket - onceki tepe deger artik gecersiz
   k.birlikte = birlikte;
   k.durum = KAPI_HAREKET_KAPA;
 }
@@ -272,9 +274,12 @@ void kapiPoll() {
     bool kapaliLimit = nanoBaglantiVar && kapiTamKapaliMi(i);
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
-    if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+    if (akimRaw >= 0) {
+      k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+      if (k.akimAmper > k.akimPeakAmper) k.akimPeakAmper = k.akimAmper;  // bu hareketin en yuksegi - esik ayari icin referans
+    }
 
-    bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
+    bool zamanAsimi = (now - k.hareketBaslangicMs) > bahceMaxHareketMsGetir();
     bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {

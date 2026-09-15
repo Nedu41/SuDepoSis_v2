@@ -243,8 +243,10 @@
 #define BAHCE_POLL_ARALIK_MS 250
 // Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
 // için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
-// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
-#define BAHCE_MAX_HAREKET_MS 20000UL
+// buna göre ayarlanmalı. Artık SABİT DEĞİL, web'den (Ayarlar > Bahçe
+// Kapısı) ayarlanabilir - bkz struct Ayarlar bahceMaxHareketSaniye,
+// bahceMaxHareketMsGetir() (main.cpp). Bu sadece ilk kurulum varsayılanı.
+#define BAHCE_MAX_HAREKET_SANIYE_VARSAYILAN 30
 
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
 // Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
