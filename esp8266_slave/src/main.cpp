@@ -1616,6 +1616,12 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 String durumJson() {
   String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
+  // TANI AMACLI (2026-09-15, tekrarlayan RS485/HTTP kopmasinin GERCEK
+  // sebebini kanitla - heap tukenmesi/String parcalanmasi mi, WDT/exception
+  // reset mi, yoksa baska bir sey mi - daha fazla korlemesine mimari
+  // degisiklik yapmadan ONCE somut veri).
+  j += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  j += "\"resetReason\":\"" + ESP.getResetReason() + "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
@@ -1632,7 +1638,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":11,";  // 2026-09-15: MIMARI DUZELTME - Kalburum cift kapi komutu artik Sudepo'nun kendi butonlarinin kullandigi AYNI kapiAcKomut/kapiKapatKomut'u cagiriyor (eski ayri ladder role/kilit mantigi kaldirildi), paylasilan kilit sayacla yonetiliyor, zaman asimi 20->35sn
+  j += "\"bahceWatchdogVer\":12,";  // 2026-09-15: TANI - freeHeap/resetReason /durum'a eklendi, kopmalarin gercek sebebini (heap/WDT/exception) kanitlamak icin - davranis DEGISMEDI
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
