@@ -225,64 +225,26 @@
 // enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
 #define BAHCE_KILIT_PULSE_MS 1000
 
-// ===== Iki Kanat Gecikmeli Tetikleyici (2026-09-15 mimari duzeltme) =====
-// Iki kapi ayni komutla (Kalburum "cift ac/kapat") baslatilinca motorlar
-// es zamanli baslamasin diye (ortak beslemede gerilim dususu/asiri akim
-// riski) ikinci kapi bu kadar geciktirilerek baslatilir - TUM kilit/motor
-// mantigi kapiAcKomut/kapiKapatKomut'ta (Sudepo'nun kendi butonlarinin da
-// kullandigi AYNI fonksiyonlar), burada SADECE zamanlama var. Acilista
-// Kapi2/SAG once, kapanista Kapi1/SOL once baslar (bkz bahceIkisiniAc/Kapat).
-#define BAHCE_IKILI_ADIM_AC_MS   1000
-#define BAHCE_IKILI_ADIM_KAPA_MS 2000
+// ===== Kanat Gecikmesi (2 kanatli kapilarin temel kurali) =====
+// Kanatlar orta noktada BINDIRMELI (bir kanat digerinin ustune kapanir), bu
+// yuzden ikisi ayni anda hareket ederse kapanista birbirine carpar. Ticari
+// kapi otomasyon kartlarinda bu "phase shift / leaf delay" olarak ayarlanir
+// (tipik acilista ~3sn, kapanista ~3-30sn).
+// ACILIS: ustteki kanat ONCE acilir  -> Kapi1 (SOL) basla, Kapi2 gecikmeli
+// KAPANIS: ustteki kanat EN SON kapanir -> Kapi2 (SAG) basla, Kapi1 gecikmeli
+// Bindirme yonu tersse bu iki degeri degil, asagidaki BAHCE_ONCE_ACILAN_KAPI
+// secimini degistirin.
+#define BAHCE_KANAT_GECIKME_AC_MS   3000
+#define BAHCE_KANAT_GECIKME_KAPA_MS 5000
+#define BAHCE_ONCE_ACILAN_KAPI 0   // 0 = Kapi1 (SOL) once acilir/en son kapanir
 
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
 #define BAHCE_POLL_ARALIK_MS 250
 // Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
 // için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
-// buna göre ayarlanmalı. 2026-09-15: çift kapı testinde iki kapı da 20sn'de
-// zaman aşımına düştü (aşırı akım DEĞİL) - muhtemelen iki motor aynı ortak
-// beslemeyi paylaşınca gerilim düşüp motorlar yavaşlıyor, tek kapıda yeterli
-// olan 20sn çift kapıda yetmiyor. Güvenlik payı için 35sn'e çıkarıldı.
-#define BAHCE_MAX_HAREKET_MS 35000UL
-
-// Motor/ACS712 henuz sahaya baglanmadigi icin (2026-09-13) sensor pini
-// bosta/gurultulu okuma yapiyor, ara sira esigi (20A'ya cikarilmis olsa
-// bile) asip sahte "asiri akim" tetikliyordu - "birlikte" baglantisi
-// yuzunden bu digre kanadi da anlik geri aliyordu. Motor/sensor takilana
-// kadar GECICI olarak tamamen kapatildi (canli akim degeri hala
-// gosteriliyor, sadece güvenlik-durdurma tetiklenmiyor). MOTOR/ACS712
-// TAKILINCA BU DEGERI TEKRAR 1 YAP - sikisma/asiri akim korumasi olmadan
-// gercek motoru calistirmak GUVENLI DEGILDIR.
-#define BAHCE_ASIRI_AKIM_KONTROL_AKTIF 1
-
-// Yon degistirirken (ac<->kapat) eski yonun rolesini kapattiktan sonra yeni
-// yonu acmadan once R413D08'den GERCEKTEN birakip birakmadigi (fonksiyon
-// 0x03 READ ile) dogrulanir - bkz eskiYonBirakmasiniBekle(), bahce_kapisi.cpp
-// "SIGORTA ATMASI" notu. Bu sure sadece R413D08 HIC yanit vermezse (fire-
-// and-forget fallback) azami bekleme/zaman asimi olarak kullanilir - normal
-// durumda dogrulama cok daha hizli (birkac Modbus tur suresi, <100ms)
-// tamamlanir. 2026-09-12: 250ms yetersiz kalip IKINCI kez sigorta attiktan
-// sonra, sadece sabit sureye guvenmek yerine yukaridaki donanimsal
-// dogrulama eklendi. 2026-09-13: bu sure once 2000ms yapilmisti, ama Kalburum
-// (ESP32) MASTER:BAHCE_KAPI_AC/KAPAT komutu icin sadece 1000ms ACK bekliyor
-// (bkz esp32_master rs485_send_wait_ack) - ESP8266 bu sure kadar bloke
-// olabildiginde Kalburum "yanit gelmedi" deyip zaman asimina ugruyor, komut
-// aslinda islenmis olsa bile ("1. basista bir sey olmuyor, 2. basista
-// calisiyor" hissi buradan geliyordu). Normal calismada dogrulama zaten
-// <100ms'de bitiyor - bu deger sadece R413D08 HIC yanit vermeyen nadir
-// durumdaki ust sinir, Kalburum'un ACK penceresinin (1000ms) altinda tutulur.
-#define BAHCE_YON_DEGISTIRME_BEKLEME_MS 600UL
-
-// R413D08 "kapat" komutu ilk denemede dogrulanamazsa (bkz bahceRoleWatchdogPoll,
-// 2026-09-15 GUVENLIK ACIGI) bu araliklarla pes etmeden tekrar denenir.
-#define BAHCE_ROLE_WATCHDOG_ARALIK_MS 1000UL
-
-// Kapi hareketsizken bile R413D08'in canli/cevap verir oldugunu periyodik
-// "durtme" okumasiyla dogrulamak icin araliktir (bkz r413SaglikPoll) -
-// motorun bir sonraki hareketine kadar modulun kilitlendigini fark etmeden
-// beklemek yerine ONCEDEN uyarir.
-#define R413_SAGLIK_KONTROL_ARALIK_MS 15000UL
+// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
+#define BAHCE_MAX_HAREKET_MS 20000UL
 
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
 // Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
