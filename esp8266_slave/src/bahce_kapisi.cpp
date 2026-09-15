@@ -52,6 +52,18 @@ BahceKapisi bahceKapi[2] = {
 // yonetilir - bkz kilitYonetimPoll/kapiAcKomut asagida.
 bool bahceKilitBeklenenKapi[2] = { false, false };
 unsigned long bahceKilitAcilmaMs = 0;
+// KOK NEDEN (2026-09-15, sahada bulundu - "kilit hic tetiklenmemis gibi"):
+// kilitYonetimPoll ESKIDEN sadece "D2/D3 su an kapali mi" bakiyordu - kapi
+// komut BASLARKEN zaten tam-kapali switch'te DEGILSE (orn. bir onceki
+// dur/hata sonrasi yari-acik pozisyondan "Ac" basilirsa), kilit yazilir
+// yazilmaz AYNI poll dongusunde "zaten kipirdamis" saniliyor, aninda
+// kesiliyordu - role click'i goz/kulakla fark edilemeyecek kadar kisaydi.
+// Artik SADECE komut GERCEKTEN kapali switch'ten basladiysa erken-birakma
+// mantigi uygulanir; degilse (mid-position) sadece BAHCE_KILIT_PULSE_MS
+// failsafe'i gecerli - o an switch zaten kapali olmadigi icin kilit
+// mekanik olarak zaten devrede degildir, 5sn fazladan enerjili kalmasi
+// guvenlik sorunu yaratmaz.
+bool bahceKilitBaslangicKapaliydi[2] = { false, false };
 
 // bkz bahce_kapisi.h - eskiYonBirakmasiniBekle/r413RoleKapatDogrulayarak
 // surerken true, main.cpp rs485KomutDinle() bunu YENI BAHCE_KAPI* komutlarini
@@ -306,6 +318,8 @@ static void kapiMotorDurdur(BahceKapisi& k) {
     // bkz kilitYonetimPoll - bayraklar eskimis kalmasin (2026-09-15)
     bahceKilitBeklenenKapi[0] = false;
     bahceKilitBeklenenKapi[1] = false;
+    bahceKilitBaslangicKapaliydi[0] = false;
+    bahceKilitBaslangicKapaliydi[1] = false;
   }
 }
 
@@ -372,11 +386,13 @@ KapiKomutSonuc kapiAcKomut(int i, bool birlikte) {
   if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return KAPI_KOMUT_ZATEN_HAREKETTE;
   bool acikLimit = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
   if (bahceSwTazeMi() && acikLimit) { k.durum = KAPI_ACIK; return KAPI_KOMUT_ZATEN_ORADA; }  // zaten tam acik - tekrar surme
+  bool kapaliBaslangic = nanoBaglantiVar && kapiTamKapaliMi(i);  // bkz bahceKilitBaslangicKapaliydi yorumu
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
   bool kilitZatenAktifti = bahceKilitAktif;
   kilitYaz(k, true);
   if (!kilitZatenAktifti) bahceKilitAcilmaMs = millis();  // birlikte ikinci kapi cagrisinda ilk zamandamgasi korunur
   bahceKilitBeklenenKapi[i] = true;
+  bahceKilitBaslangicKapaliydi[i] = kapaliBaslangic;
   // Kilit ile motor AYNI ANDA baslar - once eski yon rolesini kes (varsa
   // ayaraltina alinir), sonra hemen acma rolesini ac.
   r413RoleYaz(k.releB, false);
@@ -396,13 +412,15 @@ KapiKomutSonuc kapiAcKomut(int i, bool birlikte) {
 // sonunda yine de keser (failsafe - sonsuza kadar enerjili kalmasin).
 static void kilitYonetimPoll() {
   if (!bahceKilitAktif) return;
-  bool birakildi = (bahceKilitBeklenenKapi[0] && nanoBaglantiVar && !kapiTamKapaliMi(0)) ||
-                    (bahceKilitBeklenenKapi[1] && nanoBaglantiVar && !kapiTamKapaliMi(1));
+  bool birakildi = (bahceKilitBeklenenKapi[0] && bahceKilitBaslangicKapaliydi[0] && nanoBaglantiVar && !kapiTamKapaliMi(0)) ||
+                    (bahceKilitBeklenenKapi[1] && bahceKilitBaslangicKapaliydi[1] && nanoBaglantiVar && !kapiTamKapaliMi(1));
   bool zamanAsimi = (millis() - bahceKilitAcilmaMs) >= BAHCE_KILIT_PULSE_MS;
   if (birakildi || zamanAsimi) {
     kilitYaz(bahceKapi[0], false);
     bahceKilitBeklenenKapi[0] = false;
     bahceKilitBeklenenKapi[1] = false;
+    bahceKilitBaslangicKapaliydi[0] = false;
+    bahceKilitBaslangicKapaliydi[1] = false;
   }
 }
 

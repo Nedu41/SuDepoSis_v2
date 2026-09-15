@@ -1655,7 +1655,7 @@ String durumJson() {
   j += "\"nanoBagli\":" + String(nanoBaglantiVar ? "true" : "false") + ",";
   j += "\"bahceRoleSorunu\":" + String(bahceRoleSorunu ? "true" : "false") + ",";
   j += "\"r413ModulSagliksiz\":" + String(r413ModulSagliksiz ? "true" : "false") + ",";
-  j += "\"bahceWatchdogVer\":7,";  // 2026-09-15: BAHCE_KILIT_PULSE_MS 1000->5000ms (cift kapi role-dogrulama beklemesi failsafe'i erken tuketiyordu, kilit sw geri bildirimine bakmadan dusuyordu)
+  j += "\"bahceWatchdogVer\":8,";  // 2026-09-15: kilit erken-birakma SADECE komut kapali switch'ten basladiysa uygulanir (mid-position aciliste kilit rolesi aninda kesiliyordu)
   j += "\"roleFizikselDurum\":" + String(roleFizikselDurum ? "true" : "false") + ",";
   j += "\"lambaAcik\":" + String(lambaAcik ? "true" : "false") + ",";
   j += "\"moistureRaw\":" + String(moistureRaw) + ",";
