@@ -184,11 +184,6 @@ static bool gecikmeliKomutAc = false;
 
 void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
 
-// Saha testinde adim goruntulemek icin eklenmisti (AcilisSekansi'a ait) -
-// ladder kaldirildigi icin artik hep 0 doner, main.cpp'nin /api/kapi/durum
-// cagrisini bozmamak icin stub olarak birakildi.
-uint8_t acilisSekansiDebugAdim() { return 0; }
-
 // 2 kanatli kapilarin temel kurali: kanatlar orta noktada bindirdigi icin
 // ayni anda hareket EDEMEZ. Acilista ust kanat once, kapanista en son -
 // aradaki gecikme config.h'de (ticari kartlardaki "leaf delay/phase shift").
@@ -218,6 +213,7 @@ void kapiAcKomut(int i, bool birlikte) {
   kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimTepeAmper = 0.0;  // yeni hareket - onceki tepe deger sifirlanir
   k.birlikte = birlikte;
   k.durum = KAPI_KILIT_ACILIYOR;
 }
@@ -230,6 +226,7 @@ void kapiKapatKomut(int i, bool birlikte) {
   r413RoleYaz(k.releB, true);
   k.hareketBaslangicMs = millis();
   k.hataAsiriAkim = false;
+  k.akimTepeAmper = 0.0;  // yeni hareket - onceki tepe deger sifirlanir
   k.birlikte = birlikte;
   k.durum = KAPI_HAREKET_KAPA;
 }
@@ -294,10 +291,14 @@ void kapiPoll() {
     bool kapaliLimit = nanoBaglantiVar && kapiTamKapaliMi(i);
     int akimRaw = nanoAnalogOku(k.akimPin);
     float akimAmper = (akimRaw >= 0) ? ((akimRaw - bahceAkimSifirRawGetir(i)) * (5000.0 / 1024.0)) / ACS712_MV_PER_AMP : 0.0;
-    if (akimRaw >= 0) k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+    if (akimRaw >= 0) {
+      k.akimAmper = fabs(akimAmper);  // web/RS485'e tasinan canli deger
+      if (k.akimAmper > k.akimTepeAmper) k.akimTepeAmper = k.akimAmper;  // bu hareketteki en yuksek deger
+    }
 
-    bool zamanAsimi = (now - k.hareketBaslangicMs) > BAHCE_MAX_HAREKET_MS;
-    bool asiriAkim = akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
+    bool zamanAsimi = (now - k.hareketBaslangicMs) > bahceMaxHareketMsGetir();
+    bool baslangicPayindaMi = (now - k.hareketBaslangicMs) < BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS;
+    bool asiriAkim = !baslangicPayindaMi && akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
       kapiMotorDurdur(k);

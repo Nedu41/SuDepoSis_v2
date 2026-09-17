@@ -17,6 +17,7 @@ struct BahceKapisi {
   uint8_t releA, releB, releKilit;
   int acikPin, akimPin;
   float akimAmper = 0.0;  // son olculen deger (kapiPoll'da sadece hareket halindeyken guncellenir), RS485/web'e tasinir
+  float akimTepeAmper = 0.0;  // bu hareketteki en yuksek deger (yeni hareket baslarken sifirlanir) - kullanici talebi, kalibrasyon/gozlem icin
   bool hataAsiriAkim = false;
   bool birlikte = false;  // bu hareket iki kanadin BIRLIKTE komutuyla mi baslatildi (bkz kapiAcKomut/kapiKapatKomut)
 };
@@ -41,9 +42,6 @@ void kapiCiftKanatAc();
 void kapiCiftKanatKapat();
 void kapiGecikmeliKomutIptal();
 void kapiPoll();
-// Acilis sekansinin (R5->motor(lar)->R5 kapat) o anki adimi - saha testinde
-// /api/kapi/durum uzerinden dogrulamak icin (0 = sekans aktif degil).
-uint8_t acilisSekansiDebugAdim();
 // Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
 // kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano
 // buzzer'inda ding-dong calar). Eskiden sadece zil icin ayri sorgu yapiliyordu.
@@ -72,5 +70,8 @@ String r413DurumSorgula();
 // basina AYRI ACS712 kalibrasyonu (kapiIndex: 0=Kapi1, 1=Kapi2).
 uint16_t bahceAkimSifirRawGetir(int kapiIndex);
 float bahceAkimEsikAGetir(int kapiIndex);
+// Kapi motoru limit switch'e ulasamazsa guvenlik icin azami hareket suresi -
+// web'den ayarlanabilir (varsayilan 20sn), bkz struct Ayarlar bahceMaxHareketSaniye.
+unsigned long bahceMaxHareketMsGetir();
 
 #endif

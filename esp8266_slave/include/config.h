@@ -217,8 +217,10 @@
 
 // "Kapalı" limit switch bilgisi artik mevcut alarm kapi sensorunden geldiginden
 // (yukaridaki not), bu switch'e ulasilamadan (orn. kilit/mekanik arizasi)
-// motorun sonsuza dek "kapaniyor" durumda kalmamasi icin BAHCE_MAX_HAREKET_MS
+// motorun sonsuza dek "kapaniyor" durumda kalmamasi icin azami hareket suresi
 // tek guvenlik agidir - fiziksel arizaya karsi zaten timeout/asiri-akim var.
+// 2026-09-17: sabit degerden web'den ayarlanabilir hale getirildi (bkz struct
+// Ayarlar bahceMaxHareketSaniye, bahceMaxHareketMsGetir()).
 
 // Solenoid kilit darbe süresi: enerji verilince kilit açılır/serbest kalır,
 // bu süre kadar beklenip motor başlatılır, sonra röle bırakılır (sürekli
@@ -238,10 +240,11 @@
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
 #define BAHCE_POLL_ARALIK_MS 250
-// Motor bu süreden uzun çalışırsa (limit switch'e hiç ulaşmadıysa) güvenlik
-// için otomatik durdurulur - gerçek kanat hareket süresi SAHADA ölçülüp
-// buna göre ayarlanmalı (şimdilik geniş bir üst sınır).
-#define BAHCE_MAX_HAREKET_MS 20000UL
+
+// Motorun ilk kalkış anındaki akım sıçraması (inrush) normal ama sıkışma
+// eşiğini kolayca aşabiliyor - bu payı geçmeden aşırı akım kontrolü YAPILMAZ
+// (kullanıcı talebi: "ilk 1sn'den sonra akım kontrolü olsa").
+#define BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS 1000UL
 
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
 // Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
