@@ -41,6 +41,9 @@ void kapiCiftKanatAc();
 void kapiCiftKanatKapat();
 void kapiGecikmeliKomutIptal();
 void kapiPoll();
+// Acilis sekansinin (R5->motor(lar)->R5 kapat) o anki adimi - saha testinde
+// /api/kapi/durum uzerinden dogrulamak icin (0 = sekans aktif degil).
+uint8_t acilisSekansiDebugAdim();
 // Nano'nun tum dijital girislerini TEK PIN_READ_ALL turunda okur: bahce
 // kapisi "tam acik" limit switch'leri + zil butonu (zil basilinca Nano
 // buzzer'inda ding-dong calar). Eskiden sadece zil icin ayri sorgu yapiliyordu.

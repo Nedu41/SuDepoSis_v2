@@ -1,13 +1,22 @@
 // Bahçe Kapısı (araç girişi) - Konteyner (ESP32) tarafı. Bkz bahce_kapisi.h.
 #include <WebServer.h>
+#include <cstring>
 #include "config.h"
 #include "bahce_kapisi.h"
 
 extern WebServer server;
 extern unsigned long last_rs485_update_ms;
-extern bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
+// 2026-09-15: RS485 komut kanali (SoftwareSerial + R413D08 Modbus trafigiyle
+// paylasilan yari-cift-yonlu hat) tekrar tekrar "kopma"ya yol acti - Sudepo'nun
+// KENDI yerel arayuzunden kontrol her zaman sorunsuzdu. Kok neden RS485
+// hattinin kendisi oldugundan, kapi komutlari artik WiFi/HTTP ile Sudepo'nun
+// kendi /api/kapi/* uclarina gonderiliyor (bkz sudepoHttpGet, main.cpp) - RS485
+// SADECE durum senkronu (periyodik GET_STATUS) icin kullanilmaya devam eder.
+extern bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms);
 extern uint8_t bahceKapi1DurumAl();
 extern uint8_t bahceKapi2DurumAl();
+bool bahceKapiKomutGonder(const char* aksiyon, String& reply);           // tanimi asagida
+bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply); // tanimi asagida
 
 // Fiziksel Bahce Kapisi Butonu (GPIO47, INPUT_PULLUP, aktif-LOW) - ACIL_BUTON
 // ile AYNI kenar-debounce deseni, ustune CIFT BASIS ayrimi eklendi (2026-09-08
@@ -49,33 +58,33 @@ void bahceKapiButonPoll() {
   bool hareketVar = (bk1 == 2 || bk1 == 3 || bk1 == 4 || bk2 == 2 || bk2 == 3 || bk2 == 4);
   bool acikVar = (bk1 == 1 || bk2 == 1);
 
-  const char* cmd;
-  if (hareketVar) cmd = "MASTER:BAHCE_KAPI_DUR\n";
-  else if (acikVar) cmd = "MASTER:BAHCE_KAPI_KAPAT\n";
-  else cmd = ikiliBasis ? "MASTER:BAHCE_KAPI_AC\n" : "MASTER:BAHCE_KAPI1_AC\n";
-
+  bool ok;
   String reply;
-  bool ok = rs485_send_wait_ack(cmd, reply, 1000, 3);
-  Serial.printf("[BAHCE_KAPI_BUTON] %s gonderildi, sonuc=%d\n", cmd, ok);
+  if (hareketVar) ok = bahceKapiKomutGonder("DUR", reply);
+  else if (acikVar) ok = bahceKapiKomutGonder("KAPAT", reply);
+  else if (ikiliBasis) ok = bahceKapiKomutGonder("AC", reply);
+  else ok = bahceKapiTekKomutGonder(1, "AC", reply);
+  Serial.printf("[BAHCE_KAPI_BUTON] sonuc=%d\n", ok);
 }
 
-// Bahce kapisi (arac girisi) - motor/rolelerin kendisi ESP8266/Sudepo
-// tarafinda (R413D08 uzerinden), burada sadece komut iletilir. Gercek durum
-// (acik/kapali/hareket halinde) bir sonraki GET_STATUS ile BAHCE1/BAHCE2
-// alanindan gelir (bkz parse_esp8266_data) - burada varsayimsal atama YOK.
+// 2026-09-15 kullanici talebi: kendi karar/toggle mantigi UYDURMA (ONCEKI
+// deneme buydu ve reddedildi) - Kalburum'un butonu Sudepo'nun /api/kapi/*
+// ucuna DOGRUDAN, oldugu gibi ilettigi TEK satirlik bir cagri olsun. Ladder/
+// gecikme fonksiyonu (kapiCiftKanatAc/Kapat) BURADAN hic cagrilmiyor.
 bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
-  String cmd = "MASTER:BAHCE_KAPI_" + String(aksiyon) + "\n";
-  bool ok = rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  const char* yon = (String(aksiyon) == "AC") ? "ac" : (String(aksiyon) == "KAPAT") ? "kapat" : "dur";
+  bool ok1 = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=1", reply, 2000);
+  String r2;
+  bool ok2 = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=2", r2, 2000);
+  reply += "|" + r2;
+  bool ok = ok1 && ok2;
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }
 
-// kapi=1/2: sadece o kanat (esp8266_slave BAHCE_KAPI1_AC/KAPI2_KAPAT vb. -
-// bkz rs485KomutDinle) - kapi verilmezse eskisi gibi ikisi birden (ladder
-// sekansi, bahceIkisiniAc/Kapat).
 bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply) {
-  String cmd = "MASTER:BAHCE_KAPI" + String(kapi) + "_" + String(aksiyon) + "\n";
-  bool ok = rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  const char* yon = (String(aksiyon) == "AC") ? "ac" : (String(aksiyon) == "KAPAT") ? "kapat" : "dur";
+  bool ok = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=" + String(kapi), reply, 2000);
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }
