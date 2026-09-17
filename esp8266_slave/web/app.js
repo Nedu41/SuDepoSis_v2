@@ -93,7 +93,18 @@ var bahceKapiDurum={1:'kapali',2:'kapali'};
 // yon: 'ac' veya 'kapat'. Kapi o yonde zaten hareket ediyorsa (ayni butona
 // tekrar basildiysa) motoru durdurur - ayri bir Dur butonu YOK, bkz kullanici
 // talebi 2026-09-08 (tekrar basinca dur, ters yone basinca yon degistir).
-function bahceKapiKomut(kapi,yon){var idler=kapi===0?[1,2]:[kapi];idler.forEach(function(k){var d=bahceKapiDurum[k];var hareketYonu=(d=='aciliyor'||d=='kilit_aciliyor')?'ac':(d=='kapaniyor'?'kapat':null);var aksiyon=(hareketYonu===yon)?'dur':yon;fetch('/api/kapi/'+aksiyon+'?kapi='+k).catch(()=>{});});setTimeout(bahceKapiDurumYukle,300);}
+function bahceKapiKomut(kapi,yon){
+  if(kapi===0){
+    var d1=bahceKapiDurum[1],d2=bahceKapiDurum[2];
+    var hareketVar=[d1,d2].some(function(d){return d=='aciliyor'||d=='kilit_aciliyor'||d=='kapaniyor';});
+    var aksiyon=hareketVar?'dur_cift':(yon+'_cift');
+    fetch('/api/kapi/'+aksiyon).catch(()=>{});
+    setTimeout(bahceKapiDurumYukle,300);
+    return;
+  }
+  var d=bahceKapiDurum[kapi];var hareketYonu=(d=='aciliyor'||d=='kilit_aciliyor')?'ac':(d=='kapaniyor'?'kapat':null);var aksiyon=(hareketYonu===yon)?'dur':yon;fetch('/api/kapi/'+aksiyon+'?kapi='+kapi).catch(()=>{});
+  setTimeout(bahceKapiDurumYukle,300);
+}
 function bahceKapiDurumYukle(){fetch('/api/kapi/durum').then(r=>r.json()).then(function(d){bahceKapiDurum[1]=d.kapi1.durum;bahceKapiDurum[2]=d.kapi2.durum;var t1=(bahceKapiDurumEtiket[d.kapi1.durum]||d.kapi1.durum)+(d.kapi1.asiri_akim?' (asiri akim!)':'');var t2=(bahceKapiDurumEtiket[d.kapi2.durum]||d.kapi2.durum)+(d.kapi2.asiri_akim?' (asiri akim!)':'');['bahceKapi1DurumText','anaKapi1DurumText'].forEach(function(id){var e=document.getElementById(id);if(e)e.innerHTML=t1;});['bahceKapi2DurumText','anaKapi2DurumText'].forEach(function(id){var e=document.getElementById(id);if(e)e.innerHTML=t2;});var e1=document.getElementById('bahceKapi1TepeText');if(e1)e1.innerHTML=(d.kapi1.akim_tepe||0).toFixed(2)+' A';var e2=document.getElementById('bahceKapi2TepeText');if(e2)e2.innerHTML=(d.kapi2.akim_tepe||0).toFixed(2)+' A';}).catch(()=>{});}
 var canliInterval=null;
 function canliIzleToggle(){var btn=document.getElementById('canliIzleBtn');if(canliInterval){clearInterval(canliInterval);canliInterval=null;btn.innerHTML='Canli Izle (Dolum)';return;}btn.innerHTML='Canli Izlemeyi Durdur';canliInterval=setInterval(function(){fetch('/olc').then(r=>r.json()).then(guncelle);},2000);setTimeout(function(){if(canliInterval){clearInterval(canliInterval);canliInterval=null;btn.innerHTML='Canli Izle (Dolum)';}},300000);}

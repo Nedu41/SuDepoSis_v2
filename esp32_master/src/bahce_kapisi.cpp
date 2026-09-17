@@ -67,17 +67,17 @@ void bahceKapiButonPoll() {
   Serial.printf("[BAHCE_KAPI_BUTON] sonuc=%d\n", ok);
 }
 
-// 2026-09-15 kullanici talebi: kendi karar/toggle mantigi UYDURMA (ONCEKI
-// deneme buydu ve reddedildi) - Kalburum'un butonu Sudepo'nun /api/kapi/*
-// ucuna DOGRUDAN, oldugu gibi ilettigi TEK satirlik bir cagri olsun. Ladder/
-// gecikme fonksiyonu (kapiCiftKanatAc/Kapat) BURADAN hic cagrilmiyor.
+// 2026-09-15 kullanici talebi: kendi karar/toggle mantigi UYDURMA - Kalburum'un
+// butonu Sudepo'nun ucuna DOGRUDAN ilettigi TEK satirlik bir cagri olsun.
+// 2026-09-17 DUZELTME: "ikisini de ac/kapat" icin BURADA iki ayri tek-kapi
+// istegi (kapi=1 + kapi=2) atmak YANLISTI - Sudepo'daki kademeli R5/R3/R1
+// sekansini (kapiCiftKanatAc) DEVRE DISI birakip iki bagimsiz kapinin ayni
+// anda acilmasina yol aciyordu (sahada goruldu). Sudepo'nun KENDI "Ikisini
+// de Ac/Kapat" butonu da ayni hataya dusup ayni sekilde duzeltildi - dogru
+// karsilik Sudepo'nun /api/kapi/ac_cift|kapat_cift|dur_cift ucu.
 bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
-  const char* yon = (String(aksiyon) == "AC") ? "ac" : (String(aksiyon) == "KAPAT") ? "kapat" : "dur";
-  bool ok1 = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=1", reply, 2000);
-  String r2;
-  bool ok2 = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=2", r2, 2000);
-  reply += "|" + r2;
-  bool ok = ok1 && ok2;
+  const char* ek = (String(aksiyon) == "AC") ? "ac_cift" : (String(aksiyon) == "KAPAT") ? "kapat_cift" : "dur_cift";
+  bool ok = sudepoHttpGet(String("/api/kapi/") + ek, reply, 2000);
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }

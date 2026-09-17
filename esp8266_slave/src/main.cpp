@@ -13,6 +13,7 @@
 #include <EEPROM.h>
 #include <LittleFS.h>
 #include <ArduinoOTA.h>
+#include "build_info.h"  // scripts/gen_build_info.py tarafindan HER derlemede uretilir
 #include <ESP8266httpUpdate.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <Updater.h>
@@ -1599,7 +1600,7 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 // ============ DURUM JSON ============
 String durumJson() {
   String j = "{"; // OTA test icin derleme zamani degistirici
-  j += "\"firmwareBuild\":\"" __DATE__ " " __TIME__ "\",";
+  j += "\"firmwareBuild\":\"" FIRMWARE_BUILD_TS "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";
   j += "\"yuzde\":" + String(sonYuzde, 1) + ",";
   j += "\"litre\":" + String(sonLitre, 0) + ",";
@@ -2676,6 +2677,23 @@ void setup() {
     int kapi = server.arg("kapi").toInt();
     if (kapi != 1 && kapi != 2) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"kapi 1 veya 2 olmali\"}"); return; }
     kapiDurdurKomut(kapi - 1);
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
+  });
+  // "Ikisini de Ac/Kapat" - TEK istekte kademeli sekans (kapiCiftKanatAc/Kapat)
+  // tetiklenir. Iki ayri /api/kapi/ac?kapi=1 + kapi=2 cagrisi YAPMA - o zaman
+  // R5/R3/R1 sekansi degil, iki bagimsiz tek-kapi acilisi ayni anda calisir
+  // (2026-09-17 sahada goruldu, bkz kapiCiftKanatAc yorumu).
+  server.on("/api/kapi/ac_cift", []() {
+    kapiCiftKanatAc();
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Aciliyor\"}");
+  });
+  server.on("/api/kapi/kapat_cift", []() {
+    kapiCiftKanatKapat();
+    server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kapaniyor\"}");
+  });
+  server.on("/api/kapi/dur_cift", []() {
+    kapiDurdurKomut(0);
+    kapiDurdurKomut(1);
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
   });
   server.on("/api/kapi/durum", []() {
