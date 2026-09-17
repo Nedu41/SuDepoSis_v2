@@ -222,10 +222,12 @@
 // 2026-09-17: sabit degerden web'den ayarlanabilir hale getirildi (bkz struct
 // Ayarlar bahceMaxHareketSaniye, bahceMaxHareketMsGetir()).
 
-// Tek kanat acilista: kilit (R5) VE motor AYNI ANDA cekilir, R5 motordan
-// bagimsiz bu sure sonunda birakilir (bkz kapiAcKomut, 2026-09-17 kullanici
-// tarifi - "3sn boyunca R5 hep cekili kalsin").
+// Tek kanat acilista: kilit (R5) ONCE cekilir, motor 1sn SONRA baslar (bkz
+// kapiAcKomut, 2026-09-17 kullanici tarifi - "once r5, 1sn sonra r1"). R5,
+// motordan bagimsiz kendi sayacinin sonunda (bu sure, R5'in kendi
+// baslangicindan itibaren) birakilir.
 #define BAHCE_KILIT_PULSE_MS 3000UL
+#define BAHCE_ACILIS_MOTOR_GECIKME_MS 1000UL
 
 // Iki kanatli acilis (kapiCiftKanatAc) icin kademeli R5/R3/R1 sekansindaki
 // adim araligi - R5 HIGH -> 1sn -> Kapi2 motoru -> 1sn -> Kapi1 motoru ->

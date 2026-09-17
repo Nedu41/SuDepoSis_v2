@@ -233,6 +233,12 @@ void kapiCiftKanatAc() {
   if (k1.durum == KAPI_HAREKET_AC || k2.durum == KAPI_HAREKET_AC) return;
   kapiMotorDurdur(k1);
   kapiMotorDurdur(k2);
+  // KRITIK: tek kapi acilisindan (kapiAcKomut) kalmis olabilecek bagimsiz
+  // kilit-birakma sayacini sifirla - yoksa o sayac cift sekans SIRASINDA
+  // beklenmedik bir anda R5'i kapatip ciftAcilis'in kendi kontroluyle
+  // CAKISIYORDU (2026-09-17 sahada goruldu: "role saçmalayip kapanıyor").
+  k1.kilitPulseBaslangicMs = 0;
+  k2.kilitPulseBaslangicMs = 0;
   r413RoleYaz(BAHCE_KILIT_RELE, true);
   bahceKilitAktif = true;
   ciftAcilis.aktif = true;
@@ -248,30 +254,28 @@ void kapiCiftKanatKapat() {
   gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_KAPA_MS;
 }
 
-// 2026-09-17 kullanici tarifi (kesinlesmis hali): kilit (R5) VE motor (R1/R3)
-// AYNI ANDA cekilir - kilit motoru BEKLETMEZ. R5, motordan tamamen bagimsiz
-// kendi 3sn'lik sayacinin sonunda (kapiPoll'daki ayri kontrolde) birakilir.
-// ONCEKI YANLIS TASARIM: kilit ONCE acilip motor ANCAK kilit pulse'u
-// bittiginde (KAPI_KILIT_ACILIYOR araduraguyla) baslatiliyordu - kullanici
-// bunu birkac kez acikca duzeltti, tekrar o deseni KULLANMA.
+// 2026-09-17 kullanici tarifi (kesinlesmis hali - "once r5, 1sn sonra r1"):
+// kilit (R5) ONCE cekilir, motor 1sn SONRA (kapiPoll'daki KAPI_KILIT_ACILIYOR
+// bekleme adiminda) baslar. R5, motordan tamamen bagimsiz kendi 3sn'lik
+// sayacinin sonunda (ayni kilitPulseBaslangicMs referansiyla, ayri bir
+// kontrolde) birakilir - motor durumundan etkilenmez.
 void kapiAcKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
-  if (k.durum == KAPI_HAREKET_AC) return;
+  if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
+  ciftAcilisIptalEt();  // cift sekans surerken tek kapi komutu gelirse once onu iptal et - R5 kontrolu ayni anda iki yerden yapilmasin
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
   kilitYaz(k, true);
-  k.kilitPulseBaslangicMs = millis();  // R5 bu andan 3sn sonra (kapiPoll'da) birakilir
-  r413RoleYaz(k.releB, false);
-  r413RoleYaz(k.releA, true);          // motor kilitle AYNI ANDA baslar
-  k.hareketBaslangicMs = millis();
+  k.kilitPulseBaslangicMs = millis();  // R5 bu andan 3sn sonra birakilir, motor 1sn sonra baslar (kapiPoll)
   k.hataAsiriAkim = false;
   k.akimTepeAmper = 0.0;  // yeni hareket - onceki tepe deger sifirlanir
   k.birlikte = birlikte;
-  k.durum = KAPI_HAREKET_AC;
+  k.durum = KAPI_KILIT_ACILIYOR;  // motor HENUZ baslamadi - kapiPoll 1sn sonra baslatacak
 }
 
 void kapiKapatKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_KAPA) return;
+  ciftAcilisIptalEt();  // cift acilis sekansi surerken tek kapi kapatma gelirse once onu iptal et
   kapiMotorDurdur(k);
   r413RoleYaz(k.releA, false);
   r413RoleYaz(k.releB, true);
@@ -298,10 +302,10 @@ void kapiDurdurKomut(int i) {
   kapiGecikmeliKomutIptal();
   ciftAcilisIptalEt();
   BahceKapisi& k = bahceKapi[i];
-  // Sadece gercekten hareket halindeyse dokun - BAHCE_KAPI_DUR komutu iki
-  // kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
+  // Sadece gercekten hareket/bekleme halindeyse dokun - BAHCE_KAPI_DUR komutu
+  // iki kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
   // yanlislikla HATA'ya cekmesin.
-  if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) return;
+  if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA && k.durum != KAPI_KILIT_ACILIYOR) return;
   kapiMotorDurdur(k);
   kilitYaz(k, false);
   k.kilitPulseBaslangicMs = 0;
@@ -322,12 +326,23 @@ void kapiPoll() {
 
   for (int i = 0; i < 2; i++) {
     BahceKapisi& k = bahceKapi[i];
-    // Kilit (R5) motordan BAGIMSIZ kendi 3sn sayaciyla birakilir - motor
-    // kilitle AYNI ANDA baslamisti (bkz kapiAcKomut), burada SADECE kilidi
-    // kapatiyoruz, motora dokunmuyoruz.
+    // Kilit (R5) motordan BAGIMSIZ kendi 3sn sayaciyla birakilir - ayni
+    // kilitPulseBaslangicMs referansi asagidaki motor-baslatma kontrolunde
+    // de kullanilir, ikisi de R5'in ilk tetiklendigi ana gore hesaplanir.
     if (k.kilitPulseBaslangicMs != 0 && now - k.kilitPulseBaslangicMs >= BAHCE_KILIT_PULSE_MS) {
       kilitYaz(k, false);
       k.kilitPulseBaslangicMs = 0;
+    }
+    // Motor, R5'ten 1sn SONRA baslar (bkz kapiAcKomut yorumu) - ayni
+    // kilitPulseBaslangicMs referansi (R5'in tetiklendigi an) kullanilir.
+    if (k.durum == KAPI_KILIT_ACILIYOR) {
+      if (now - k.kilitPulseBaslangicMs >= BAHCE_ACILIS_MOTOR_GECIKME_MS) {
+        r413RoleYaz(k.releB, false);
+        r413RoleYaz(k.releA, true);
+        k.hareketBaslangicMs = now;  // GERCEK motor baslangici - asiri akim baslangic payi buradan sayilir
+        k.durum = KAPI_HAREKET_AC;
+      }
+      continue;
     }
     if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) continue;
     if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
@@ -353,9 +368,11 @@ void kapiPoll() {
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
       kapiMotorDurdur(k);
+      k.hataAsiriAkim = false;  // basariyla acildi - eski asiri akim bayragi kalici kalmasin
       k.durum = KAPI_ACIK;
     } else if (k.durum == KAPI_HAREKET_KAPA && kapaliLimit) {
       kapiMotorDurdur(k);
+      k.hataAsiriAkim = false;  // basariyla kapandi - eski asiri akim bayragi kalici kalmasin
       k.durum = KAPI_KAPALI;
     } else if (asiriAkim) {
       kapiMotorDurdur(k);
