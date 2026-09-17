@@ -229,17 +229,21 @@
 #define BAHCE_KILIT_PULSE_MS 3000UL
 #define BAHCE_ACILIS_MOTOR_GECIKME_MS 1000UL
 
-// Iki kanatli acilis (kapiCiftKanatAc) icin kademeli R5/R3/R1 sekansindaki
-// adim araligi - R5 HIGH -> 1sn -> Kapi2 motoru -> 1sn -> Kapi1 motoru ->
-// 1sn -> R5 LOW (2026-09-17 kullanici tarifi, bkz ciftAcilisPoll).
+// Iki kanatli acilis (kapiCiftKanatAc/ikiliSekansPoll) icin kademeli R5/R3/R1
+// sekansindaki adim araligi - R5 HIGH -> 1sn -> Kapi2 motoru -> 1sn -> Kapi1
+// motoru -> 1sn -> R5 LOW. 2026-09-13 sahada dogrulanmis deger, 2026-09-17
+// geri portunda korundu (bkz proje hafizasi
+// project_bahce_kapisi_ladder_mantik_cozuldu).
 #define BAHCE_KAPI_LADDER_ADIM_MS 1000UL
 
 // ===== Kanat Gecikmesi (kapanista) =====
-// Kanatlar orta noktada BINDIRMELI (bir kanat digerinin ustune kapanir), bu
-// yuzden ikisi ayni anda hareket ederse kapanista birbirine carpar.
-// KAPANIS: ustteki kanat EN SON kapanir -> Kapi2 (SAG) basla, Kapi1 gecikmeli
-#define BAHCE_KANAT_GECIKME_KAPA_MS 1000UL
-#define BAHCE_ONCE_ACILAN_KAPI 0   // 0 = Kapi1 (SOL) once acilir/en son kapanir
+// 2026-09-13 sahada dogrulanan sira: "bindirmeli kapi - ters sira" kurali
+// BURADA GECERLI DEGIL. Kapi1(SOL) HEM acilista HEM kapanista HEMEN baslar,
+// Kapi2(SAG) her iki yonde de gecikmeli kanattir (bkz kapiCiftKanatKapat).
+// Eskiden BAHCE_ONCE_ACILAN_KAPI ile yon-bagimli hesaplaniyordu - bu YANLIS
+// sonuc veriyordu (acilista Kapi1 SON basliyor ama kapanista da Kapi1'in
+// ONCE baslamasi gerekiyor, ayni sabitten turetilemez), sabit kaldirildi.
+#define BAHCE_KANAT_GECIKME_KAPA_MS 2000UL
 
 // Hareket halindeyken limit switch/akım kontrol aralığı - Nano round-trip
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
