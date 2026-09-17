@@ -2023,10 +2023,16 @@ void handleKayitTemizle() {
   LittleFS.remove(KAYIT_DOSYASI); File f = LittleFS.open(KAYIT_DOSYASI, "w"); if (f) f.close();
   server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Tumunu silindi\"}");
 }
+// 2026-09-15: RS485 SET_ALARM ile AYNI davranis - sadece bayrak kaydetmekle
+// kalmiyor, roleyi de ANINDA tetikliyor (eskiden bu fonksiyon sadece bayragi
+// kaydediyordu, RS485 yolu ise ikisini de yapiyordu - Kalburum HTTP'ye
+// gecince davranis farki kaybolmasin diye buraya tasindi).
 void handleRoleAyarla() {
   if (!server.hasArg("aktif")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; }
-  ayar.alarmRoleAktif = server.arg("aktif").toInt()?1:0; ayarlariKaydet();
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(ayar.alarmRoleAktif?"Aktif":"Pasif") + "\"}");
+  bool ac = server.arg("aktif").toInt() != 0;
+  bool ok = nanoRoleKontrol(ac);
+  if (ok) { ayar.alarmRoleAktif = ac ? 1 : 0; ayarlariKaydet(); }
+  server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ayar.alarmRoleAktif?"Aktif":"Pasif") + "\"}");
 }
 void handleRolePanic() {
   // FIX (kullanici sikayeti, 2026-08-31 - "kapata basiyorum ama kapanmiyor,
@@ -2060,7 +2066,10 @@ void handleAlarmSustur() {
   // Susturma = "sireni kapat": tetikleyici hala aktif olsa da rölenin
   // sese/tetiklenmeye devam etmesini durdurur. Yeni bir tetikleyici
   // (durum degisikligi) gelene kadar susturulmus kalir.
-  alarmSusturuldu = !alarmSusturuldu;
+  // 2026-09-15: bkz handleRolePanic'teki ayni FIX yorumu - "aktif" parametresi
+  // verilirse HEDEF acikca alinir (idempotent, Kalburum HTTP komutlarinda
+  // kullanilir), verilmezse eski davranis (web arayuzu butonu) korunur: toggle.
+  alarmSusturuldu = server.hasArg("aktif") ? (server.arg("aktif").toInt() != 0) : !alarmSusturuldu;
   ssePush(); // bkz handleRolePanic yorumu - aninda push
   server.send(200, "application/json", "{\"basarili\":true,\"susturuldu\":" + String(alarmSusturuldu ? "true" : "false") + "}");
 }
@@ -2523,6 +2532,13 @@ void setup() {
   server.on("/app.js", handleJS); server.on("/config.js", handleConfigJS);
   server.on("/events", handleSSE);
   server.on("/olc", handleMeasure); server.on("/durum", handleStatus); server.on("/zaman", handleTime); server.on("/ayarla", handleSetTime);
+  // 2026-09-15: /zaman (handleTime) RTC'yi rtc.begin() ile yeniden baslatip
+  // STA modundaysa 3sn'e kadar NTP bekleyen AGIR bir "kurtarma" endpoint'i -
+  // sadece web arayuzundeki "Zaman" butonu icin uygun. Kalburum'un periyodik
+  // zaman okumasi (eskiden RS485 GET_ZAMAN) icin yan etkisiz/hafif okuma.
+  server.on("/zaman/oku", []() {
+    server.send(200, "application/json", "{\"zaman\":\"" + simdikiZamanStr() + "\"}");
+  });
   server.on("/ayarlar", HTTP_GET, handleGetSettings); server.on("/ayarlar/kaydet", handleSaveSettings);
   server.on("/ayarlar/yedekle", HTTP_GET, handleAyarlarYedekle);
   server.on("/nem/fabrika", handleNemFabrikaAyarlari);
@@ -2554,6 +2570,34 @@ void setup() {
   if (ok) moistureOutputActive = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(moistureOutputActive?"Vana Engellendi":"Vana Serbest"):"Hatali") + "\"}");});
   server.on("/nem/mod", []() { if (!server.hasArg("otomatik")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } ayar.moistureAutomatic = server.arg("otomatik").toInt()?1:0; ayarlariKaydet(); if (ayar.moistureAutomatic) { olcumYap(); } server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(ayar.moistureAutomatic?"Otomatik":"Manuel") + "\"}"); });
   server.on("/nem/olc", handleNemOlc);
+  // 2026-09-15: RS485 SET_RAIN_SKIP/SET_BATTERY_LOW icin yerel HTTP karsiligi
+  // yok - bunlar Kalburum'un kendi hesapladigi (hava durumu tahmini / akü
+  // kritik) sinyalleri, kullanici arayuzunde buton yok. Kalburum HTTP'ye
+  // gecince kullanabilsin diye eklendi.
+  server.on("/nem/rain_skip", []() {
+    if (!server.hasArg("atla")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; }
+    yagmurSulamaAtla = server.arg("atla").toInt() != 0;
+    yagmurSonGuncellemeMs = millis();
+    server.send(200, "application/json", "{\"basarili\":true,\"atla\":" + String(yagmurSulamaAtla ? "true" : "false") + "}");
+  });
+  server.on("/nem/battery_low", []() {
+    if (!server.hasArg("dusuk")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; }
+    batteryLowOverride = server.arg("dusuk").toInt() != 0;
+    server.send(200, "application/json", "{\"basarili\":true,\"dusuk\":" + String(batteryLowOverride ? "true" : "false") + "}");
+  });
+  // 2026-09-15: RESTORE_BASLA/SATIR/BITIR'in HTTP karsiligi - RS485'te
+  // SoftwareSerial buffer'i kucuk oldugundan satir satir 3 asamali akiyordu,
+  // HTTP'de buna gerek yok - tum CSV tek istekte, atomik (tmp dosya + rename).
+  server.on("/kayit/restore_toplu", HTTP_POST, []() {
+    String veri = server.arg("plain");
+    File f = LittleFS.open("/kayit_restore_tmp.csv", "w");
+    if (!f) { server.send(500, "application/json", "{\"basarili\":false,\"mesaj\":\"gecici dosya acilamadi\"}"); return; }
+    f.print(veri);
+    f.close();
+    LittleFS.remove(KAYIT_DOSYASI);
+    LittleFS.rename("/kayit_restore_tmp.csv", KAYIT_DOSYASI);
+    server.send(200, "application/json", "{\"basarili\":true}");
+  });
   // ===== NANO GENEL GPIO API (PIN_MODE/PIN_WRITE/PIN_READ) =====
   // Nano'ya seri komut gonderir, yaniti bekler ve JSON olarak dondurur.
   // Ornek: /pin/mode?pin=6&mod=OUTPUT  |  /pin/write?pin=6&val=1  |  /pin/read?pin=6
@@ -2625,8 +2669,9 @@ void setup() {
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Durduruldu\"}");
   });
   server.on("/api/kapi/durum", []() {
-    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + "},";
-    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + "}}";
+    String j = "{\"kapi1\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[0].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[0].hataAsiriAkim ? "true" : "false") + ",\"akim\":" + String(bahceKapi[0].akimAmper, 2) + "},";
+    j += "\"kapi2\":{\"durum\":\"" + String(kapiDurumAdi(bahceKapi[1].durum)) + "\",\"asiri_akim\":" + String(bahceKapi[1].hataAsiriAkim ? "true" : "false") + ",\"akim\":" + String(bahceKapi[1].akimAmper, 2) + "},";
+    j += "\"kilit\":" + String(bahceKilitAktif ? "true" : "false") + ",\"acilisAdim\":" + String(acilisSekansiDebugAdim()) + "}";
     server.send(200, "application/json", j);
   });
   // Buzzer'i (D12/NANO_BUZZER_PIN) elle test etmek icin - PIR'i tetiklemeden

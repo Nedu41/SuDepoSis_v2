@@ -118,9 +118,10 @@ void wifiCredKaydet(const String& ssid, const String& pass) {
   savedPass = pass;
 }
 
-// RS485 uzerinden esp8266_slave'e komut gonderir (tanimi asagida) -
-// hava durumu fonksiyonlari bunu kullanir, bu yuzden ileri bildirim gerekir.
-bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms, uint8_t max_attempts);
+// Sudepo (ESP8266) yerel HTTP API'sine komut gonderir (tanimi asagida) -
+// RS485 komut kanali yerine (2026-09-15). Erken kullanimlar icin ileri bildirim.
+bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms = 2000);
+bool sudepoHttpPost(const String& path, const String& body, String& reply, uint16_t timeout_ms = 3000);
 String jsonKacir(const String& s); // JSON string escape (tanimi asagida) - erken kullanimlar icin ileri bildirim
 void jsonSendOk(bool basarili, const String& mesaj);
 void jsonSendOkReply(bool basarili, const String& mesaj, const String& reply);
@@ -189,15 +190,23 @@ bool zamanTarihAyristir(const String& zaman, int& gun, int& ay, int& yil) {
   return (gun >= 1 && gun <= 31 && ay >= 1 && ay <= 12 && yil > 2000);
 }
 
-// ESP8266'nin RTC'sinden guncel gun-sayisini okur (RS485 uzerinden).
-// Basarisiz olursa false doner - cagiran taraf temkinli davranmali.
+// "/zaman/oku" HTTP yanitindan ({"zaman":"dd/mm/yyyy hh:mm:ss"}) deger cikarir.
+String zamanJsonAyikla(const String& j) {
+  int i = j.indexOf("\"zaman\":\"");
+  if (i < 0) return "";
+  i += 9;
+  int son = j.indexOf('"', i);
+  return (son >= 0) ? j.substring(i, son) : "";
+}
+
+// ESP8266'nin RTC'sinden guncel gun-sayisini okur (HTTP /zaman/oku uzerinden,
+// 2026-09-15 oncesi RS485 idi). Basarisiz olursa false doner.
 bool simdikiGunSayisi(long& out) {
-  String zamanReply;
-  if (!rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 1000, 3)) return false;
-  int eq = zamanReply.indexOf("GET_ZAMAN=");
-  if (eq < 0) return false;
+  String reply;
+  if (!sudepoHttpGet("/zaman/oku", reply)) return false;
+  String zaman = zamanJsonAyikla(reply);
   int g, a, y;
-  if (!zamanTarihAyristir(zamanReply.substring(eq + 10), g, a, y)) return false;
+  if (!zamanTarihAyristir(zaman, g, a, y)) return false;
   out = gunSayisi(y, a, g);
   return true;
 }
@@ -214,13 +223,10 @@ unsigned long zamanCacheSonGuncellemeMs = 0;
 void zamanCacheGuncelle() {
   if (zamanCacheSonGuncellemeMs != 0 && millis() - zamanCacheSonGuncellemeMs < ZAMAN_CACHE_YENILEME_MS) return;
   zamanCacheSonGuncellemeMs = millis();
-  String zamanReply;
-  if (rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 500, 1)) {
-    int eq = zamanReply.indexOf("GET_ZAMAN=");
-    if (eq >= 0) {
-      zamanCacheStr = zamanReply.substring(eq + 10);
-      zamanCacheStr.trim();
-    }
+  String reply;
+  if (sudepoHttpGet("/zaman/oku", reply, 500)) {
+    String zaman = zamanJsonAyikla(reply);
+    if (zaman.length()) { zamanCacheStr = zaman; zamanCacheStr.trim(); }
   }
 }
 
@@ -407,7 +413,7 @@ void weatherKontrolEt() {
   if (guncel) weatherFirtinaHesapla(); else { weatherFirtinaVar = false; weatherFirtinaGunIndex = -1; }
 
   String reply;
-  rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+  sudepoHttpGet(weatherSkipOneri ? "/nem/rain_skip?atla=1" : "/nem/rain_skip?atla=0", reply);
 }
 
 // ============================================================
@@ -2058,53 +2064,44 @@ void rs485_send(const char* data) {
   digitalWrite(RS485_DE_PIN, LOW);   // Receiver mode
 }
 
-bool rs485_send_wait_ack(const char* data, String& response, unsigned long timeout_ms = 1000, uint8_t max_attempts = 2) {
-  RS485Kilit kilit; // bkz RS485Kilit tanimi - loop() ile BLE gorevinin hatta ayni anda dokunmasini engeller
-  for (uint8_t attempt = 0; attempt < max_attempts; attempt++) {
-    // Drop any stale data before sending, to avoid reading older lines as the ACK.
-    while (Serial1.available()) {
-      Serial1.read();
-    }
+// ============================================================
+// SUDEPO HTTP KOMUT KANALI (2026-09-15)
+// ============================================================
+// Kullanici karari: kapi kontrolunde RS485 komut kanali (SoftwareSerial +
+// R413D08 Modbus trafigiyle paylasilan yari-cift-yonlu hat) tekrar tekrar
+// "kopma"ya yol acti - ayni motoru Sudepo'nun KENDI yerel arayuzunden
+// kontrol etmek her zaman sorunsuzdu. Kok neden RS485 hattinin kendisiydi,
+// bu yuzden ayni desen (Sudepo'nun web arayuzunde butona basilmis GIBI
+// davranmak) TUM proje geneline yayildi - artik Kalburum, ESP8266'ya komut
+// gondermek icin RS485 DEGIL, WiFi/HTTP kullanir (zaten /durum, /api/status
+// polling icin kanitlanmis stabil bir kanal). RS485 SADECE durum senkronu
+// (periyodik masterGonder() push'u) icin kullanilmaya devam eder - bu
+// fonksiyonlar durum/telemetri OKUMAZ, sadece komut GONDERIR.
+bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms) {
+  WiFiClient client;
+  HTTPClient http;
+  String url = "http://sudepo.local" + path;
+  http.setTimeout(timeout_ms);
+  if (!http.begin(client, url)) return false;
+  int code = http.GET();
+  bool ok = (code == 200);
+  if (ok) reply = http.getString();
+  http.end();
+  return ok;
+}
 
-    digitalWrite(RS485_DE_PIN, HIGH);
-    delayMicroseconds(200);
-    Serial1.print(data);
-    Serial1.flush();
-    delayMicroseconds(200);
-    digitalWrite(RS485_DE_PIN, LOW);
-
-    unsigned long start_ms = millis();
-    response = "";
-    while (millis() - start_ms < timeout_ms) {
-      if (Serial1.available()) {
-        char c = Serial1.read();
-        if (c == '\n') {
-          if (response.length() > 0) {
-            DEBUG_PRINT("[RS485] ACK reply: ");
-            DEBUG_PRINTLN(response);
-            if (response.startsWith("ACK:")) {
-              return true;
-            }
-            response = "";
-          }
-        } else if (c != '\r' && c >= 32) {
-          response += c;
-        }
-      }
-      yield();
-    }
-
-    if (response.length() > 0) {
-      DEBUG_PRINT("[RS485] Last partial reply: ");
-      DEBUG_PRINTLN(response);
-    }
-
-    DEBUG_PRINTLN("[RS485] ACK timeout, retrying...");
-    delay(25);
-  }
-
-  DEBUG_PRINTLN("[RS485] ACK failed after retries");
-  return false;
+bool sudepoHttpPost(const String& path, const String& body, String& reply, uint16_t timeout_ms) {
+  WiFiClient client;
+  HTTPClient http;
+  String url = "http://sudepo.local" + path;
+  http.setTimeout(timeout_ms);
+  if (!http.begin(client, url)) return false;
+  http.addHeader("Content-Type", "text/plain");
+  int code = http.POST((uint8_t*)body.c_str(), body.length());
+  bool ok = (code == 200);
+  if (ok) reply = http.getString();
+  http.end();
+  return ok;
 }
 
 String rs485_read_line() {
@@ -3206,8 +3203,7 @@ void bateryaRS485Bildir() {
   static bool oncekiKritik = false;
   if (bateryaKritik == oncekiKritik) return;
   String reply;
-  String cmd = String("MASTER:SET_BATTERY_LOW=") + (bateryaKritik ? "1" : "0") + "\n";
-  rs485_send_wait_ack(cmd.c_str(), reply, 1000, 3);
+  sudepoHttpGet(bateryaKritik ? "/nem/battery_low?dusuk=1" : "/nem/battery_low?dusuk=0", reply);
   oncekiKritik = bateryaKritik;
 }
 
@@ -3661,74 +3657,42 @@ void handleFirmwareDurum() {
 #define KAYIT_BACKUP_DOSYASI "/kayitlar_backup.csv"
 String sonYedekZamanStr = "-";
 
+// 2026-09-15: RS485 GET_KAYITLAR ("~" ayracli tek satir) yerine dogrudan
+// ESP8266'nin kendi /kayit/csv HTTP ucu - zaten ham CSV donduruyor, format
+// donusumu gerekmiyor.
 bool esp8266KayitYedekle() {
-  String reply;
-  bool ok = rs485_send_wait_ack("MASTER:GET_KAYITLAR\n", reply, 1000, 3);
-  if (!ok) return false;
-  int eq = reply.indexOf("GET_KAYITLAR=");
-  if (eq < 0) return false;
-  String joined = reply.substring(eq + 13);
+  String csv;
+  if (!sudepoHttpGet("/kayit/csv", csv)) return false;
   File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "w");
   if (!f) return false;
-  int start = 0;
-  while (start <= (int)joined.length()) {
-    int tilde = joined.indexOf('~', start);
-    String satir = (tilde >= 0) ? joined.substring(start, tilde) : joined.substring(start);
-    if (satir.length() > 0) f.println(satir);
-    if (tilde < 0) break;
-    start = tilde + 1;
-  }
+  f.print(csv);
   f.close();
-  // Gercek tarih/saat icin ESP8266'nin RTC'sini sor (ESP32'de RTC yok).
   String zamanReply;
-  if (rs485_send_wait_ack("MASTER:GET_ZAMAN\n", zamanReply, 1000, 3)) {
-    int eqZ = zamanReply.indexOf("GET_ZAMAN=");
-    if (eqZ >= 0) sonYedekZamanStr = zamanReply.substring(eqZ + 10);
-    else sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
+  if (sudepoHttpGet("/zaman/oku", zamanReply)) {
+    String zaman = zamanJsonAyikla(zamanReply);
+    sonYedekZamanStr = zaman.length() ? zaman : (String(millis() / 1000) + "sn (uptime)");
   } else {
     sonYedekZamanStr = String(millis() / 1000) + "sn (uptime)";
   }
   return true;
 }
 
-// ESP8266'nin RS485 tarafi kucuk SoftwareSerial arabellegi kullaniyor - tum
-// yedegi TEK uzun satirda geri gondermek tasma riski tasir. Bunun yerine
-// satir satir, her birini ACK ile onaylatarak gonderiyoruz.
 String kayitGeriYuklemeHata = "";
 
+// 2026-09-15: RS485 RESTORE_BASLA/SATIR/BITIR (SoftwareSerial buffer'i kucuk
+// oldugundan satir satir 3 asamali) yerine tek HTTP POST - /kayit/restore_toplu
+// tum CSV'yi tek seferde atomik yazar (tmp dosya + rename), satir sayisi
+// sinirini ve arada nefes payi (delay(30)) gereksinimini ortadan kaldirir.
 bool esp8266KayitGeriYukle() {
   kayitGeriYuklemeHata = "";
   File f = SPIFFS.open(KAYIT_BACKUP_DOSYASI, "r");
   if (!f) { kayitGeriYuklemeHata = "Yedek dosyasi yok"; return false; }
-  String reply;
-  // FIX: 1000ms/3 deneme ara sira yetersiz kaliyordu (ESP8266 kendi nanoPoll
-  // dongusuyle mesgulken RESTORE_SATIR kacabiliyordu) - "yedeklendi" basarili
-  // oluyordu (tek istek) ama "geri yukle" (10 ardisik istek) sik basarisiz
-  // oluyordu. Sure/deneme arttirildi, satirlar arasina kucuk bir bosluk
-  // eklendi ki ESP8266 arada nefes alsin.
-  if (!rs485_send_wait_ack("MASTER:RESTORE_BASLA\n", reply, 1500, 5)) {
-    f.close(); kayitGeriYuklemeHata = "RESTORE_BASLA yanit vermedi"; return false;
-  }
-  bool hepsiOk = true;
-  int satirNo = 0;
-  while (f.available()) {
-    String satir = f.readStringUntil('\n'); satir.trim();
-    if (satir.length() == 0) continue;
-    satirNo++;
-    String cmd = "MASTER:RESTORE_SATIR=" + satir + "\n";
-    if (!rs485_send_wait_ack(cmd.c_str(), reply, 1500, 5)) {
-      hepsiOk = false;
-      kayitGeriYuklemeHata = String(satirNo) + ". satirda yanit alinamadi";
-      break;
-    }
-    delay(30);
-  }
+  String csv = f.readString();
   f.close();
-   if (!rs485_send_wait_ack("MASTER:RESTORE_BITIR\n", reply, 1500, 5)) {
-    hepsiOk = false;
-    if (kayitGeriYuklemeHata.length() == 0) kayitGeriYuklemeHata = "RESTORE_BITIR yanit vermedi";
-  }
-  return hepsiOk;
+  String reply;
+  bool ok = sudepoHttpPost("/kayit/restore_toplu", csv, reply, 5000);
+  if (!ok) kayitGeriYuklemeHata = "Sudepo'ya yuklenemedi";
+  return ok;
 }
 
 void handleAPI_KayitYedekle() {
@@ -3850,7 +3814,7 @@ void handleAPI_WeatherCheck() {
     ((weatherForecastMm[1] >= WEATHER_RAIN_THRESHOLD_MM) || (weatherForecastProb[1] >= WEATHER_RAIN_PROB_THRESHOLD));
   if (guncel) weatherFirtinaHesapla(); else { weatherFirtinaVar = false; weatherFirtinaGunIndex = -1; }
   String reply;
-  rs485_send_wait_ack(weatherSkipOneri ? "MASTER:SET_RAIN_SKIP=1\n" : "MASTER:SET_RAIN_SKIP=0\n", reply, 1000, 3);
+  sudepoHttpGet(weatherSkipOneri ? "/nem/rain_skip?atla=1" : "/nem/rain_skip?atla=0", reply);
   jsonSendOk(ok, weatherDurum);
 }
 
@@ -4092,7 +4056,7 @@ void handleAPI_KonteynerAlarm() {
 // (bleKomutIsle, asagida) tarafindan ortak kullanilir - ikisi de ayni RS485
 // komutunu gonderip ayni global durumu guncellemeli.
 bool lambaAyarla(bool acik, String& reply) {
-  bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_LAMBA=1\n" : "MASTER:SET_LAMBA=0\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet(acik ? "/lamba?durum=1" : "/lamba?durum=0", reply);
   if (ok) {
     nanoStatus.lamp_on = acik;
     last_rs485_update_ms = millis(); // poll timer'ı sıfırla - hemen tekrar GET_STATUS göndermesin
@@ -4167,11 +4131,9 @@ void handleAPI_AdaptorEsik() {
 }
 
 bool alarmAyarla(bool aktif, String& reply) {
-  // NOT: timeout/deneme sayisi bir ara 400ms/2'ye dusurulmustu (banner
-  // butonlarini hizlandirmak icin) ama bu projede RS485 hat cakismasi daha
-  // once gercek bir sorun oldugundan (bkz proje notlari) komutlarin
-  // ulasmasini guvenilmez hale getirdi - 1000ms/3'e geri alindi.
-  bool ok = rs485_send_wait_ack(aktif ? "MASTER:SET_ALARM=1\n" : "MASTER:SET_ALARM=0\n", reply, 1000, 3);
+  // 2026-09-15: RS485 -> HTTP. esp8266_slave/handleRoleAyarla, RS485 SET_ALARM
+  // ile AYNI davranisa (bayrak kaydet + roleyi aninda tetikle) getirildi.
+  bool ok = sudepoHttpGet(aktif ? "/role/ayarla?aktif=1" : "/role/ayarla?aktif=0", reply);
   if (ok) { alarmStatus.enabled = aktif; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -4188,7 +4150,7 @@ void handleAPI_Alarm() {
 }
 
 bool alarmModAyarla(uint8_t mod, String& reply) {
-  bool ok = rs485_send_wait_ack((String("MASTER:SET_ALARM_MOD=") + mod + "\n").c_str(), reply, 1000, 3);
+  bool ok = sudepoHttpGet("/ayarlar/kaydet?alarmMod=" + String(mod), reply);
   if (ok) {
     alarmStatus.mode = mod; alarmStatus.muted = false; alarmStatus.pending = false; last_rs485_update_ms = millis();
     // Konteyner'in yerel onay bayraklarini da mod degisince temizle - ONCEDEN
@@ -4229,7 +4191,10 @@ bool alarmSustur(String& reply) {
   // OR'una gore (yoksa sadece biri susturulmusken buton kilitli kalirdi).
   bool hedef = !(alarmStatus.muted || konteynerSusturuldu);
   konteynerSusturuldu = hedef; // RS485/ESP8266 sonucundan bagimsiz hemen uygulanir
-  bool ok = rs485_send_wait_ack((String("MASTER:ALARM_MUTE=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
+  // 2026-09-15: RS485 -> HTTP. esp8266_slave/handleAlarmSustur artik "aktif"
+  // parametresiyle HEDEF deger kabul ediyor (bkz oradaki ayni FIX yorumu) -
+  // koşulsuz toggle olan yerel /alarm/sustur davranisina GERI DONULMEDI.
+  bool ok = sudepoHttpGet(hedef ? "/alarm/sustur?aktif=1" : "/alarm/sustur?aktif=0", reply);
   if (ok) { alarmStatus.muted = hedef; last_rs485_update_ms = millis(); }
   return ok;
 }
@@ -4241,7 +4206,7 @@ void handleAPI_AlarmMute() {
 }
 
 bool alarmOnayla(String& reply) {
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet("/alarm/onayla", reply);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in kendi onayi ESP8266/RS485'ten BAGIMSIZ (yerel bayrak) -
   // ESP8266 cevrimdisi olsa bile Kalburum'un onayi calissin. ONCEDEN BUG:
@@ -4266,7 +4231,7 @@ void handleAPI_AlarmOnayla() {
 
 void handleAPI_AlarmOnaylaLamba() {
   String reply;
-  bool ok = rs485_send_wait_ack("MASTER:ALARM_ONAYLA_LAMBA\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet("/alarm/onayla_lamba", reply);
   if (ok) { alarmStatus.pending = false; last_rs485_update_ms = millis(); }
   // Konteyner'in KONTEYNER_LAMBA_PIN uzerinden gercek bir lamba ciktisi var -
   // "Sessiz" secildigi icin buzzer/siren ATILMAZ (konteynerOnayVerildi false
@@ -4286,7 +4251,7 @@ void handleAPI_MoistureToggle() {
   }
   int d = server.arg("durum").toInt();
   String reply;
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_MOISTURE=1\n" : "MASTER:SET_MOISTURE=0\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet(d ? "/nem?durum=1" : "/nem?durum=0", reply);
   if (ok) { sensorData.moisture_output = (d == 1); last_rs485_update_ms = millis(); }
   jsonSendOkReply(ok, ok ? (d ? "Nem cikisi Acik" : "Nem cikisi Kapali") : "Komut hatasi", reply);
 }
@@ -4298,7 +4263,7 @@ void handleAPI_MoistureAuto() {
   }
   int d = server.arg("aktif").toInt();
   String reply;
-  bool ok = rs485_send_wait_ack(d ? "MASTER:SET_MOISTURE_AUTO=1\n" : "MASTER:SET_MOISTURE_AUTO=0\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet(d ? "/nem/mod?otomatik=1" : "/nem/mod?otomatik=0", reply);
   if (ok) { sensorData.moisture_auto = (d == 1); last_rs485_update_ms = millis(); }
   jsonSendOkReply(ok, ok ? (d ? "Nem otomatik" : "Nem manuel") : "Komut hatasi", reply);
 }
@@ -4314,23 +4279,22 @@ void handleAPI_MoistureThreshold() {
   if (high < 0) high = 0;
   if (low > 100) low = 100;
   if (high > 100) high = 100;
-  String replyLow;
-  String replyHigh;
-  String cmdLow = String("MASTER:SET_MOISTURE_LOW=") + low + "\n";
-  String cmdHigh = String("MASTER:SET_MOISTURE_HIGH=") + high + "\n";
-  bool okLow = rs485_send_wait_ack(cmdLow.c_str(), replyLow, 1000, 3);
-  bool okHigh = rs485_send_wait_ack(cmdHigh.c_str(), replyHigh, 1000, 3);
-  if (okLow && okHigh) {
+  // 2026-09-15: RS485 -> HTTP, iki ayri komut yerine tek /ayarlar/kaydet cagrisi.
+  String reply;
+  bool ok = sudepoHttpGet("/ayarlar/kaydet?moistureThresholdLow=" + String(low) + "&moistureThresholdHigh=" + String(high), reply);
+  if (ok) {
     sensorData.moisture_low = low;
     sensorData.moisture_high = high;
     last_rs485_update_ms = millis();
   }
-  bool ok = okLow && okHigh;
-  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Esikler ayarlandi" : "Komut hatasi") + "\",\"replyLow\":\"" + jsonKacir(replyLow) + "\",\"replyHigh\":\"" + jsonKacir(replyHigh) + "\"}");
+  server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Esikler ayarlandi" : "Komut hatasi") + "\",\"reply\":\"" + jsonKacir(reply) + "\"}");
 }
 
+// 2026-09-15: RS485 SET_KAPI ("kapi" adi kafa karistirici ama esp8266_slave
+// tarafinda fiilen SET_ALARM ile AYNI fiziksel rolenin bir takma adi, bkz
+// rs485KomutDinle - bahce kapisiyla ilgisi YOK) - alarmAyarla ile ayni uca gider.
 bool kapiAyarla(bool acik, String& reply) {
-  bool ok = rs485_send_wait_ack(acik ? "MASTER:SET_KAPI=1\n" : "MASTER:SET_KAPI=0\n", reply, 1000, 3);
+  bool ok = sudepoHttpGet(acik ? "/role/ayarla?aktif=1" : "/role/ayarla?aktif=0", reply);
   if (ok) last_rs485_update_ms = millis();
   return ok;
 }
@@ -4354,52 +4318,24 @@ void handleAPI_Kapi() {
 // tasimak riskliydi - bkz kullanici onayi). Burada SADECE ekran/kontrol
 // Kalburum'a tasiniyor - ESP8266'nin GET_AYARLAR/SET_AYARLAR RS485
 // komutlarina koprulenir, ESP8266 hala tek dogru kaynak.
-bool sudepoAyarlarGetir(String& veri) {
-  String reply;
-  bool ok = rs485_send_wait_ack("MASTER:GET_AYARLAR\n", reply, 1000, 3);
-  if (ok) {
-    int idx = reply.indexOf("AYARLAR=");
-    veri = (idx >= 0) ? reply.substring(idx + 8) : "";
-  }
-  return ok;
-}
-
-bool sudepoAyarlarKaydet(const String& veri, String& reply) {
-  bool ok = rs485_send_wait_ack(("MASTER:SET_AYARLAR=" + veri + "\n").c_str(), reply, 1000, 3);
-  if (ok) last_rs485_update_ms = millis();
-  return ok;
-}
-
+// 2026-09-15: RS485 GET_AYARLAR/SET_AYARLAR -> HTTP. ESP8266'nin /ayarlar
+// (GET, JSON) ve /ayarlar/kaydet (form, AYNI alan adlari) uclarina dogrudan
+// koprulenir - "k=v,k=v" string donusumune artik gerek yok, /ayarlar zaten
+// JSON donduruyor.
 void handleAPI_SudepoAyarlarGetir() {
-  String veri;
-  bool ok = sudepoAyarlarGetir(veri);
-  if (!ok) {
+  String json;
+  bool ok = sudepoHttpGet("/ayarlar", json);
+  if (!ok || json.length() < 2 || json.charAt(0) != '{') {
     server.send(200, "application/json", "{\"basarili\":false,\"mesaj\":\"ESP8266'dan yanit yok\"}");
     return;
   }
-  // "k=v,k=v,..." -> JSON. Deger tipini tahmin etmeye calismadan hepsini
-  // sayi olarak yaziyoruz (JS tarafinda Number()/parseInt() zaten kullanilacak).
-  DynamicJsonDocument doc(1024);
-  int pos = 0;
-  while (pos < (int)veri.length()) {
-    int eq = veri.indexOf('=', pos);
-    if (eq < 0) break;
-    int comma = veri.indexOf(',', eq);
-    if (comma < 0) comma = veri.length();
-    String key = veri.substring(pos, eq);
-    String val = veri.substring(eq + 1, comma);
-    doc[key] = val.toFloat();
-    pos = comma + 1;
-  }
-  doc["basarili"] = true;
-  String json;
-  serializeJson(doc, json);
+  json = "{\"basarili\":true," + json.substring(1); // "{" -> "{"basarili":true,"
   server.send(200, "application/json", json);
 }
 
 void handleAPI_SudepoAyarlarKaydet() {
-  // Web formundan gelen ayni parametre adlarini "k=v,k=v" RS485 formatina
-  // cevirir - ESP8266'nin kendi /ayarlar/kaydet endpoint'iyle ayni alan adlari.
+  // Web formundan gelen ayni parametre adlarini query string'e cevirir -
+  // ESP8266'nin kendi /ayarlar/kaydet endpoint'iyle ayni alan adlari.
   const char* alanlar[] = {
     "bosMesafe", "doluMesafe", "kapasite", "alarmYuzde", "geceBaslangic", "geceBitis",
     "minDolumLitre", "kacakEsikDakika", "depoYatay", "moistureAutomatic",
@@ -4407,19 +4343,19 @@ void handleAPI_SudepoAyarlarKaydet() {
     "alarmMod", "alarmSensorEtkin", "alarmMaskSesli", "alarmMaskSessiz", "alarmMaskOnayli",
     "alarmOutputSesli", "alarmOutputSessiz", "pirPencereSaniye", "pirMinTetiklenme"
   };
-  String veri;
+  String sorgu;
   for (const char* alan : alanlar) {
     if (server.hasArg(alan)) {
-      if (veri.length() > 0) veri += ",";
-      veri += String(alan) + "=" + server.arg(alan);
+      sorgu += String(sorgu.length() ? "&" : "?") + alan + "=" + server.arg(alan);
     }
   }
-  if (veri.length() == 0) {
+  if (sorgu.length() == 0) {
     server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"ayar yok\"}");
     return;
   }
   String reply;
-  bool ok = sudepoAyarlarKaydet(veri, reply);
+  bool ok = sudepoHttpGet("/ayarlar/kaydet" + sorgu, reply);
+  if (ok) last_rs485_update_ms = millis();
   server.send(200, "application/json", "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + String(ok ? "Kaydedildi" : "Komut hatasi") + "\"}");
 }
 
@@ -4441,17 +4377,17 @@ void handleAPI_SudepoAyarlarKaydet() {
 // fiziksel Acil Buton'un Konteyner'in KENDI alarmini bile tetiklememesine
 // sebep oluyordu (SAHADA dogrulanan bug, guvenlik-kritik bir buton icin
 // kabul edilemezdi, bkz memory project_acil_buton_rs485_blok_riski).
+// 2026-09-15: RS485 -> HTTP. Lokal etki (alarmStatus.panic_mode, yukaridaki
+// yorum) HALA ag cagrisindan ONCE ve BAGIMSIZ uygulanir - guvenlik-kritik
+// davranis (memory project_acil_buton_rs485_blok_riski) korunuyor.
 bool panikTetikleHedef(bool hedef, bool& panicActive, String& reply) {
-  alarmStatus.panic_mode = hedef; // lokal etki once, RS485'ten bagimsiz
+  alarmStatus.panic_mode = hedef; // lokal etki once, ag sonucundan bagimsiz
   panicActive = hedef;
-  bool ok = rs485_send_wait_ack((String("MASTER:PANIC=") + (hedef ? "1" : "0") + "\n").c_str(), reply, 1000, 3);
+  bool ok = sudepoHttpGet(hedef ? "/role/panic?aktif=1" : "/role/panic?aktif=0", reply);
   if (ok) {
-    // ACK yanıtından Sudepo'nun gercek durumunu cöz: "ACK:PANIC=1/0"
-    int eqIdx = reply.indexOf("PANIC=");
-    if (eqIdx >= 0) {
-      panicActive = (reply.substring(eqIdx + 6).startsWith("1"));
-      alarmStatus.panic_mode = panicActive;
-    }
+    // /role/panic JSON yanitindan Sudepo'nun gercek durumunu cöz: "panic":true/false
+    panicActive = (reply.indexOf("\"panic\":true") >= 0);
+    alarmStatus.panic_mode = panicActive;
     last_rs485_update_ms = millis();
   }
   return ok;

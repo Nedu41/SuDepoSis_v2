@@ -67,6 +67,13 @@ uint16_t modbusCRC16(const uint8_t* buf, uint8_t len) {
 // dokumanindan (github.com/microrobotics/R413D08) dogrulandi - eskiden
 // yanlislikla standart Write Single Coil formati kullaniliyordu, R413D08
 // bu yuzden hicbir komuta tepki vermiyordu.
+// 2026-09-15: fire-and-forget oldugu icin (yanit beklenmiyor) cerceve hatta
+// (Kalburum'un ayni swSerial hattina yazdigi metin protokolüyle) çakışıp
+// kaybolabiliyor - sahada DUR sonrasi bir kanadin dakikalarca enerjili
+// kaldigi, sadece tekrar tekrar basinca "kendiliginden" duzeldigi gozlendi.
+// Ayni cerceve kisa aralikla 3 kez gonderilerek tek seferlik kayip riski
+// azaltilir - toplam maliyet birkaç ms, guvenlik-kritik (motor durdurma
+// dahil) tum role yazimlarinda tek noktadan gecerli.
 void r413RoleYaz(uint8_t koilNo, bool acik) {
   uint8_t frame[8];
   frame[0] = R413D08_MODBUS_ADRES;
@@ -75,11 +82,14 @@ void r413RoleYaz(uint8_t koilNo, bool acik) {
   frame[4] = acik ? 0x01 : 0x02; frame[5] = 0x00;
   uint16_t crc = modbusCRC16(frame, 6);
   frame[6] = crc & 0xFF; frame[7] = (crc >> 8) & 0xFF;
-  digitalWrite(RS485_DE_PIN, HIGH);
-  delayMicroseconds(100);
-  swSerial.write(frame, 8);
-  delay(2);
-  digitalWrite(RS485_DE_PIN, LOW);
+  for (uint8_t tekrar = 0; tekrar < 3; tekrar++) {
+    digitalWrite(RS485_DE_PIN, HIGH);
+    delayMicroseconds(100);
+    swSerial.write(frame, 8);
+    delay(2);
+    digitalWrite(RS485_DE_PIN, LOW);
+    if (tekrar < 2) delay(3);
+  }
 }
 
 // GECICI TEST (bkz bahce_kapisi.h): fire-and-forget DEGIL, gercekten yanit
@@ -122,11 +132,17 @@ String r413DurumSorgula() {
 // Nano'nun genel ANALOG_READ komutuna senkron (bloklayan) sarmalayici.
 // Dijital karsiligi (PIN_READ) artik kullanilmiyor - tum dijital girisler
 // tek seferde PIN_READ_ALL ile okunuyor (bkz bahceNanoPoll).
+// 2026-09-15: 300ms -> 80ms. Nano donanim UART0 uzerinde normalde birkac ms
+// icinde cevap veriyor; 300ms sadece "hic cevap yok" durumu icin asiri
+// cömert bir sinirdi. Kapi hareket halindeyken bu fonksiyon her kapiPoll()
+// turunda (250ms) cagrildigindan, uzun timeout ESP8266'nin loop()'unu
+// bloke edip swSerial (Kalburum RS485) trafigini kacirmasina - Kalburum'un
+// ACK bekleyip "kopma" gibi gorunmesine - yol aciyordu.
 static int nanoAnalogOku(int pin) {
   while (Serial.available()) Serial.read();
   Serial.print("ANALOG_READ:"); Serial.println(pin);
   unsigned long t = millis(); String r = ""; bool ok = false;
-  while (millis() - t < 300) {
+  while (millis() - t < 80) {
     if (Serial.available()) { r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ANALOG:") >= 0) { ok = true; break; } }
     yield();
   }
@@ -140,17 +156,15 @@ static int nanoAnalogOku(int pin) {
 // orada bahceKapi1/2TamKapali'ya yaziyor. Ekstra Nano trafigi olmadan taze.
 static bool kapiTamKapaliMi(int i) { return i == 0 ? bahceKapi1TamKapali : bahceKapi2TamKapali; }
 
-// Kilit rolesine her yazim buradan gecer - komut durumu (bahceKilitAktif)
-// tek noktada guncel kalsin, web/RS485 gostergesi gercegi yansitsin.
-static void kilitYaz(BahceKapisi& k, bool aktif) {
-  r413RoleYaz(k.releKilit, aktif);
-  bahceKilitAktif = aktif;
-}
-
 static void kapiMotorDurdur(BahceKapisi& k) {
   r413RoleYaz(k.releA, false);
   r413RoleYaz(k.releB, false);
   k.akimAmper = 0.0;  // motor duruyor, gosterge "0A" gostersin - eski deger yaniltici olmasin
+}
+
+static void kilitYaz(BahceKapisi& k, bool aktif) {
+  r413RoleYaz(k.releKilit, aktif);
+  bahceKilitAktif = aktif;
 }
 
 void kapiTumRoleleriKapat() {
@@ -160,10 +174,20 @@ void kapiTumRoleleriKapat() {
   }
 }
 
-// Gecikmeli (ikinci) kanat komutu - bkz kapiCiftKanatAc/Kapat. 0 = bekleyen yok.
+// 2026-09-17: R5/R1/R3 ortak-kilit ladder denemesi (AcilisSekansi) sahada
+// kararsizdi (motor beklenmedik sekilde erken kesiliyordu) ve birden fazla
+// duzeltme turunda dogru oturtulamadi - EN SON DOGRULANMIS STABIL hale
+// (kapi basina AYRI kilit darbesi) geri donuldu. Bkz proje hafizasi.
 static unsigned long gecikmeliKomutMs = 0;
 static int gecikmeliKomutKapi = -1;
 static bool gecikmeliKomutAc = false;
+
+void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
+
+// Saha testinde adim goruntulemek icin eklenmisti (AcilisSekansi'a ait) -
+// ladder kaldirildigi icin artik hep 0 doner, main.cpp'nin /api/kapi/durum
+// cagrisini bozmamak icin stub olarak birakildi.
+uint8_t acilisSekansiDebugAdim() { return 0; }
 
 // 2 kanatli kapilarin temel kurali: kanatlar orta noktada bindirdigi icin
 // ayni anda hareket EDEMEZ. Acilista ust kanat once, kapanista en son -
@@ -184,8 +208,6 @@ void kapiCiftKanatKapat() {
   gecikmeliKomutAc = false;
   gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_KAPA_MS;
 }
-
-void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
 
 // Acilis komutu: once kilidi darbeyle acar, pulse suresi dolunca kapiPoll()
 // motoru baslatir (bkz asagisi) - delay() ile bloklamadan sekans yurutulur.
