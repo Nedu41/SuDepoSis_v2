@@ -179,79 +179,123 @@ static int gecikmeliKomutKapi = -1;
 
 void kapiGecikmeliKomutIptal() { gecikmeliKomutMs = 0; gecikmeliKomutKapi = -1; }
 
-// ============ IKI KANATLI ACILIS - KADEMELI R5/R3/R1 (2026-09-17) ============
-// Kullanici tarifi, AskUserQuestion ile kesinlestirildi: R5(kilit) HIGH aninda
-// -> 1sn -> Kapi2(R3) motoru HIGH -> 1sn -> Kapi1(R1) motoru HIGH -> 1sn ->
-// R5 LOW (motorlar bundan sonra normal calismaya devam eder). SADECE "ikisini
-// de ac" komutunda gecerli - tek kanat acilisi (kapiAcKomut) bunu KULLANMAZ,
-// o kendi ayri mantigini korur (kilit+motor ayni anda, R5 bagimsiz 3sn sonra).
-struct CiftAcilisSekansi {
-  bool aktif = false;
-  unsigned long adimBaslangicMs = 0;
-  uint8_t adim = 0;  // 0=R5 HIGH (baslangic), 1=kapi2 motoru basladi, 2=kapi1 motoru basladi, 3=R5 LOW/bitti
-};
-static CiftAcilisSekansi ciftAcilis;
+// ============ IKI KANAT LADDER-MANTIK SEKANSI ============
+// 2026-09-13'te sahada dogrulanmis, sonra birkac "tam geri alma" sirasinda
+// kaybolmus tasarimin GERI PORTU (2026-09-17, kullanici: "çift kapıda da
+// çalışan son sürüme geri al" - bkz proje hafizasi
+// project_bahce_kapisi_ladder_mantik_cozuldu, commit 5152f17). 2026-09-17
+// sabah yapilan ilk deneme (CiftAcilisSekansi) tek kapinin KILIT_ACILIYOR/
+// kilitPulseBaslangicMs alanlarini PAYLASIYORDU (yaris durumu riski) VE
+// - en onemlisi - sekans SURERKEN bir kanat HATA'ya (asiri akim/zaman
+// asimi) duserse bunu HIC fark etmiyordu, digerini baslatmaya kor kor
+// devam ediyordu. Asagidaki tasarim KENDI AYRI durum degiskenini kullanir,
+// hicbir alani tek kapi (kapiAcKomut) ile PAYLASMAZ, ve her adimda HATA
+// kontrolu yapip gerekirse sekansi hemen iptal eder.
+enum IkiliAdim { IKILI_YOK, AC_ADIM_KILIT, AC_ADIM_KAPI2, AC_ADIM_KAPI1 };
+static IkiliAdim ikiliAdim = IKILI_YOK;
+static unsigned long ikiliAdimMs = 0;
 
-static void ciftAcilisIptalEt() {
-  if (!ciftAcilis.aktif) return;
-  r413RoleYaz(BAHCE_KILIT_RELE, false);
-  bahceKilitAktif = false;
-  ciftAcilis.aktif = false;
+static void ikiliSekansIptalEt() {
+  if (ikiliAdim == IKILI_YOK) return;
+  // KOSULSUZ birak - bahceKilitAktif bayragina GUVENME. R413D08 yazimlari
+  // fire-and-forget (yanit beklenmez, bkz r413RoleYaz yorumu); bayrak "off"
+  // dese bile gercek role KAYBOLAN BIR CERCEVE yuzunden hala enerjili
+  // kalmis olabilir. Durdur+hemen-tekrar-baslat testinde gorulen "saçmalıyor"
+  // sikayetinin olasi kaynaklarindan biri buydu (2026-09-17).
+  kilitYaz(bahceKapi[0], false);
+  ikiliAdim = IKILI_YOK;
 }
 
-static void ciftAcilisMotorBaslat(BahceKapisi& k) {
-  k.hataAsiriAkim = false;
-  k.akimTepeAmper = 0.0;
-  k.birlikte = true;
-  r413RoleYaz(k.releB, false);
-  r413RoleYaz(k.releA, true);
-  k.hareketBaslangicMs = millis();
-  k.durum = KAPI_HAREKET_AC;
-}
-
-static void ciftAcilisPoll() {
-  if (!ciftAcilis.aktif) return;
-  unsigned long now = millis();
-  if (now - ciftAcilis.adimBaslangicMs < BAHCE_KAPI_LADDER_ADIM_MS) return;
-  ciftAcilis.adimBaslangicMs = now;
-  ciftAcilis.adim++;
-  if (ciftAcilis.adim == 1) {
-    ciftAcilisMotorBaslat(bahceKapi[1]);  // Kapi2 (R3)
-  } else if (ciftAcilis.adim == 2) {
-    ciftAcilisMotorBaslat(bahceKapi[0]);  // Kapi1 (R1)
-  } else {
-    r413RoleYaz(BAHCE_KILIT_RELE, false);  // 3. adim: R5 birakilir
-    bahceKilitAktif = false;
-    ciftAcilis.aktif = false;
+static void ikiliSekansPoll() {
+  if (ikiliAdim == IKILI_YOK) return;
+  // Sekans surerken bir kanat HATA'ya dusmusse (asiri akim/zaman asimi)
+  // hemen iptal et - ladder, hatali kanadin yaninda henuz baslamamis
+  // digerini baslatmaya devam ETMEMELI.
+  if (bahceKapi[0].durum == KAPI_HATA || bahceKapi[1].durum == KAPI_HATA) {
+    ikiliSekansIptalEt();
+    return;
+  }
+  unsigned long simdi = millis();
+  if (simdi - ikiliAdimMs < BAHCE_KAPI_LADDER_ADIM_MS) return;
+  switch (ikiliAdim) {
+    case AC_ADIM_KILIT: {
+      BahceKapisi& k2 = bahceKapi[1];
+      r413RoleYaz(k2.releA, true);  // Role3 HIGH (Kapi2/SAG acma)
+      k2.durum = KAPI_HAREKET_AC;
+      k2.hataAsiriAkim = false;
+      k2.akimTepeAmper = 0.0;
+      k2.hareketBaslangicMs = simdi;
+      ikiliAdim = AC_ADIM_KAPI2;
+      ikiliAdimMs = simdi;
+      break;
+    }
+    case AC_ADIM_KAPI2: {
+      BahceKapisi& k1 = bahceKapi[0];
+      r413RoleYaz(k1.releA, true);  // Role1 HIGH (Kapi1/SOL acma)
+      k1.durum = KAPI_HAREKET_AC;
+      k1.hataAsiriAkim = false;
+      k1.akimTepeAmper = 0.0;
+      k1.hareketBaslangicMs = simdi;
+      ikiliAdim = AC_ADIM_KAPI1;
+      ikiliAdimMs = simdi;
+      break;
+    }
+    case AC_ADIM_KAPI1:
+      kilitYaz(bahceKapi[0], false);  // Role5 LOW
+      ikiliAdim = IKILI_YOK;
+      break;
+    default: break;
   }
 }
 
+// ACILIS: Role5(kilit) HIGH -> 1sn -> Role3(Kapi2/SAG acma) HIGH -> 1sn ->
+// Role1(Kapi1/SOL acma) HIGH -> 1sn -> Role5(kilit) LOW.
 void kapiCiftKanatAc() {
-  if (ciftAcilis.aktif) return;
+  if (ikiliAdim != IKILI_YOK) return;
   BahceKapisi& k1 = bahceKapi[0];
   BahceKapisi& k2 = bahceKapi[1];
   if (k1.durum == KAPI_HAREKET_AC || k2.durum == KAPI_HAREKET_AC) return;
+  // KRITIK: bekleyen bir "kapi2'yi gecikmeli kapat" zamanlayicisi varsa
+  // (kapat_cift'ten hemen sonra ac_cift'e basilmis olabilir) iptal et -
+  // yoksa bu eski komut birkac saniye sonra, tamamen alakasiz bir anda,
+  // acilmakta olan kapi2'yi sessizce kapatmaya calisirdi (2026-09-17).
+  kapiGecikmeliKomutIptal();
   kapiMotorDurdur(k1);
   kapiMotorDurdur(k2);
-  // KRITIK: tek kapi acilisindan (kapiAcKomut) kalmis olabilecek bagimsiz
-  // kilit-birakma sayacini sifirla - yoksa o sayac cift sekans SIRASINDA
-  // beklenmedik bir anda R5'i kapatip ciftAcilis'in kendi kontroluyle
-  // CAKISIYORDU (2026-09-17 sahada goruldu: "role saçmalayip kapanıyor").
-  k1.kilitPulseBaslangicMs = 0;
-  k2.kilitPulseBaslangicMs = 0;
-  r413RoleYaz(BAHCE_KILIT_RELE, true);
-  bahceKilitAktif = true;
-  ciftAcilis.aktif = true;
-  ciftAcilis.adimBaslangicMs = millis();
-  ciftAcilis.adim = 0;
+  // birlikte=true: bir kanat HATA verirse (bkz kapiPoll) diger kanat da
+  // (henuz hareket etmemis olsa bile) ayni ters-yon/durdurma kapsamina girer.
+  k1.birlikte = true;
+  k2.birlikte = true;
+  // Durdur+hemen-tekrar-baslat testinde sekans bazen saçmalıyordu (2026-09-17
+  // sahada goruldu). R413D08 yazimlari fire-and-forget - bir onceki DUR
+  // komutunun kilit-birakma cercevesi kaybolmus olabilir, bayrak "off" dese
+  // bile gercek role hala enerjili kalmis olabilir. Yeni sekans baslamadan
+  // once kilidi ACIKCA once KAPAT sonra AC - boylece kayip bir onceki
+  // cerceveye guvenmek yerine bilinen-temiz bir baslangic garanti edilir.
+  kilitYaz(k1, false);
+  kilitYaz(k1, true);  // Role5 HIGH (ortak kilit)
+  ikiliAdim = AC_ADIM_KILIT;
+  ikiliAdimMs = millis();
 }
 
+// KAPANIS: Role2(Kapi1/SOL kapama) HIGH -> 2sn -> Role4(Kapi2/SAG kapama)
+// HIGH. "Kapanista ters sira" (bindirmeli kapi kurali) burada GECERLI
+// DEGIL - Kapi1(SOL) her iki yonde de HEMEN baslar, Kapi2(SAG) her iki
+// yonde de gecikmeli kanattir (2026-09-13 sahada dogrulandi).
+// KAPANIS: Role2(Kapi1/SOL kapama) HIGH -> 2sn -> Role4(Kapi2/SAG kapama)
+// HIGH. "Kapanista ters sira" (bindirmeli kapi kurali) burada GECERLI
+// DEGIL - Kapi1(SOL) her iki yonde de HEMEN baslar, Kapi2(SAG) her iki
+// yonde de gecikmeli kanattir (2026-09-13 sahada dogrulandi).
 void kapiCiftKanatKapat() {
-  // Kapanista sira TERS: ustteki kanat en son kapanmali ki digerinin ustune otursun.
-  int once = 1 - BAHCE_ONCE_ACILAN_KAPI, sonra = BAHCE_ONCE_ACILAN_KAPI;
-  kapiKapatKomut(once, true);
-  gecikmeliKomutKapi = sonra;
+  kapiKapatKomut(0, true);
+  gecikmeliKomutKapi = 1;
   gecikmeliKomutMs = millis() + BAHCE_KANAT_GECIKME_KAPA_MS;
+}
+
+// Nano'dan gelen limit switch verisi taze mi (BAHCE_SW_TAZELIK_MS icinde)?
+// "Zaten hedef konumdaysa dokunma" kontrolu icin - bkz kapiAcKomut/kapiKapatKomut.
+static bool bahceSwTazeMi() {
+  return (bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
 }
 
 // 2026-09-17 kullanici tarifi (kesinlesmis hali - "once r5, 1sn sonra r1"):
@@ -262,7 +306,13 @@ void kapiCiftKanatKapat() {
 void kapiAcKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_AC || k.durum == KAPI_KILIT_ACILIYOR) return;
-  ciftAcilisIptalEt();  // cift sekans surerken tek kapi komutu gelirse once onu iptal et - R5 kontrolu ayni anda iki yerden yapilmasin
+  // Kullanici bulgusu (2026-09-17): kapi zaten HATA'dan (ör. zaman asimi)
+  // gelmis olsa bile gercekte hedef konumdaysa, "Ac" tekrar basildiginda
+  // hicbir seye dokunmadan sadece durumu senkronize et - motoru/kilidi
+  // tekrar sursun, kullanici home pozisyondayken HATA'da takili kalmasin.
+  bool acikLimit = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
+  if (bahceSwTazeMi() && acikLimit) { k.durum = KAPI_ACIK; return; }
+  ikiliSekansIptalEt();  // cift sekans surerken tek kapi komutu gelirse once onu iptal et - R5 kontrolu ayni anda iki yerden yapilmasin
   kapiMotorDurdur(k);  // ters yonden (kapaniyor) gelinmis olabilir - once motoru kes
   kilitYaz(k, true);
   k.kilitPulseBaslangicMs = millis();  // R5 bu andan 3sn sonra birakilir, motor 1sn sonra baslar (kapiPoll)
@@ -275,7 +325,10 @@ void kapiAcKomut(int i, bool birlikte) {
 void kapiKapatKomut(int i, bool birlikte) {
   BahceKapisi& k = bahceKapi[i];
   if (k.durum == KAPI_HAREKET_KAPA) return;
-  ciftAcilisIptalEt();  // cift acilis sekansi surerken tek kapi kapatma gelirse once onu iptal et
+  // bkz kapiAcKomut ayni gerekce - zaten kapaliysa (HATA'dan gelinmis olsa
+  // bile) tekrar suruculemesin, sadece durum senkronize edilsin.
+  if (nanoBaglantiVar && kapiTamKapaliMi(i)) { k.durum = KAPI_KAPALI; return; }
+  ikiliSekansIptalEt();  // cift acilis sekansi surerken tek kapi kapatma gelirse once onu iptal et
   kapiMotorDurdur(k);
   r413RoleYaz(k.releA, false);
   r413RoleYaz(k.releB, true);
@@ -300,7 +353,7 @@ void kapiDurdurKomut(int i) {
   // Henuz baslamamis gecikmeli kanat komutu varsa onu da iptal et - yoksa
   // "Dur" dedikten saniyeler sonra diger kanat kendi kendine hareket ederdi.
   kapiGecikmeliKomutIptal();
-  ciftAcilisIptalEt();
+  ikiliSekansIptalEt();
   BahceKapisi& k = bahceKapi[i];
   // Sadece gercekten hareket/bekleme halindeyse dokun - BAHCE_KAPI_DUR komutu
   // iki kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
@@ -315,13 +368,26 @@ void kapiDurdurKomut(int i) {
 void kapiPoll() {
   unsigned long now = millis();
 
-  ciftAcilisPoll();
+  ikiliSekansPoll();
 
   // Bekleyen ikinci kanat KAPANIS komutu zamani geldiyse baslat (kanat gecikmesi).
   if (gecikmeliKomutMs != 0 && (long)(now - gecikmeliKomutMs) >= 0) {
     int k = gecikmeliKomutKapi;
     kapiGecikmeliKomutIptal();
     if (k >= 0) kapiKapatKomut(k, true);
+    // KRITIK BUG (2026-09-17, sahada uzun sure arandi): kapiKapatKomut()
+    // icinde k.hareketBaslangicMs YENI bir millis() cagrisiyla set ediliyor -
+    // bu deger, fonksiyonun en basinda okunan "now"dan birkac mikrosaniye
+    // SONRAKI bir zamandir. Asagidaki for donguson AYNI turda, hala ESKI
+    // "now" ile zamanAsimi hesapliyordu: (now - hareketBaslangicMs) negatif
+    // cikip unsigned long tasmasindan (wraparound) DEV bir sayiya donusuyor,
+    // "zaman asimi" ANINDA true oluyor, motor o an baslar baslamaz kesiliyor.
+    // Bu SADECE gecikmeli tetiklenen kapida oluyordu (dogrudan HTTP'den
+    // gelen anlik komutlarda hareketBaslangicMs, bu "now" okumasindan cok
+    // ONCE, ayri bir kapiPoll() turunda set ediliyordu - tasma riski yoktu).
+    // "R4 anlik on-off" sikayetinin GERCEK kok nedeni buydu. now'u taze
+    // okuyarak duzeltiliyor.
+    now = millis();
   }
 
   for (int i = 0; i < 2; i++) {
@@ -344,7 +410,20 @@ void kapiPoll() {
       }
       continue;
     }
-    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) continue;
+    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) {
+      // Boot/reboot sonrasi (veya hic komut verilmemisken) durum hep
+      // varsayilan KAPI_KAPALI ile baslar - gercek switch konumuyla HIC
+      // senkronize edilmiyordu ("kapi fiziksel acik ama ekranda kapali
+      // yaziyor" sikayeti, 2026-09-17, OTA flas sonrasi reboot ile
+      // fark edildi). Hareket halinde DEGILKEN taze switch verisi varsa
+      // durumu gercek konuma gore duzelt - relay'e dokunmaz, salt takip.
+      bool acikOkIdle = (bahceSwSonBasariliMs != 0) && (now - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
+      bool acikLimitIdle = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
+      bool kapaliLimitIdle = nanoBaglantiVar && kapiTamKapaliMi(i);
+      if (acikOkIdle && acikLimitIdle) k.durum = KAPI_ACIK;
+      else if (kapaliLimitIdle) k.durum = KAPI_KAPALI;
+      continue;
+    }
     if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
     k.sonPollMs = now;
 
