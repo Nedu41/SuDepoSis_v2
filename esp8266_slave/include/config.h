@@ -222,18 +222,20 @@
 // 2026-09-17: sabit degerden web'den ayarlanabilir hale getirildi (bkz struct
 // Ayarlar bahceMaxHareketSaniye, bahceMaxHareketMsGetir()).
 
-// Solenoid kilit darbe süresi: enerji verilince kilit açılır/serbest kalır,
-// bu süre kadar beklenip motor başlatılır, sonra röle bırakılır (sürekli
-// enerjili tutmaya gerek yok - kilit yayla kendini tekrar kilitler).
+// Tek kanat acilista: kilit (R5) VE motor AYNI ANDA cekilir, R5 motordan
+// bagimsiz bu sure sonunda birakilir (bkz kapiAcKomut, 2026-09-17 kullanici
+// tarifi - "3sn boyunca R5 hep cekili kalsin").
 #define BAHCE_KILIT_PULSE_MS 3000UL
 
-// ===== Kanat Gecikmesi (2 kanatli kapilarin temel kurali) =====
+// Iki kanatli acilis (kapiCiftKanatAc) icin kademeli R5/R3/R1 sekansindaki
+// adim araligi - R5 HIGH -> 1sn -> Kapi2 motoru -> 1sn -> Kapi1 motoru ->
+// 1sn -> R5 LOW (2026-09-17 kullanici tarifi, bkz ciftAcilisPoll).
+#define BAHCE_KAPI_LADDER_ADIM_MS 1000UL
+
+// ===== Kanat Gecikmesi (kapanista) =====
 // Kanatlar orta noktada BINDIRMELI (bir kanat digerinin ustune kapanir), bu
-// yuzden ikisi ayni anda hareket ederse kapanista birbirine carpar. Ticari
-// kapi otomasyon kartlarinda bu "phase shift / leaf delay" olarak ayarlanir.
-// ACILIS: ustteki kanat ONCE acilir  -> Kapi1 (SOL) basla, Kapi2 gecikmeli
+// yuzden ikisi ayni anda hareket ederse kapanista birbirine carpar.
 // KAPANIS: ustteki kanat EN SON kapanir -> Kapi2 (SAG) basla, Kapi1 gecikmeli
-#define BAHCE_KANAT_GECIKME_AC_MS   3000UL
 #define BAHCE_KANAT_GECIKME_KAPA_MS 1000UL
 #define BAHCE_ONCE_ACILAN_KAPI 0   // 0 = Kapi1 (SOL) once acilir/en son kapanir
 
