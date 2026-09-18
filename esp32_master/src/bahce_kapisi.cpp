@@ -15,25 +15,34 @@ extern unsigned long last_rs485_update_ms;
 extern bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms);
 extern uint8_t bahceKapi1DurumAl();
 extern uint8_t bahceKapi2DurumAl();
+extern bool bahceKapi1TamAcikAl();
+extern bool bahceKapi1TamKapaliAl();
+extern bool bahceKapi2TamAcikAl();
+extern bool bahceKapi2TamKapaliAl();
 bool bahceKapiKomutGonder(const char* aksiyon, String& reply);           // tanimi asagida
 bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply); // tanimi asagida
 
-// Fiziksel Bahce Kapisi Butonu (GPIO47, INPUT_PULLUP, aktif-LOW) - ACIL_BUTON
-// ile AYNI kenar-debounce deseni, ustune CIFT BASIS ayrimi eklendi (2026-09-08
-// kullanici talebi): TEK basis = sadece Kapi 1 (sol) acilir, CIFT basis (
-// BAHCE_KAPI_CIFT_BASIS_PENCERE_MS icinde) = iki kanat da acilir. Herhangi bir
-// kanat ACIK/HAREKET halindeyse basis sayisi onemsenmez - o an surmekte olan
-// hareket varsa DURDURULUR, yoksa (ikisi de kapaliysa) KAPATILIR. Boylece ayri
-// bir "kapat" veya "dur" butonu gerekmez, ayni buton uc islevi de karsilar.
-// Motor/role mantigi ESP8266/Sudepo tarafinda, buradan sadece RS485 komutu
-// gonderilir (bkz esp8266_slave rs485KomutDinle).
+// Fiziksel Bahce Kapisi Butonu (GPIO47, INPUT_PULLUP, aktif-LOW).
+// 2026-09-18 kullanici talebi: eski "kisa/cift TIK sayma" semasindan basili-
+// TUTMA suresine gecildi - daha sezgisel (bir kapi kontrolu = kisa tik, iki
+// kapi kontrolu = uzun basis):
+//   KISA basis (birakildiginda BAHCE_KAPI_UZUN_BASIS_MS'den once) -> SADECE
+//   Kapi 2 (SAG): hareketteyse DUR, aciksa KAPAT, degilse AC. Kapi 1'in
+//   durumu bu karari HIC etkilemez (kullanici talebi - iki kapi birbirinden
+//   bagimsiz kisa-basis kapsaminda).
+//   UZUN basis (BAHCE_KAPI_UZUN_BASIS_MS doldugu AN, hala basili - birakmayi
+//   BEKLEMEZ) -> IKI KAPI birden: herhangi biri HATA'daysa Home (motor
+//   surmeden her kanadi kendi gercek limit switch konumuna resenkronize eder,
+//   bkz web arayuzundeki ayni-mantikli Home butonu), yoksa herhangi biri
+//   hareketteyse DUR, aciksa KAPAT, degilse AC (ikisi birden).
+// Motor/role mantigi ESP8266/Sudepo tarafinda, buradan sadece HTTP komutu
+// gonderilir (bkz bahceKapiKomutGonder/bahceKapiTekKomutGonder).
 void bahceKapiButonPoll() {
   static bool oncekiBasili = false;
   static unsigned long sonDegisimMs = 0;
   static unsigned long sonTetikMs = 0;
-  static unsigned long ilkBasisMs = 0;
-  static uint8_t basisSayaci = 0;
-  static bool kararBekliyor = false;
+  static unsigned long basisBaslangicMs = 0;
+  static bool uzunTetiklendi = false;
 
   unsigned long now = millis();
   bool basili = (digitalRead(BAHCE_KAPI_BUTON_PIN) == LOW);
@@ -41,30 +50,52 @@ void bahceKapiButonPoll() {
     sonDegisimMs = now;
     oncekiBasili = basili;
     if (basili) {
-      if (basisSayaci == 0) ilkBasisMs = now;
-      basisSayaci++;
-      kararBekliyor = true;
+      basisBaslangicMs = now;
+      uzunTetiklendi = false;
+    } else if (!uzunTetiklendi && now - sonTetikMs > BAHCE_KAPI_BUTON_COOLDOWN_MS) {
+      // Birakildi VE uzun basis olarak zaten tetiklenmedi -> KISA basis.
+      sonTetikMs = now;
+      uint8_t bk2 = bahceKapi2DurumAl();
+      bool hareket2 = (bk2 == 2 || bk2 == 3 || bk2 == 4);
+      bool acik2 = (bk2 == 1);
+      String reply;
+      bool ok = hareket2 ? bahceKapiTekKomutGonder(2, "DUR", reply)
+              : acik2    ? bahceKapiTekKomutGonder(2, "KAPAT", reply)
+                         : bahceKapiTekKomutGonder(2, "AC", reply);
+      Serial.printf("[BAHCE_KAPI_BUTON] kisa basis (Kapi2) sonuc=%d\n", ok);
     }
   }
 
-  if (!kararBekliyor || now - ilkBasisMs < BAHCE_KAPI_CIFT_BASIS_PENCERE_MS) return;
-  bool ikiliBasis = basisSayaci >= 2;
-  basisSayaci = 0;
-  kararBekliyor = false;
-  if (now - sonTetikMs <= BAHCE_KAPI_BUTON_COOLDOWN_MS) return;
-  sonTetikMs = now;
+  // Basili tutulurken UZUN basis esigini gectigi AN (birakmayi beklemeden) tetikle.
+  if (basili && !uzunTetiklendi && now - basisBaslangicMs >= BAHCE_KAPI_UZUN_BASIS_MS) {
+    uzunTetiklendi = true;
+    if (now - sonTetikMs <= BAHCE_KAPI_BUTON_COOLDOWN_MS) return;
+    sonTetikMs = now;
 
-  uint8_t bk1 = bahceKapi1DurumAl(), bk2 = bahceKapi2DurumAl();
-  bool hareketVar = (bk1 == 2 || bk1 == 3 || bk1 == 4 || bk2 == 2 || bk2 == 3 || bk2 == 4);
-  bool acikVar = (bk1 == 1 || bk2 == 1);
-
-  bool ok;
-  String reply;
-  if (hareketVar) ok = bahceKapiKomutGonder("DUR", reply);
-  else if (acikVar) ok = bahceKapiKomutGonder("KAPAT", reply);
-  else if (ikiliBasis) ok = bahceKapiKomutGonder("AC", reply);
-  else ok = bahceKapiTekKomutGonder(1, "AC", reply);
-  Serial.printf("[BAHCE_KAPI_BUTON] sonuc=%d\n", ok);
+    uint8_t bk1 = bahceKapi1DurumAl(), bk2 = bahceKapi2DurumAl();
+    bool hataVar = (bk1 == 5 || bk2 == 5);
+    bool hareketVar = (bk1 == 2 || bk1 == 3 || bk1 == 4 || bk2 == 2 || bk2 == 3 || bk2 == 4);
+    bool acikVar = (bk1 == 1 || bk2 == 1);
+    String reply;
+    bool ok;
+    if (hataVar) {
+      // Home: her kanadi KENDI gercek limit switch konumuna gore resenkronize
+      // et (kapiAcKomut/kapiKapatKomut zaten hedef konumdaysa motoru
+      // surmeden sadece durumu duzeltiyor, bkz esp8266_slave bahce_kapisi.cpp).
+      ok = true;
+      if (bahceKapi1TamKapaliAl()) ok &= bahceKapiTekKomutGonder(1, "KAPAT", reply);
+      else if (bahceKapi1TamAcikAl()) ok &= bahceKapiTekKomutGonder(1, "AC", reply);
+      if (bahceKapi2TamKapaliAl()) ok &= bahceKapiTekKomutGonder(2, "KAPAT", reply);
+      else if (bahceKapi2TamAcikAl()) ok &= bahceKapiTekKomutGonder(2, "AC", reply);
+    } else if (hareketVar) {
+      ok = bahceKapiKomutGonder("DUR", reply);
+    } else if (acikVar) {
+      ok = bahceKapiKomutGonder("KAPAT", reply);
+    } else {
+      ok = bahceKapiKomutGonder("AC", reply);
+    }
+    Serial.printf("[BAHCE_KAPI_BUTON] uzun basis (iki kapi%s) sonuc=%d\n", hataVar ? "/Home" : "", ok);
+  }
 }
 
 // 2026-09-15 kullanici talebi: kendi karar/toggle mantigi UYDURMA - Kalburum'un

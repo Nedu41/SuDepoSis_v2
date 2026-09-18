@@ -562,6 +562,11 @@ unsigned long last_mqtt_publish_ms = 0;
 // kapi durumlarini okuyabilmesi icin kucuk getter'lar.
 uint8_t bahceKapi1DurumAl() { return nanoStatus.bahce_kapi1_durum; }
 uint8_t bahceKapi2DurumAl() { return nanoStatus.bahce_kapi2_durum; }
+// Fiziksel buton Home (HATA resenkronu) icin - bkz bahceKapiButonPoll.
+bool bahceKapi1TamAcikAl() { return nanoStatus.bahce_kapi1_tam_acik; }
+bool bahceKapi1TamKapaliAl() { return nanoStatus.bahce_kapi1_tam_kapali; }
+bool bahceKapi2TamAcikAl() { return nanoStatus.bahce_kapi2_tam_acik; }
+bool bahceKapi2TamKapaliAl() { return nanoStatus.bahce_kapi2_tam_kapali; }
 
 // ============================================================
 // KONTEYNER DONANIMI (IR kumanda, alarm LED, ikinci PIR, kapi reed)

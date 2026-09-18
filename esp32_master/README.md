@@ -43,10 +43,13 @@ bağımsız her iki zonu da anında tetikler. Pin detayları için [docs/pinout.
 ## Bahçe Kapısı (Araç Girişi)
 
 Motor/röle mantığı (R413D08 üzerinden) `esp8266_slave` tarafında; bu kart sadece fiziksel butonu
-okur ve RS485 komutu iletir. Fiziksel buton GPIO47 (`BAHCE_KAPI_BUTON_PIN`, INPUT_PULLUP,
-aktif-LOW): tek basış Kapı 1'i (sol kanat) açar, `BAHCE_KAPI_CIFT_BASIS_PENCERE_MS` içinde çift
-basış iki kanadı da açar; hareket halindeyken durdurur, ikisi de açıkken kapatır (bkz
-`src/bahce_kapisi.cpp`). Web API: `/api/bahce_kapi?durum=ac|kapat|dur`. Gerçek kapı durumu RS485
+okur ve HTTP komutu iletir. Fiziksel buton GPIO47 (`BAHCE_KAPI_BUTON_PIN`, INPUT_PULLUP,
+aktif-LOW): kısa basış sadece Kapı 2'yi (sağ kanat) kontrol eder (hareketteyse durdur, açıksa
+kapat, değilse aç). Basılı tutup `BAHCE_KAPI_UZUN_BASIS_MS` (3sn) dolunca - bırakmayı beklemeden -
+iki kanat birden kontrol edilir (aynı hareket/açık/kapalı mantığı); kapılardan biri HATA
+durumundaysa bunun yerine Home tetiklenir (her kanadı kendi gerçek limit switch konumuna
+resenkronize eder, motor sürmez). Bkz `src/bahce_kapisi.cpp`.
+Web API: `/api/bahce_kapi?durum=ac|kapat|dur[&kapi=1|2]`. Gerçek kapı durumu RS485
 `GET_STATUS` yanıtındaki `BAHCE1`/`BAHCE2` alanından okunur, burada varsayımsal atama yapılmaz.
 
 ## BLE (Telefon Uygulaması)
