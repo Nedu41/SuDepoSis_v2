@@ -293,6 +293,13 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row" style="margin-top:8px">
         <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
       </div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-primary" onclick="bahceKapiTekKomut(1,'ac')">Sol Aç</button>
+        <button class="btn btn-primary" onclick="bahceKapiTekKomut(1,'kapat')">Sol Kapat</button>
+        <button class="btn btn-primary" onclick="bahceKapiTekKomut(2,'ac')">Sağ Aç</button>
+        <button class="btn btn-primary" onclick="bahceKapiTekKomut(2,'kapat')">Sağ Kapat</button>
+        <button class="btn btn-warn" onclick="bahceHomeTetikle()">Home</button>
+      </div>
       <div id="bahce-kapi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
@@ -872,6 +879,7 @@ function yakinKorumali(id){ const t=yakinDuzenlenenler.get(id); return !!t && Da
 let alarmOncekiDurum = false;
 let bahceAcikSayilirmi = false;
 let bahceHareketVar = false;
+let bahceKapi1Acik = false, bahceKapi1Kapali = false, bahceKapi2Acik = false, bahceKapi2Kapali = false;
 let sysDurumOncekiTehlike = false;
 function bipSesi(){
   try{
@@ -1270,6 +1278,8 @@ function renderUI(d){
     // ikisi de tam kapaliysa "Ac".
     bahceHareketVar = hareketKomutuVar;
     bahceAcikSayilirmi = tamKapaliDegilVar;
+    bahceKapi1Acik = acik[0]; bahceKapi1Kapali = kapali[0];
+    bahceKapi2Acik = acik[1]; bahceKapi2Kapali = kapali[1];
     const bahceBtnMetin = bahceHareketVar ? 'Dur' : (bahceAcikSayilirmi ? 'Kapat' : 'Aç');
     const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
     const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;
@@ -1486,6 +1496,19 @@ function bahceKapiKomut(durum){
 }
 function bahceKapiToggle(){
   bahceKapiKomut(bahceHareketVar ? 'dur' : (bahceAcikSayilirmi ? 'kapat' : 'ac'));
+}
+function bahceKapiTekKomut(kapi, durum){
+  sendCommand(null, '/api/bahce_kapi?durum='+durum+'&kapi='+kapi, '#bahce-kapi-sonuc');
+}
+// Home: her kanadi KENDI gercek limit switch konumuna gore ac/kapat komutuyla
+// senkronize eder - Sudepo tarafindaki kapiAcKomut/kapiKapatKomut zaten hedef
+// konumdaysa motoru SURMEDEN sadece durumu duzeltiyor (bkz bahce_kapisi.cpp,
+// 2026-09-17), bu yuzden burada YENI bir ucbirim/komut gerekmiyor - sadece
+// dogru mevcut komutu tetikliyoruz (kullanici talebi 2026-09-18).
+function bahceHomeTetikle(){
+  if (bahceKapi1Kapali) bahceKapiTekKomut(1,'kapat'); else if (bahceKapi1Acik) bahceKapiTekKomut(1,'ac');
+  if (bahceKapi2Kapali) bahceKapiTekKomut(2,'kapat'); else if (bahceKapi2Acik) bahceKapiTekKomut(2,'ac');
+  const s=$('#bahce-kapi-sonuc'); if(s) s.textContent='Home gönderildi';
 }
 function toggleKonteynerLamba(){
   const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
