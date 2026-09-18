@@ -21,6 +21,7 @@ const char* kapiDurumAdi(KapiDurum d) {
     case KAPI_KILIT_ACILIYOR: return "kilit_aciliyor";
     case KAPI_HAREKET_AC: return "aciliyor";
     case KAPI_HAREKET_KAPA: return "kapaniyor";
+    case KAPI_NANO_BEKLENIYOR: return "nano_bekleniyor";
     default: return "hata";
   }
 }
@@ -358,7 +359,7 @@ void kapiDurdurKomut(int i) {
   // Sadece gercekten hareket/bekleme halindeyse dokun - BAHCE_KAPI_DUR komutu
   // iki kanada birden gider, hareketsiz (zaten kapali/acik) kanadin durumunu
   // yanlislikla HATA'ya cekmesin.
-  if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA && k.durum != KAPI_KILIT_ACILIYOR) return;
+  if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA && k.durum != KAPI_KILIT_ACILIYOR && k.durum != KAPI_NANO_BEKLENIYOR) return;
   kapiMotorDurdur(k);
   kilitYaz(k, false);
   k.kilitPulseBaslangicMs = 0;
@@ -369,6 +370,13 @@ void kapiPoll() {
   unsigned long now = millis();
 
   ikiliSekansPoll();
+  // AYNI TASMA RISKI (bkz asagidaki gecikmeli-komut bloguyla ilgili yorum):
+  // ikiliSekansPoll() adim atarken k.hareketBaslangicMs'i KENDI taze
+  // millis()'iyle set edebilir - bu, yukaridaki "now"dan (mikrosaniyeler de
+  // olsa) daha GEC bir zaman olabilir. Asagidaki for donguso "now"u hemen
+  // kullanacagindan, tazelemeden devam etmek ayni unsigned wraparound riskini
+  // tasir. Ucuz oldugu icin her zaman tazeleniyor.
+  now = millis();
 
   // Bekleyen ikinci kanat KAPANIS komutu zamani geldiyse baslat (kanat gecikmesi).
   if (gecikmeliKomutMs != 0 && (long)(now - gecikmeliKomutMs) >= 0) {
@@ -410,13 +418,42 @@ void kapiPoll() {
       }
       continue;
     }
-    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA) {
+    // Nano kopma guvenligi (2026-09-17 kullanici talebi): motor hareket
+    // halindeyken Nano ile iletisim koparsa (limit switch/akim verisi artik
+    // guvenilmez) 20sn'lik zaman asimini BEKLEMEDEN motoru hemen durdur.
+    // Kisa surede (BAHCE_NANO_KOPMA_TOLERANS_MS) baglanti donerse kaldigi
+    // yonde devam eder, donmezse KAPI_HATA'ya duser.
+    if ((k.durum == KAPI_HAREKET_AC || k.durum == KAPI_HAREKET_KAPA) && !nanoBaglantiVar) {
+      k.nanoKopmaYonu = k.durum;
+      k.nanoKopmaBaslangicMs = now;
+      kapiMotorDurdur(k);
+      k.durum = KAPI_NANO_BEKLENIYOR;
+      DEBUG_PRINTF("[KAPI%d] Nano baglantisi koptu, motor durduruldu\n", i + 1);
+      continue;
+    }
+    if (k.durum == KAPI_NANO_BEKLENIYOR) {
+      if (nanoBaglantiVar) {
+        if (k.nanoKopmaYonu == KAPI_HAREKET_AC) { r413RoleYaz(k.releB, false); r413RoleYaz(k.releA, true); }
+        else { r413RoleYaz(k.releA, false); r413RoleYaz(k.releB, true); }
+        k.hareketBaslangicMs = now;  // guvenlik icin taze zaman asimi penceresi
+        k.durum = k.nanoKopmaYonu;
+        DEBUG_PRINTF("[KAPI%d] Nano baglantisi geri geldi, %s yonunde devam\n", i + 1, kapiDurumAdi(k.durum));
+      } else if (now - k.nanoKopmaBaslangicMs >= BAHCE_NANO_KOPMA_TOLERANS_MS) {
+        k.durum = KAPI_HATA;
+        DEBUG_PRINTF("[KAPI%d] HATA: Nano baglantisi zamaninda donmedi\n", i + 1);
+      }
+      continue;
+    }
+    if (k.durum != KAPI_HAREKET_AC && k.durum != KAPI_HAREKET_KAPA && k.durum != KAPI_HATA) {
       // Boot/reboot sonrasi (veya hic komut verilmemisken) durum hep
       // varsayilan KAPI_KAPALI ile baslar - gercek switch konumuyla HIC
       // senkronize edilmiyordu ("kapi fiziksel acik ama ekranda kapali
       // yaziyor" sikayeti, 2026-09-17, OTA flas sonrasi reboot ile
       // fark edildi). Hareket halinde DEGILKEN taze switch verisi varsa
       // durumu gercek konuma gore duzelt - relay'e dokunmaz, salt takip.
+      // KAPI_HATA'ya BILEREK dokunulmuyor - kullanici sorunu gorup mudahale
+      // edene kadar ekranda kalmali (2026-09-17: "sorun cozulunceye kadar
+      // ekranda kalsin" - eskiden bu blok HATA'yi da "duzeltip" gizliyordu).
       bool acikOkIdle = (bahceSwSonBasariliMs != 0) && (now - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS);
       bool acikLimitIdle = (i == 0) ? bahceKapi1TamAcik : bahceKapi2TamAcik;
       bool kapaliLimitIdle = nanoBaglantiVar && kapiTamKapaliMi(i);
@@ -424,6 +461,11 @@ void kapiPoll() {
       else if (kapaliLimitIdle) k.durum = KAPI_KAPALI;
       continue;
     }
+    // KAPI_HATA: motor zaten durduruldu, asagidaki aktif-hareket bloguna
+    // (asiri akim/zaman asimi kontrolu) HIC girmesin - stray bir akim
+    // okumasi durumu yanlislikla HAREKET_AC/KAPA'ya geri dondurmesin.
+    // Kullanicinin yeni bir Ac/Kapat komutu vermesi gerekir.
+    if (k.durum == KAPI_HATA) continue;
     if (now - k.sonPollMs < BAHCE_POLL_ARALIK_MS) continue;
     k.sonPollMs = now;
 

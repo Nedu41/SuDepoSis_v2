@@ -269,11 +269,23 @@
 // Limit switch okumasi bu sureden eskiyse (Nano yanit vermiyor) limit'e gore
 // KARAR VERILMEZ - hareket yalnizca zaman asimi/asiri akim ile sonlanir.
 #define BAHCE_SW_TAZELIK_MS 2000
+// Kapi hareket halindeyken Nano ile iletisim tamamen koparsa (limit switch VE
+// akim okumasi guvenilmez hale gelir) motor HEMEN durdurulur (20sn zaman
+// asimini beklemez - kullanici talebi, 2026-09-17: "hata versin, birkac sn
+// icinde donerse gorev devam etsin"). Bu tolerans penceresi icinde Nano
+// geri gelirse hareket KALDIGI yonde devam eder, gelmezse KAPI_HATA'ya duser.
+#define BAHCE_NANO_KOPMA_TOLERANS_MS 10000UL
 // Zil basisi RS485 ile Kalburum'a tasinirken MANDALLANIR. Kisa basis, 600ms'lik
 // RS485 turuna denk gelmezse (ya da o mesaj cakisip kaybolursa) Kalburum hic
 // yukselen kenar gormuyordu - sadece uzun basislar zili caliyordu. Mandal
 // suresi RS485 turundan belirgin uzun olmali ki en az bir tur mutlaka tasisin.
-#define BAHCE_ZIL_MANDAL_MS 1500
+// 2026-09-17: 1500 -> 3000. bahceZilGuncelle() zile basilinca Nano'ya iki
+// TONE_PLAY komutu gonderiyor (her biri ~300ms yanit beklemesi + araya
+// BAHCE_ZIL_TON_SURE_MS+30ms delay) - bu, Sudepo'nun ana loop()'unu ~1sn'e
+// kadar bloke edip TAM O PENCEREDE gelen Kalburum GET_STATUS turunu
+// kacirabiliyordu (sahada dogrulandi: surekli basisa ragmen Kalburum hic
+// yakalayamadi). 1500ms marj bu kacirilan tur(lar)i tolere etmeye yetmiyordu.
+#define BAHCE_ZIL_MANDAL_MS 3000
 #define BAHCE_ZIL_TON1_HZ 2000
 #define BAHCE_ZIL_TON2_HZ 1500
 #define BAHCE_ZIL_TON_SURE_MS 250

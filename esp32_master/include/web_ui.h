@@ -1555,7 +1555,6 @@ function bannerAksiyon(btn, path){
   });
 }
 function otaGuncelle(){
-  if(!confirm('GitHub\'daki en son firmware indirilip yazılacak, cihaz yeniden başlayacak. Emin misin?'))return;
   $('#ota-sonuc').textContent='Güncelleniyor...';
   api('/api/ota').then(d=>{$('#ota-sonuc').textContent=d.mesaj||'';});
 }
@@ -1868,7 +1867,6 @@ konteynerSirenAyarYukle();
 function otaDosyaOnay(){
   const f=$('#otaDosya').files[0];
   if(!f){$('#ota-dosya-sonuc').textContent='Dosya secin';return false;}
-  if(!confirm(f.name+' yuklenecek ve cihaz yeniden baslayacak. Emin misin?'))return false;
   $('#ota-dosya-sonuc').textContent='Yukleniyor... (bitince cihaz yeniden baslar)';
   return true;
 }
