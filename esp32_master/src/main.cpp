@@ -965,21 +965,25 @@ static const uint16_t ZIL_DESEN_MS[] = {320, 90, 420};
 static uint8_t zilAdim = 0;                // 0 = calmiyor
 static unsigned long zilAdimBaslangicMs = 0;
 
+// 2026-09-17: eskiden #if/#else ile SADECE biri calardi (ZIL_HOPARLOR_VAR
+// acikken ic buzzer/LED hic tetiklenmiyordu) - dokumandaki "ikisi BIRLIKTE
+// calar, biri digerini iptal etmez" notuyla celisiyordu. Dis hoparlorun
+// (GPIO48/SCART Pin19) saha testinde ses vermemesi uzerine (sinyal yolu
+// dogrulandi, muhtemelen hoparlorun kendisi/baglantisi sorunlu) ic buzzer
+// artik HER ZAMAN birlikte calisiyor - hem yedek gostergedir hem tani icin
+// faydali (ic calip dis calmiyorsa sorun kesin dis hoparlorde demektir).
 static void zilSesAc(uint16_t frekansHz) {
 #if ZIL_HOPARLOR_VAR
   ledcWriteTone(ZIL_LEDC_KANAL, frekansHz);
-#else
-  (void)frekansHz;  // aktif buzzer - perde degistirilemez, sadece ac/kapa
-  digitalWrite(ALARM_LED_PIN, HIGH);
 #endif
+  digitalWrite(ALARM_LED_PIN, HIGH);
 }
 
 static void zilSesKapat() {
 #if ZIL_HOPARLOR_VAR
   ledcWriteTone(ZIL_LEDC_KANAL, 0);
-#else
-  digitalWrite(ALARM_LED_PIN, LOW);
 #endif
+  digitalWrite(ALARM_LED_PIN, LOW);
 }
 
 void zilCal() {
@@ -1897,6 +1901,20 @@ void alarmLoguKontrolEt() {
     }
   }
   alarmLogOncekiVar = alarmVar;
+}
+
+// Bahce kapisi Nano baglantisi koptugu icin motor guvenlik amacli
+// durduruldugunda (Sudepo'daki KAPI_NANO_BEKLENIYOR=6, bkz bahce_kapisi.h)
+// alarm loguna da kaydedilsin - kullanici talebi (2026-09-17). Sadece
+// GECIS aninda (once farkli, simdi 6) yazilir, her RS485 turunda degil.
+void bahceKapiNanoLoguKontrolEt() {
+  static uint8_t oncekiKapi1Durum = 0, oncekiKapi2Durum = 0;
+  uint8_t k1 = nanoStatus.bahce_kapi1_durum;
+  uint8_t k2 = nanoStatus.bahce_kapi2_durum;
+  if (k1 == 6 && oncekiKapi1Durum != 6) alarmLoguKaydet("Bahce Kapisi 1 - Nano Baglantisi Koptu", "Motor guvenlik icin durduruldu");
+  if (k2 == 6 && oncekiKapi2Durum != 6) alarmLoguKaydet("Bahce Kapisi 2 - Nano Baglantisi Koptu", "Motor guvenlik icin durduruldu");
+  oncekiKapi1Durum = k1;
+  oncekiKapi2Durum = k2;
 }
 
 // anaGucPoll() (asagida tanimli, ADS1115 ana guc izleme) tarafindan set edilir.
@@ -4951,6 +4969,11 @@ void handleAPI_Restart() {
 void setupWebServer() {
   server.on("/", handleRoot);
   server.on("/api/status", handleAPI_Status);
+  // Android app'in yerel ag taramasiyla IP bulmasi icin hafif kimlik endpoint'i
+  // (mDNS guvenilmedigi icin eklendi - bkz proje hafizasi, 2026-09-18).
+  server.on("/api/discover", []() {
+    server.send(200, "application/json", "{\"device\":\"kalburum\"}");
+  });
   server.on("/events", handleSSE);
   server.on("/api/ota", handleOTA);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
@@ -5330,6 +5353,7 @@ void loop() {
   // Alarm baslarsa Telegram'a bildirim gonder
   telegramAlarmKontrolEt();
   alarmLoguKontrolEt();
+  bahceKapiNanoLoguKontrolEt();
   zamanCacheGuncelle();
   telegramBateryaKontrolEt();
   telegramKonteynerOtoSusturKontrolEt();

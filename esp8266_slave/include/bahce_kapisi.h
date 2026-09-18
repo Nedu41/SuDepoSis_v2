@@ -6,7 +6,12 @@
 
 #include <Arduino.h>
 
-enum KapiDurum { KAPI_KAPALI, KAPI_ACIK, KAPI_KILIT_ACILIYOR, KAPI_HAREKET_AC, KAPI_HAREKET_KAPA, KAPI_HATA };
+// KAPI_NANO_BEKLENIYOR: hareket halindeyken Nano ile iletisim koparsa (limit
+// switch/akim verisi artik guvenilmez) motor hemen durdurulur ve bu ara
+// duruma gecilir - kullanici talebi (2026-09-17): birkac saniye icinde
+// baglanti geri gelirse kaldigi yonde devam etsin, gelmezse KAPI_HATA'ya
+// dussun. Bkz kapiPoll() nanoKopmaKontrolPoll().
+enum KapiDurum { KAPI_KAPALI, KAPI_ACIK, KAPI_KILIT_ACILIYOR, KAPI_HAREKET_AC, KAPI_HAREKET_KAPA, KAPI_HATA, KAPI_NANO_BEKLENIYOR };
 const char* kapiDurumAdi(KapiDurum d);
 
 struct BahceKapisi {
@@ -20,6 +25,8 @@ struct BahceKapisi {
   float akimTepeAmper = 0.0;  // bu hareketteki en yuksek deger (yeni hareket baslarken sifirlanir) - kullanici talebi, kalibrasyon/gozlem icin
   bool hataAsiriAkim = false;
   bool birlikte = false;  // bu hareket iki kanadin BIRLIKTE komutuyla mi baslatildi (bkz kapiAcKomut/kapiKapatKomut)
+  KapiDurum nanoKopmaYonu = KAPI_KAPALI;  // KAPI_NANO_BEKLENIYOR'dayken hangi yone (AC/KAPA) devam edilecek
+  unsigned long nanoKopmaBaslangicMs = 0; // Nano'nun ilk kayboldugu an - tolerans penceresi buradan sayilir
 };
 extern BahceKapisi bahceKapi[2];
 
