@@ -249,11 +249,6 @@
 // (~10-50ms) ile bus/CPU yükü arasında NANO_POLL_INTERVAL ile aynı mantık.
 #define BAHCE_POLL_ARALIK_MS 250
 
-// Motorun ilk kalkış anındaki akım sıçraması (inrush) normal ama sıkışma
-// eşiğini kolayca aşabiliyor - bu payı geçmeden aşırı akım kontrolü YAPILMAZ
-// (kullanıcı talebi: "ilk 1sn'den sonra akım kontrolü olsa").
-#define BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS 1000UL
-
 // ACS712 5A modül: 185mV/Amper hassasiyet, Nano 5V ADC (10-bit, 0-1023).
 // Sıfır noktası (0A'de ham ADC okuması) ve sıkışma eşiği (Amper) ARTIK
 // web arayüzünden (Ayarlar > Bahçe Kapısı) ayarlanabilir - bkz struct

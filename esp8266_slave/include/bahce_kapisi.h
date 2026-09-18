@@ -80,5 +80,9 @@ float bahceAkimEsikAGetir(int kapiIndex);
 // Kapi motoru limit switch'e ulasamazsa guvenlik icin azami hareket suresi -
 // web'den ayarlanabilir (varsayilan 20sn), bkz struct Ayarlar bahceMaxHareketSaniye.
 unsigned long bahceMaxHareketMsGetir();
+// Motorun ilk kalkis anindaki akim sicramasi (inrush) bu sure boyunca
+// asiri akim kontrolune sokulmaz - web'den ayarlanabilir (varsayilan 1000ms),
+// sahada firmware degistirmeden ayarlanabilsin diye eklendi (2026-09-18).
+unsigned long bahceAsiriAkimPayiMsGetir();
 
 #endif

@@ -484,7 +484,10 @@ void kapiPoll() {
     }
 
     bool zamanAsimi = (now - k.hareketBaslangicMs) > bahceMaxHareketMsGetir();
-    bool baslangicPayindaMi = (now - k.hareketBaslangicMs) < BAHCE_ASIRI_AKIM_BASLANGIC_PAYI_MS;
+    // Motorun ilk kalkis anindaki akim sicramasi (inrush) normal ama sikisma
+    // esigini kolayca asabiliyor - bu payi (web'den ayarlanabilir, varsayilan
+    // 1000ms) gecmeden asiri akim kontrolu YAPILMAZ.
+    bool baslangicPayindaMi = (now - k.hareketBaslangicMs) < bahceAsiriAkimPayiMsGetir();
     bool asiriAkim = !baslangicPayindaMi && akimRaw >= 0 && fabs(akimAmper) > bahceAkimEsikAGetir(i);
 
     if (k.durum == KAPI_HAREKET_AC && acikOk && acikLimit) {
