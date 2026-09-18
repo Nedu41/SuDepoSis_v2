@@ -2545,6 +2545,11 @@ void setup() {
   server.on("/app.js", handleJS); server.on("/config.js", handleConfigJS);
   server.on("/events", handleSSE);
   server.on("/olc", handleMeasure); server.on("/durum", handleStatus); server.on("/zaman", handleTime); server.on("/ayarla", handleSetTime);
+  // Android app'in yerel ag taramasiyla IP bulmasi icin hafif kimlik endpoint'i
+  // (mDNS guvenilmedigi icin eklendi - bkz proje hafizasi, 2026-09-18).
+  server.on("/api/discover", []() {
+    server.send(200, "application/json", "{\"device\":\"sudepo\"}");
+  });
   // 2026-09-15: /zaman (handleTime) RTC'yi rtc.begin() ile yeniden baslatip
   // STA modundaysa 3sn'e kadar NTP bekleyen AGIR bir "kurtarma" endpoint'i -
   // sadece web arayuzundeki "Zaman" butonu icin uygun. Kalburum'un periyodik
