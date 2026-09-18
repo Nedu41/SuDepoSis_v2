@@ -448,7 +448,10 @@
 #define ZIL_TON_DING_HZ 1150
 #define ZIL_TON_DONG_HZ 870
 #define BAHCE_KAPI_BUTON_COOLDOWN_MS 3000 // ACIL_BUTON_COOLDOWN ile ayni mantik - RS485'i art arda bloke etmesin
-#define BAHCE_KAPI_CIFT_BASIS_PENCERE_MS 450 // bu sure icinde 2. basis gelirse "cift basis" sayilir (bkz bahceKapiButonPoll)
+// 2026-09-18: basis-sayma (kisa/cift tik) semasindan basili-tutma suresine
+// dayali semaya gecildi - kisa basis SAG kapi, UZUN basis (bu sure) IKI kapi
+// birden + HATA'da Home. Bkz bahceKapiButonPoll.
+#define BAHCE_KAPI_UZUN_BASIS_MS 3000
 
 // Tetik animasyonu (2026-08-25, kullanici talebi): GAZ HARIC (patlayici gaz
 // icin gecikme guvenlik riski, eskisi gibi aninda/surekli kalir) her alarm
