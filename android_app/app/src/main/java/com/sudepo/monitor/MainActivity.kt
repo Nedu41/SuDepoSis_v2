@@ -28,12 +28,21 @@ class MainActivity : AppCompatActivity() {
     // kullanir (192.168.4.1) - telefon o an hangisinin AP'sine bagliysa oraya gider.
     private val apFallbackUrl = "http://192.168.4.1"
 
+    // Ev agindaki bilinen son IP'ler (router DHCP rezervasyonu onerilir, degisirse
+    // burasi guncellenmeli). mDNS (.local) bircok Android cihazda/agda guvenilir
+    // calismiyor (Note5'te dogrulandi: IP ile aciliyor, .local acilmiyordu).
+    private val evIpSudepo = "http://192.168.1.118"
+    private val evIpKonteyner = "http://192.168.1.165"
+
     // mDNS (.local) cozumu Android'de guvenilir degil - basarisiz olunca WebView
     // eski sayfayi ekranda birakiyordu ("Sudepo'ya basiyorum ama Konteyner kaliyor"
-    // sikayetinin sebebi buydu). Artik hata alinca once AP IP'si deneniyor, o da
-    // olmazsa acik bir hata ekrani gosteriliyor - sessizce eski sayfada kalinmiyor.
+    // sikayetinin sebebi buydu). Artik hata alinca sirayla AP IP, sonra bilinen ev
+    // IP'si deneniyor, hicbiri olmazsa acik bir hata ekrani gosteriliyor - sessizce
+    // eski sayfada kalinmiyor.
     private var pendingHost = ""
-    private var apFallbackDenendi = false
+    private var pendingDevice = ""
+    private var fallbackQueue: MutableList<String> = mutableListOf()
+    private var taramaYapildiBuTurda = false
     private var sudepoAktif = true
 
     private val prefs by lazy { getSharedPreferences("sudepo_monitor", MODE_PRIVATE) }
@@ -70,52 +79,120 @@ class MainActivity : AppCompatActivity() {
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame != true) return
                 val failedHost = request.url?.host ?: return
-                if (failedHost != pendingHost) return // eski/ilgisiz bir istek
+                hataGeldi(failedHost)
+            }
 
-                if (!apFallbackDenendi) {
-                    apFallbackDenendi = true
-                    pendingHost = Uri.parse(apFallbackUrl).host ?: ""
-                    webView.loadUrl(apFallbackUrl)
-                } else {
-                    showBaglantiHatasi()
-                }
+            // API 23 oncesi (Android 6.0 alti) sistem SADECE bu eski overload'i
+            // cagirir, yukaridaki WebResourceRequest'li versiyon hic tetiklenmez.
+            // minSdk 21 oldugu icin bu ikisi birlikte olmali - eksikse eski
+            // cihazlarda fallback/tarama mantigi sessizce hic calismiyordu.
+            @Suppress("DEPRECATION", "OverridingDeprecatedMember")
+            override fun onReceivedError(
+                view: WebView?,
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
+            ) {
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                val failedHost = failingUrl?.let { Uri.parse(it).host } ?: return
+                hataGeldi(failedHost)
             }
         }
 
         swipeRefresh.setOnRefreshListener {
-            if (sudepoAktif) openTarget(urlSudepo, btnSudepo, btnKonteyner)
-            else openTarget(urlKonteyner, btnKonteyner, btnSudepo)
+            if (sudepoAktif) openTarget(urlSudepo, evIpSudepo, "sudepo", btnSudepo, btnKonteyner)
+            else openTarget(urlKonteyner, evIpKonteyner, "kalburum", btnKonteyner, btnSudepo)
         }
 
         btnSudepo.setOnClickListener {
             sudepoAktif = true
-            openTarget(urlSudepo, btnSudepo, btnKonteyner)
+            openTarget(urlSudepo, evIpSudepo, "sudepo", btnSudepo, btnKonteyner)
         }
         btnKonteyner.setOnClickListener {
             sudepoAktif = false
-            openTarget(urlKonteyner, btnKonteyner, btnSudepo)
+            openTarget(urlKonteyner, evIpKonteyner, "kalburum", btnKonteyner, btnSudepo)
         }
 
         val lastUrl = prefs.getString("last_url", urlSudepo) ?: urlSudepo
         if (lastUrl == urlKonteyner) {
             sudepoAktif = false
-            openTarget(urlKonteyner, btnKonteyner, btnSudepo)
+            openTarget(urlKonteyner, evIpKonteyner, "kalburum", btnKonteyner, btnSudepo)
         } else {
             sudepoAktif = true
-            openTarget(urlSudepo, btnSudepo, btnKonteyner)
+            openTarget(urlSudepo, evIpSudepo, "sudepo", btnSudepo, btnKonteyner)
         }
     }
 
-    private fun openTarget(url: String, activeBtn: Button, inactiveBtn: Button) {
+    private fun hataGeldi(failedHost: String) {
+        if (failedHost != pendingHost) return // eski/ilgisiz bir istek
+
+        if (fallbackQueue.isNotEmpty()) {
+            val nextUrl = fallbackQueue.removeAt(0)
+            pendingHost = Uri.parse(nextUrl).host ?: ""
+            webView.loadUrl(nextUrl)
+        } else if (!taramaYapildiBuTurda) {
+            taramaYapildiBuTurda = true
+            taramaBaslat()
+        } else {
+            showBaglantiHatasi()
+        }
+    }
+
+    private fun openTarget(
+        url: String,
+        evIpUrl: String,
+        deviceId: String,
+        activeBtn: Button,
+        inactiveBtn: Button
+    ) {
         prefs.edit().putString("last_url", url).apply()
         activeBtn.setBackgroundColor(0xFF00BCD4.toInt())
         activeBtn.setTextColor(0xFF0D1117.toInt())
         inactiveBtn.setBackgroundColor(0xFF263238.toInt())
         inactiveBtn.setTextColor(0xFFFFFFFF.toInt())
 
-        pendingHost = Uri.parse(url).host ?: ""
-        apFallbackDenendi = false
-        webView.loadUrl(url)
+        pendingDevice = deviceId
+        taramaYapildiBuTurda = false
+
+        // Onceki taramada bulunan IP varsa, guvenilmez .local'den once onu dene -
+        // en hizli ve en olasi calisan yol bu. evIpUrl (bilinen calisan ev IP'si)
+        // apFallbackUrl'den (192.168.4.1 - sadece cihazin kendi AP'sine
+        // baglaniyken anlamli) once denenir: ev agindayken 4.1'e baglanma
+        // denemesi cevap alamayip uzun sure zaman asimina ugrayabilir.
+        val cachedIp = prefs.getString("cached_ip_$deviceId", null)
+        val ilkUrl = if (cachedIp != null) "http://$cachedIp" else evIpUrl
+        fallbackQueue = if (cachedIp != null) {
+            mutableListOf(evIpUrl, url, apFallbackUrl)
+        } else {
+            mutableListOf(url, apFallbackUrl)
+        }
+
+        pendingHost = Uri.parse(ilkUrl).host ?: ""
+        webView.loadUrl(ilkUrl)
+    }
+
+    // Tum sabit adresler (.local, AP IP, bilinen ev IP'si) basarisiz olunca son
+    // care olarak yerel /24 agini tarar (bkz CihazBulucu - WLED'in yaklasimi).
+    // Bulunursa IP cache'lenir, bir sonraki acilista dogrudan denenir.
+    private fun taramaBaslat() {
+        val subnet = CihazBulucu.kendiSubnetPrefix(this)
+        if (subnet == null) {
+            showBaglantiHatasi()
+            return
+        }
+        val hedefDevice = pendingDevice
+        CihazBulucu.tara(subnet, hedefDevice) { bulunanIp ->
+            runOnUiThread {
+                if (bulunanIp != null && pendingDevice == hedefDevice) {
+                    prefs.edit().putString("cached_ip_$hedefDevice", bulunanIp).apply()
+                    fallbackQueue = mutableListOf()
+                    pendingHost = bulunanIp
+                    webView.loadUrl("http://$bulunanIp")
+                } else if (pendingDevice == hedefDevice) {
+                    showBaglantiHatasi()
+                }
+            }
+        }
     }
 
     private fun showBaglantiHatasi() {
