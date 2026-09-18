@@ -360,11 +360,19 @@ String sonOlcumZamani = "-";
 // sahte "ani dolum/bosalma" gibi gorunebiliyordu - bu da "Otomatik Tespit"
 // kayitlarini (ve tuketim/kacak sayaclarini) gereksiz yere sisiriyordu.
 // Iki onlem birden alindi: (1) karar mekanizmasi HAM ardisik farka degil,
-// yumusatilmis (EMA) seviyeye bakar - ekrandaki ANLIK deger (sonLitre) BUNDAN
-// ETKILENMEZ, sadece dolum/kacak/kayit KARARI icin ayri bir seviyeEMA
-// tutulur; (2) bir dolum "bolumu" en az MIN_DOLUM_SURESI_MS surmeden
-// Otomatik Tespit kaydi YAZILMAZ - gercek bir tanker/sebeke dolumu dakikalar
-// surer, tek olcumluk bir sicrama olmaz.
+// yumusatilmis (EMA) seviyeye bakar - dolum/kacak/kayit KARARI icin ayri bir
+// seviyeEMA tutulur, bu HER ZAMAN o turun HAM (hamLitre) degerinden beslenir;
+// (2) bir dolum "bolumu" en az MIN_DOLUM_SURESI_MS surmeden Otomatik Tespit
+// kaydi YAZILMAZ - gercek bir tanker/sebeke dolumu dakikalar surer, tek
+// olcumluk bir sicrama olmaz.
+// 2026-09-18 kullanici bulgusu: sensor sabit dururken bile ekranda gosterilen
+// ANLIK yuzde birkac saniyede bir kucuk siçramalar yapiyordu (ornegin
+// %70.2 -> %70.7 -> %68 -> %70.7 -> %70.2) - 3 orneklik medyan (olcumOrtalama)
+// tek atisli sapmalari eliyor ama art arda turlar arasindaki normal sensor
+// gurultusunu elemiyordu. Ekranda gosterilen sonYuzde/sonLitre ARTIK ayni
+// seviyeEMA'nin kendisi (karar mekanizmasiyla PAYLASILAN TEK EMA) - iki ayri
+// EMA tutmaya gerek yok, karar mantigi zaten EMA GECISLERINE (fark) bakiyor,
+// gosterilen deger o EMA'nin GUNCEL hali olsun ya da olmasin sonuc degismez.
 #define NOISE_ESIK_LITRE 3.0
 #define SEVIYE_EMA_AGIRLIK 0.25f
 #define MIN_DOLUM_SURESI_MS (30UL * 1000UL)
@@ -1381,19 +1389,18 @@ void olcumYap() {
     float s = ayar.bosMesafe - m;
     if (s < 0) s = 0; if (s > kul) s = kul;
     sonSeviyeCm = s;
+    float hamLitre;
     if (ayar.depoYatay) {
-      sonLitre = silindirHacimLitre(s, kul, ayar.depoKapasiteLitre);
-      sonYuzde = (ayar.depoKapasiteLitre > 0) ? (sonLitre / ayar.depoKapasiteLitre) * 100.0 : 0;
+      hamLitre = silindirHacimLitre(s, kul, ayar.depoKapasiteLitre);
     } else {
-      sonYuzde = (s / kul) * 100.0;
-      sonLitre = (sonYuzde / 100.0) * ayar.depoKapasiteLitre;
+      float hamYuzde = (s / kul) * 100.0;
+      hamLitre = (hamYuzde / 100.0) * ayar.depoKapasiteLitre;
     }
-    alarmAktif = (sonYuzde <= ayar.alarmSeviyeYuzde);
     sonOlcumZamani = simdikiZamanStr();
 
     if (ilkOlcumTamamlandi) {
       float oncekiEMA = seviyeEMA;
-      seviyeEMA = seviyeEMA + SEVIYE_EMA_AGIRLIK * (sonLitre - seviyeEMA);
+      seviyeEMA = seviyeEMA + SEVIYE_EMA_AGIRLIK * (hamLitre - seviyeEMA);
       float fark = seviyeEMA - oncekiEMA;
       if (fark > NOISE_ESIK_LITRE) {
         if (!dolumDevamEdiyor) { dolumDevamEdiyor = true; dolumBaslangicLitre = oncekiEMA; dolumBaslangicMs = millis(); }
@@ -1445,9 +1452,17 @@ void olcumYap() {
       }
     } else {
       ilkOlcumTamamlandi = true;
-      seviyeEMA = sonLitre;
+      seviyeEMA = hamLitre;
       tuketimYukle();
     }
+
+    // Ekranda/API'de gosterilen deger ARTIK yumusatilmis seviyeEMA'nin
+    // kendisi (bkz yukaridaki 2026-09-18 notu) - karar mekanizmasindan SONRA
+    // hesaplanir, boylece kacak/dolum karari HER ZAMAN hamLitre'den beslenen
+    // EMA gecisine bakar, gosterim buna dokunmaz.
+    sonLitre = seviyeEMA;
+    sonYuzde = (ayar.depoKapasiteLitre > 0) ? (seviyeEMA / ayar.depoKapasiteLitre) * 100.0 : 0;
+    alarmAktif = (sonYuzde <= ayar.alarmSeviyeYuzde);
 
     DEBUG_PRINTF("Olcum: %.1f cm (%.1f%%) ~%.0f L\n", sonSeviyeCm, sonYuzde, sonLitre);
   } else {
