@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konteyner Bağlantı Kılavuzu — Kalburum</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --text:#1e293b; --muted:#64748b;
+  --border:#e2e8f0; --accent:#2563eb; --accent-soft:#eff4ff;
+  --warn:#b45309; --warn-bg:#fef3e2; --warn-border:#fbbf24;
+  --danger:#dc2626; --danger-bg:#fef2f2; --danger-border:#fca5a5;
+  --ok:#059669; --mono:ui-monospace,Menlo,Consolas,"SFMono-Regular",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1524; --card:#161d31; --text:#e6eaf3; --muted:#93a0bd;
+    --border:#2a3350; --accent:#5b8cff; --accent-soft:#182544;
+    --warn:#fbbf24; --warn-bg:#2b2110; --warn-border:#7c5a10;
+    --danger:#f87171; --danger-bg:#2a1414; --danger-border:#7f2323;
+    --ok:#34d399;
+  }
+}
+*{box-sizing:border-box}
+body{ background:var(--bg); color:var(--text); font-family:var(--sans); margin:0; padding:32px 20px 80px; line-height:1.55; }
+.wrap{max-width:840px; margin:0 auto}
+header{margin-bottom:28px}
+h1{font-size:24px; font-weight:800; margin:0 0 6px}
+.sub{color:var(--muted); font-size:15px; margin:0}
+h2{font-size:18px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:8px}
+h2 .num{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; font-size:13px; font-weight:800; flex:none; }
+h3{font-size:15px; font-weight:700; margin:18px 0 8px}
+section.card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px 22px 24px; margin-bottom:18px; }
+p{margin:0 0 12px; font-size:14.5px}
+p:last-child{margin-bottom:0}
+.ok-box, .warn-box, .danger-box{ border-radius:10px; padding:12px 14px; font-size:14px; margin:14px 0; border:1px solid; }
+.ok-box{background:var(--accent-soft); border-color:var(--accent); color:var(--accent)}
+.warn-box{background:var(--warn-bg); border-color:var(--warn-border); color:var(--warn)}
+.danger-box{background:var(--danger-bg); border-color:var(--danger-border); color:var(--danger)}
+.ok-box b, .warn-box b, .danger-box b{color:inherit}
+.checklist{margin:0; padding:0; list-style:none}
+.checklist li{display:flex; gap:10px; align-items:flex-start; font-size:14.5px; padding:6px 0}
+.checklist li::before{content:"☑"; color:var(--ok); flex:none; font-size:16px; line-height:1.4}
+.tablewrap{overflow-x:auto; margin:12px 0}
+table{border-collapse:collapse; width:100%; font-size:13.5px}
+th,td{padding:8px 10px; text-align:left; border-bottom:1px solid var(--border)}
+th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em}
+td.mono, th.mono{font-family:var(--mono)}
+.swatch{display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:middle; border:1px solid rgba(0,0,0,.25)}
+svg{max-width:100%; height:auto; display:block; margin:0 auto}
+.diagram-caption{color:var(--muted); font-size:13px; text-align:center; margin-top:10px}
+code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--accent); padding:1px 6px; border-radius:5px; font-size:0.9em}
+footer{color:var(--muted); font-size:12.5px; text-align:center; margin-top:30px}
+@media print{ body{background:#fff} section.card{box-shadow:none} .no-print{display:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>📦 Konteyner Bağlantı Kılavuzu — Kalburum (ESP32)</h1>
+  <p class="sub">Kalburum kutusundaki (Dream DM500S gövdesi) TÜM saha sensör/aktüatörlerinin klemens/kablo bağlantıları, tek yerde. Tam GPIO gerekçeleri için <a href="pinout.html">pinout.html</a>, fiziksel klemens/SCART fotoğrafları için <a href="kutu-arka-panel.html">kutu-arka-panel.html</a>.</p>
+  <div class="ok-box" style="margin-top:14px"><b>Genel zincir:</b> Saha bileşeni → Dış Klemens Kutusu → SCART kablosu → CN1/CN2/CN4/CN5/CN6 (iç pertinax) → ESP32 GPIO. Aşağıdaki her bölüm bu zincirin ilgili parçasını gösterir.</div>
+</header>
+
+<section class="card">
+  <h2><span class="num">1</span>Genel Şema</h2>
+  <figure style="margin:0">
+    <svg viewBox="0 0 680 200" role="img" aria-label="Sahadaki sensorlerden ESP32 GPIO'suna kadar genel katman zinciri">
+      <defs>
+        <marker id="okk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1.4" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11">
+        <rect x="10" y="70" width="130" height="60" rx="8" opacity="0.55"/>
+        <text x="75" y="95" text-anchor="middle" font-weight="700" stroke="none" fill="currentColor">Saha Sensörleri</text>
+        <text x="75" y="112" text-anchor="middle" font-size="9.5" stroke="none" fill="currentColor" opacity="0.7">PIR, GP2Y10, MQ6...</text>
+
+        <rect x="185" y="70" width="130" height="60" rx="8" opacity="0.55"/>
+        <text x="250" y="95" text-anchor="middle" font-weight="700" stroke="none" fill="currentColor">Dış Klemens</text>
+        <text x="250" y="112" text-anchor="middle" font-size="9.5" stroke="none" fill="currentColor" opacity="0.7">26 terminal</text>
+
+        <rect x="360" y="70" width="130" height="60" rx="8" opacity="0.55"/>
+        <text x="425" y="95" text-anchor="middle" font-weight="700" stroke="none" fill="currentColor">SCART (21 pin)</text>
+        <text x="425" y="112" text-anchor="middle" font-size="9.5" stroke="none" fill="currentColor" opacity="0.7">+ CN1/CN2/CN4/CN6</text>
+
+        <rect x="535" y="70" width="135" height="60" rx="8" opacity="0.55"/>
+        <text x="602" y="95" text-anchor="middle" font-weight="700" stroke="none" fill="currentColor">ESP32-S3</text>
+        <text x="602" y="112" text-anchor="middle" font-size="9.5" stroke="none" fill="currentColor" opacity="0.7">GPIO'lar</text>
+
+        <line x1="140" y1="100" x2="183" y2="100" marker-end="url(#okk)"/>
+        <line x1="315" y1="100" x2="358" y2="100" marker-end="url(#okk)"/>
+        <line x1="490" y1="100" x2="533" y2="100" marker-end="url(#okk)"/>
+      </g>
+    </svg>
+    <p class="diagram-caption">CN5 (13'lü iç konnektör), RS485/Swan PIR/Siren/Lamba/Bahçe Kapısı Butonu'nu da bu zincire SCART üzerinden dahil eder — ayrıca gösterilmedi, bkz Bölüm 4.</p>
+  </figure>
+</section>
+
+<section class="card">
+  <h2><span class="num">2</span>Kutu İçi Sensörler (CN1, CN2, CN4 — kısa iç tel, saha kablosu yok)</h2>
+  <h3>CN1 — GP2Y1014AU0F (duman/toz) + Acil Durum Butonu</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>GP2Y10 Vo (analog çıkış)</td><td><span class="swatch" style="background:#fdd835"></span>Sarı</td><td>GPIO6</td></tr>
+    <tr><td>Fiziksel Acil Durum Butonu (panik)</td><td><span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>GPIO15</td></tr>
+    <tr><td>GP2Y10 LED kontrol</td><td><span class="swatch" style="background:#212121"></span>Siyah</td><td>GPIO18</td></tr>
+  </table></div>
+  <p style="color:var(--muted); font-size:0.9em">GP2Y10'un 150Ω direnç + 220µF kondansatörü SENSÖRE YAKIN lehimli olmalı (ESP32 ucunda değil) — kablo gerilim düşümü LED darbe akımını bozar.</p>
+
+  <h3>CN2 — AHT10 (I2C) + MQ6 AOUT</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>MQ6 AOUT (analog, gaz)</td><td><span class="swatch" style="background:#212121"></span>Siyah</td><td>GPIO10</td></tr>
+    <tr><td>AHT10 SDA (sıcaklık/nem)</td><td><span class="swatch" style="background:#fdd835"></span>Sarı</td><td>GPIO36</td></tr>
+    <tr><td>AHT10 SCL</td><td><span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>GPIO42</td></tr>
+  </table></div>
+
+  <h3>CN4 — Dreambox Ön Panel (IR Alıcı, LED+Buzzer, Power LED, Reset)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+    <tr><td>IR Alıcı OUT/sinyal</td><td>GPIO4</td><td>NEC protokolü, VCC 3.3V</td></tr>
+    <tr><td>Alarm LED + Buzzer</td><td>GPIO5</td><td>Paralel, aynı sinyal — buzzer AKTİF tip</td></tr>
+    <tr><td>Yeşil Power LED</td><td>Doğrudan besleme</td><td>GPIO'ya bağlı değil</td></tr>
+    <tr><td>Reset Buton</td><td>ESP32 EN pini</td><td>Donanımsal, yazılımdan okunmaz</td></tr>
+  </table></div>
+</section>
+
+<section class="card">
+  <h2><span class="num">3</span>RCA Girişleri (3 adet, CN5 pin 4-6 üzerinden çıkar)</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>HC-SR505 (PIR2, Konteyner hareket)</td><td><span class="swatch" style="background:#dc2626"></span>Kırmızı</td><td>GPIO17</td></tr>
+    <tr><td>Kapı reed switch</td><td><span class="swatch" style="background:#f8fafc"></span>Beyaz</td><td>GPIO7</td></tr>
+    <tr><td>Acil Durum Lambası (MOSFET tetikleme)</td><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>GPIO12</td></tr>
+  </table></div>
+</section>
+
+<section class="card">
+  <h2><span class="num">4</span>CN5 — 13'lü İç Konnektör (RS485, Swan PIR, Siren/Lamba, Bahçe Kapısı Butonu)</h2>
+  <h3>Swan Quad PET PIR (7m saha kablosu, Saha CAT5 Standardı)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A (PIR ucu)</th><th>Tel</th><th>Uç B (Dreambox ucu)</th></tr>
+    <tr><td>+12V terminali</td><td><span class="swatch" style="background:#fb8c00"></span>Turuncu+Turuncu/B</td><td>Ortak 12V bara (Siren/Lamba ile aynı)</td></tr>
+    <tr><td>GND terminali (+COM yerel jumper)</td><td><span class="swatch" style="background:#43a047"></span>Yeşil+Yeşil/B</td><td>Ortak GND bara</td></tr>
+    <tr><td>NC (alarm sinyali)</td><td><span class="swatch" style="background:linear-gradient(90deg,#6d4c33 50%,#fff 50%)"></span>Kahve/Beyaz</td><td>SCART Pin8 → GPIO13</td></tr>
+    <tr><td>—</td><td>Mavi, Mavi/Beyaz, Kahve</td><td>Boşta/yedek</td></tr>
+  </table></div>
+  <div class="warn-box"><b>Saha işi bekliyor:</b> Bu sinyal eskiden Mavi teldeydi, Kahve/Beyaz'a taşındı — her iki uçta (PIR ve Dreambox) fiziksel sonlandırma henüz değiştirilmediyse kontrol et.</div>
+
+  <h3>Konteyner Siren + Lamba</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+    <tr><td>Siren IRF520 SIG</td><td>GPIO8</td><td>SCART Pin6 (Sarı/Beyaz) üzerinden</td></tr>
+    <tr><td>Lamba IRF520 SIG</td><td>GPIO9</td><td>SCART Pin2 (Kahve/Beyaz) üzerinden</td></tr>
+  </table></div>
+
+  <h3>RS485 (MAX485, ESP8266 "Sudepo" haberleşmesi)</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A (MAX485)</th><th>Uç B</th><th>Not</th></tr>
+    <tr><td>RO</td><td>GPIO37 (RX)</td><td>UART1</td></tr>
+    <tr><td>DI</td><td>GPIO38 (TX)</td><td>UART1</td></tr>
+    <tr><td>DE+RE</td><td>GPIO39</td><td>HIGH=gönderim, LOW=alım</td></tr>
+    <tr><td>A/B</td><td>ESP8266 MAX485 A/B</td><td>Twisted pair, A↔A B↔B</td></tr>
+  </table></div>
+
+  <h3>Bahçe Kapısı Butonu</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>Dış Klemens Kutusu, Klemens 11 (sağ)</td><td><span class="swatch" style="background:linear-gradient(90deg,#e53935 50%,#fff 50%)"></span>Kırmızı/Beyaz (SCART pin18)</td><td>CN5 pin13 → GPIO47</td></tr>
+  </table></div>
+  <p style="color:var(--muted); font-size:0.9em">Motor/röle mantığı bu hatta YOK — buton komutu Sudepo'ya WiFi/HTTP ile gider. Ayrıntı: <a href="../../esp8266_slave/docs/bahce-kapisi-baglanti-kilavuzu.html">esp8266_slave bahçe kapısı kılavuzu</a>.</p>
+</section>
+
+<section class="card">
+  <h2><span class="num">5</span>CN6 — MQ6 Güç Kontrolü + Laptop Adaptörü Kesme + Zil Hoparlörü</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>MQ6 IRF520 SIG → SCART Pin20</td><td><span class="swatch" style="background:#fdd835"></span>Sarı</td><td>GPIO16</td></tr>
+    <tr><td>Laptop Adaptörü Kesme MOSFET → SCART Pin15</td><td><span class="swatch" style="background:#212121"></span>Siyah</td><td>GPIO21</td></tr>
+    <tr><td>Bahçe Kapısı Zil Hoparlörü → SCART Pin19</td><td><span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>GPIO48</td></tr>
+  </table></div>
+</section>
+
+<section class="card">
+  <h2><span class="num">6</span>Ayrı Kılavuzu Olan Bölümler</h2>
+  <ul class="checklist">
+    <li>MPPT şarj kontrolcü (RS232/PI30, MAX3232, GPIO40/41): <a href="mppt-baglanti-kilavuzu.html">mppt-baglanti-kilavuzu.html</a></li>
+    <li>Yedek Akü (voltaj izleme, GPIO2): <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a></li>
+    <li>Dış Klemens Kutusu'nun tam 26 terminalli tablosu ve SCART fotoğrafı: <a href="kutu-arka-panel.html">kutu-arka-panel.html</a></li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2><span class="num">7</span>Doğrulama Kontrol Listesi</h2>
+  <ul class="checklist">
+    <li>Her sensörün VCC/GND'sinin doğru voltajda olduğunu doğrula (Besleme Voltajı Tablosu, pinout.html) — özellikle MAX3232 SADECE 3.3V.</li>
+    <li>Swan PIR ve diğer 12V hat üzerindeki cihazların (Siren, Lamba, Acil Lamba) ortak 12V/GND barasına doğru bağlandığını kontrol et.</li>
+    <li>GP2Y10'un 150Ω+220µF'ının sensöre yakın olduğunu (ESP32 ucunda değil) doğrula.</li>
+    <li>Bahçe Kapısı Butonu/Zil Hoparlörü hatlarının ortak GND'ye kısa olmadığını doğrula (2026-09-18 öncesi bu pinler GND'ydi).</li>
+    <li>RS485 A/B'nin ESP8266 tarafıyla A↔A B↔B eşleştiğini doğrula (ters bağlanırsa haberleşme hiç kurulmaz).</li>
+  </ul>
+</section>
+
+<footer>Kalburum / SuDepoSis v2 — otorite kaynak <a href="pinout.html">pinout.html</a>, bu sayfa saha kurulumu için component bazlı özet sunar.</footer>
+</div>
+</body>
+</html>
