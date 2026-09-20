@@ -87,7 +87,8 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
 <header>
   <h1>🔋 Yedek Akü Bağlantı Kılavuzu — Kalburum</h1>
   <p class="sub">3x 12V 20Ah kullanılmış (scooter) akünün, gece ana akü bankası tükendiğinde alarm elektroniğini beslemesi + gündüz otomatik şarj olması için kablolama adımları.</p>
-  <div class="ok-box" style="margin-top:14px"><b>2026-08-14 — mimari kesinleşti:</b> 3 akü PARALEL bağlanıyor (tek 12V ~60Ah banka). Deşarj (yedek besleme) TAMAMEN PASİF donanım (diyot-OR), şarj ise AKTİF/sistem kontrollü (ESP32 + röle + PV izleme). Kod tarafı (<code>config.h</code>, <code>main.cpp</code>) tamamlandı ve derlendi — bu sayfa sadece donanım kurulumu içindir.</div>
+  <div class="ok-box" style="margin-top:14px"><b>2026-08-14 — mimari kesinleşti:</b> 3 akü PARALEL bağlanıyor (tek 12V ~60Ah banka). Deşarj (yedek besleme) TAMAMEN PASİF donanım (diyot-OR) — hâlâ geçerli.</div>
+  <div class="danger-box" style="margin-top:10px"><b>GÜNCEL DEĞİL — Şarj mimarisi değişti:</b> Bu sayfadaki GPIO21 röle + XL4015 aktif şarj tasarımı (bölüm 1'in "ŞARJ" tarafı, malzeme listesindeki XL4015/röle, adım 3-5) terk edildi — XL4015 aşırı ısındı, buck dönüştürücü akü şarjına uygun değildi. Şarj artık PWM solar şarj kontrolcü (Schulzz) ile yapılıyor, ESP32/GPIO21'den bağımsız. GPIO21 de ayrı bir işleve (Laptop Adaptörü Kesme MOSFET) atandı — bkz <a href="pinout.html">pinout.html</a>. Sadece <b>GPIO2 (voltaj izleme, adım 6) ve deşarj/diyot-OR (adım 2) hâlâ geçerli.</b></div>
 </header>
 
 <section class="card">
@@ -181,9 +182,9 @@ code.inline{font-family:var(--mono); background:var(--accent-soft); color:var(--
   <h2><span class="num">4</span>ESP32 pin özeti</h2>
   <div class="tablewrap">
     <table>
-      <tr><th>GPIO</th><th>Bağlantı</th><th>Yön</th></tr>
-      <tr><td class="mono">2</td><td>Gerilim bölücü (100kΩ/27kΩ) çıkışı</td><td>Giriş (ADC1)</td></tr>
-      <tr><td class="mono">21</td><td>Röle modülü IN</td><td>Çıkış (dijital)</td></tr>
+      <tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+      <tr><td>Gerilim bölücü (100kΩ/27kΩ) çıkışı</td><td class="mono">GPIO2</td><td>Giriş (ADC1) — hâlâ geçerli</td></tr>
+      <tr><td>Röle modülü IN</td><td class="mono">GPIO21</td><td>GÜNCEL DEĞİL, yukarı bak</td></tr>
     </table>
   </div>
   <p style="margin-top:12px">Tam kod tarafı tanımları: <code class="inline">esp32_master/include/config.h</code> içindeki <code class="inline">YEDEK_AKU_*</code> satırları.</p>

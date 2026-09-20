@@ -133,11 +133,12 @@
 <div class="section">
   <h2>4. RCA (Phono) Girişleri — 3 adet</h2>
   <table>
-    <tr><th>Renk</th><th>Fonksiyon</th><th>ESP32 GPIO</th><th>Not</th></tr>
-    <tr><td><span class="swatch" style="background:#dc2626"></span>Kırmızı</td><td>PIR sensör (HC-SR505, Konteyner)</td><td>GPIO17</td><td>2026-08-20: eski GPIO6'dan taşındı, GP2Y10'a ADC1 kanalı açmak için</td></tr>
-    <tr><td><span class="swatch" style="background:#f8fafc"></span>Beyaz</td><td>Reed switch (kapı)</td><td>GPIO7</td><td>Konteyner kapı reed</td></tr>
-    <tr><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>Acil Durum Lambası (MOSFET tetikleme çıkışı)</td><td>GPIO12</td><td>2026-08-28: eskiden GPIO21'di, kutudan dışarı çıkışı olmadığı için buraya (dışarı çıkan Sarı RCA'ya) taşındı. İç 13'lü konnektörün (CN5) 4. pinine bağlı.</td></tr>
+    <tr><th>Uç A</th><th>Tel</th><th>Uç B</th></tr>
+    <tr><td>PIR sensör (HC-SR505, Konteyner)</td><td><span class="swatch" style="background:#dc2626"></span>Kırmızı</td><td>GPIO17</td></tr>
+    <tr><td>Reed switch (kapı)</td><td><span class="swatch" style="background:#f8fafc"></span>Beyaz</td><td>GPIO7</td></tr>
+    <tr><td>Acil Durum Lambası (MOSFET tetikleme)</td><td><span class="swatch" style="background:#eab308"></span>Sarı</td><td>GPIO12 *</td></tr>
   </table>
+  <p style="font-size:13px;color:var(--muted)">* 2026-08-28: eskiden GPIO21'di, kutudan dışarı çıkışı olmadığı için Sarı RCA'ya (CN5 pin4) taşındı.</p>
 </div>
 
 <div class="section">

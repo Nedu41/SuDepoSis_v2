@@ -1624,6 +1624,7 @@ bool kayitGuncelle(int idx, String t, String k, float l, float u, String ky) {
 String durumJson() {
   String j = "{"; // OTA test icin derleme zamani degistirici
   j += "\"firmwareBuild\":\"" FIRMWARE_BUILD_TS "\",";
+  j += "\"firmwareVersion\":\"" FIRMWARE_VERSION "\",";
   j += "\"uptimeMs\":" + String(millis()) + ",";
   j += "\"resetReason\":\"" + ESP.getResetReason() + "\",";
   j += "\"seviye\":" + String(sonSeviyeCm, 1) + ",";

@@ -13,14 +13,22 @@ from datetime import datetime
 Import("env")
 ROOT = env["PROJECT_DIR"]
 OUT_PATH = os.path.join(ROOT, "include", "build_info.h")
+VERSION_PATH = os.path.join(ROOT, "..", "VERSION")
 
 ts = datetime.now().strftime("%b %d %Y %H:%M:%S")
+try:
+    with open(VERSION_PATH, "r", encoding="utf-8") as vf:
+        version = vf.read().strip()
+except FileNotFoundError:
+    version = "0.0.0-unknown"
 
 out = (
     "#pragma once\n"
     "// OTOMATIK URETILDI - scripts/gen_build_info.py tarafindan HER derlemede\n"
-    "// yeniden uretilir. Elle duzenlemeyin.\n\n"
-    '#define FIRMWARE_BUILD_TS "%s"\n' % ts
+    "// yeniden uretilir. Elle duzenlemeyin. Surum icin repo kokundeki VERSION\n"
+    "// dosyasini duzenleyin (buyuk degisikliklerde elle atanir).\n\n"
+    '#define FIRMWARE_VERSION "%s"\n'
+    '#define FIRMWARE_BUILD_TS "%s"\n' % (version, ts)
 )
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
