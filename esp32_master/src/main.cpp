@@ -3484,6 +3484,7 @@ String durumJson() {
   doc["esp8266_last_sec"] = (millis() - sensorData.last_update_ms) / 1000;
   doc["uptime_sec"] = millis() / 1000;
   doc["build_date"] = FIRMWARE_BUILD_TS;
+  doc["firmware_version"] = FIRMWARE_VERSION;
   doc["rs485_interval_ms"] = RS485_UPDATE_INTERVAL;
   doc["esp32_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   doc["esp32_mode"] = (WiFi.status() == WL_CONNECTED) ? "STA" : "AP";

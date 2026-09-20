@@ -53,66 +53,68 @@
 
 <div class="section">
 <h2>Modül 1: HC-SR04 Ultrasonik Sensör</h2>
+<p><strong>2026-09-20:</strong> Depo Lambası'nın besleme kablosu da bu hatta (~3m) fiziksel olarak birlikte gidiyor — aynı çok damarlı kablo içinde ama ELEKTRİKSEL olarak ayrı damarlar, HC-SR04 pinleriyle ilişkisi yok (sadece güzergah paylaşılıyor).</p>
 <table>
-<tr><th>HC-SR04 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
-<tr><td>VCC</td><td>5V</td><td>—</td><td>5V önerilir (3.3V de çalışır)</td></tr>
-<tr><td>TRIG</td><td>D5</td><td>14</td><td>Trigger pulse input</td></tr>
-<tr><td>ECHO</td><td>D6</td><td>12</td><td>Echo pulse output</td></tr>
-<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+<tr><th>Uç A (HC-SR04)</th><th>Tel</th><th>Uç B</th></tr>
+<tr><td>VCC</td><td><span class="swatch" style="background:#e53935"></span>Kırmızı</td><td>ESP8266 5V</td></tr>
+<tr><td>TRIG</td><td><span class="swatch" style="background:#1e88e5"></span>Mavi</td><td>ESP8266 D5</td></tr>
+<tr><td>ECHO</td><td><span class="swatch" style="background:#212121"></span>Siyah *</td><td>ESP8266 D6</td></tr>
+<tr><td>GND</td><td><span class="swatch" style="background:#fdd835"></span>Sarı</td><td>ESP8266 GND</td></tr>
 </table>
+<p style="color:var(--muted); font-size:0.9em">* standart siyah=GND kuralı burada GEÇERLİ DEĞİL, bu kabloda siyah sinyal (ECHO) taşıyor. Aynı kablodaki Depo Lambası damarları (GND+besleme) HC-SR04 pinlerinden bağımsız, doğrudan MOSFET modülüne gider — bkz Modül 5.</p>
 </div>
 
 <div class="section">
 <h2>Modül 2: DS1307 RTC (Real Time Clock)</h2>
 <table>
-<tr><th>DS1307 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
-<tr><td>VCC</td><td>3V3</td><td>—</td><td>3.3V güç</td></tr>
-<tr><td>SDA</td><td>D2</td><td>4</td><td>I2C Data (pull-up 4.7kΩ)</td></tr>
-<tr><td>SCL</td><td>D1</td><td>5</td><td>I2C Clock (pull-up 4.7kΩ)</td></tr>
-<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
-<tr><td>BAT</td><td>3V CR2032</td><td>—</td><td>Batarya desteği</td></tr>
+<tr><th>Uç A (DS1307)</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>VCC</td><td>ESP8266 3V3</td><td>—</td></tr>
+<tr><td>SDA</td><td>ESP8266 D2</td><td>Pull-up 4.7kΩ</td></tr>
+<tr><td>SCL</td><td>ESP8266 D1</td><td>Pull-up 4.7kΩ</td></tr>
+<tr><td>GND</td><td>ESP8266 GND</td><td>—</td></tr>
+<tr><td>BAT</td><td>CR2032</td><td>Batarya desteği</td></tr>
 </table>
 </div>
 
 <div class="section">
 <h2>Modül 3: MAX485 RS485 (ESP32-S3 Master Haberleşme)</h2>
 <table>
-<tr><th>MAX485 Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
-<tr><td>DI</td><td>D0</td><td>16</td><td>Data Input (ESP → MAX)</td></tr>
-<tr><td>RO</td><td>D7</td><td>13</td><td>Data Output (MAX → ESP)</td></tr>
-<tr><td>DE</td><td>D3</td><td>0</td><td>Driver Enable (HIGH = send)</td></tr>
-<tr><td>RE</td><td>D3</td><td>0</td><td>Receiver Enable (LOW = receive)</td></tr>
-<tr><td>VCC</td><td>5V</td><td>—</td><td>5V güç (3.3V de çalışır)</td></tr>
-<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
-<tr><td>A</td><td>Master A</td><td>—</td><td>Twisted pair A</td></tr>
-<tr><td>B</td><td>Master B</td><td>—</td><td>Twisted pair B</td></tr>
+<tr><th>Uç A (MAX485)</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>DI</td><td>ESP8266 D0</td><td>—</td></tr>
+<tr><td>RO</td><td>ESP8266 D7</td><td>—</td></tr>
+<tr><td>DE</td><td>ESP8266 D3</td><td>HIGH=send</td></tr>
+<tr><td>RE</td><td>ESP8266 D3</td><td>LOW=receive</td></tr>
+<tr><td>VCC</td><td>ESP8266 5V</td><td>3.3V de çalışır</td></tr>
+<tr><td>GND</td><td>ESP8266 GND</td><td>—</td></tr>
+<tr><td>A</td><td>Master A</td><td>Twisted pair</td></tr>
+<tr><td>B</td><td>Master B</td><td>Twisted pair</td></tr>
 </table>
 </div>
 
 <div class="section">
 <h2>Modül 4: Arduino Nano (Kapı & Röle Kontrolü) — v2 Pin Planı</h2>
 <table>
-<tr><th>Nano Pin</th><th>ESP8266 Pin</th><th>GPIO</th><th>Açıklama</th></tr>
-<tr><td>D0 (RX)</td><td>TX (D10)</td><td>1</td><td>ESP → Nano komut (470Ω direnç)</td></tr>
-<tr><td>D1 (TX)</td><td>RX (D9)</td><td>3</td><td>Nano → ESP durum</td></tr>
-<tr><td>D2</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) tam kapalı switch (INPUT_PULLUP, kapalıyken LOW). Depo alarm kapı sensörü DEĞİL - alarm mantığında kullanılmaz.</td></tr>
-<tr><td>D3</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) tam kapalı switch (INPUT_PULLUP, kapalıyken LOW). Depo alarm kapı sensörü DEĞİL - alarm mantığında kullanılmaz.</td></tr>
-<tr><td>D4</td><td>—</td><td>—</td><td>Alarm sireni (IRF520 MOSFET SIG, OUTPUT, HIGH=aktif)</td></tr>
-<tr><td>D5</td><td>—</td><td>—</td><td>Nem rölesi (OUTPUT)</td></tr>
-<tr><td>D6</td><td>—</td><td>—</td><td>PIR hareket sensörü girişi (INPUT, HIGH=hareket)</td></tr>
-<tr><td>D7</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
-<tr><td>D8, D11</td><td>—</td><td>—</td><td>Yedek GPIO (ESP'den PIN_MODE/PIN_WRITE/PIN_READ ile dinamik)</td></tr>
-<tr><td>D9</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) tam açık switch (INPUT_PULLUP, tetiklenince LOW)</td></tr>
-<tr><td>D10</td><td>—</td><td>—</td><td>Bahçe Kapısı zil butonu (INPUT_PULLUP, basılınca LOW)</td></tr>
-<tr><td>D12</td><td>—</td><td>—</td><td>Pasif buzzer (TONE_PLAY/TONE_STOP) — açılış melodisi, PIR ön-uyarı bipi, zil</td></tr>
-<tr><td>D13</td><td>—</td><td>—</td><td>Depo iç lamba rölesi (OUTPUT, sadece lamba)</td></tr>
-<tr><td>A0</td><td>—</td><td>—</td><td>Toprak nem sensörü (analog)</td></tr>
-<tr><td>A1</td><td>—</td><td>—</td><td>Bahçe Kapı 1 (SOL) motor akım sensörü (ACS712 5A)</td></tr>
-<tr><td>A2</td><td>—</td><td>—</td><td>Bahçe Kapı 2 (SAĞ) motor akım sensörü (ACS712 5A)</td></tr>
-<tr><td>A3-A5</td><td>—</td><td>—</td><td>Yedek GPIO</td></tr>
-<tr><td>A6-A7</td><td>—</td><td>—</td><td>Yedek (sadece analog input)</td></tr>
-<tr><td>5V</td><td>5V</td><td>—</td><td>5V güç (USB veya ayrı)</td></tr>
-<tr><td>GND</td><td>GND</td><td>—</td><td>Common ground</td></tr>
+<tr><th>Uç A (Nano)</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>D0 (RX)</td><td>ESP8266 TX(D10)</td><td>470Ω direnç</td></tr>
+<tr><td>D1 (TX)</td><td>ESP8266 RX(D9)</td><td>—</td></tr>
+<tr><td>D2</td><td>SW Kapı1(SOL) Kapalı</td><td>INPUT_PULLUP, LOW=kapalı — alarm sensörü DEĞİL</td></tr>
+<tr><td>D3</td><td>SW Kapı2(SAĞ) Kapalı</td><td>INPUT_PULLUP, LOW=kapalı — alarm sensörü DEĞİL</td></tr>
+<tr><td>D4</td><td>IRF520 SIG (Alarm sireni)</td><td>OUTPUT, HIGH=aktif</td></tr>
+<tr><td>D5</td><td>Nem rölesi</td><td>OUTPUT</td></tr>
+<tr><td>D6</td><td>PIR</td><td>INPUT, HIGH=hareket</td></tr>
+<tr><td>D7</td><td>SW Kapı1(SOL) Açık</td><td>INPUT_PULLUP, LOW=tetik</td></tr>
+<tr><td>D8, D11</td><td>Yedek</td><td>PIN_MODE ile dinamik</td></tr>
+<tr><td>D9</td><td>SW Kapı2(SAĞ) Açık</td><td>INPUT_PULLUP, LOW=tetik</td></tr>
+<tr><td>D10</td><td>Zil butonu</td><td>INPUT_PULLUP, LOW=basılı</td></tr>
+<tr><td>D12</td><td>Pasif buzzer</td><td>TONE_PLAY/STOP — melodi, PIR ön-uyarı, zil</td></tr>
+<tr><td>D13</td><td>Depo lambası MOSFET gate</td><td>OUTPUT</td></tr>
+<tr><td>A0</td><td>Toprak nem sensörü</td><td>Analog</td></tr>
+<tr><td>A1</td><td>ACS712-1 OUT (Kapı1 akım)</td><td>Analog</td></tr>
+<tr><td>A2</td><td>ACS712-2 OUT (Kapı2 akım)</td><td>Analog</td></tr>
+<tr><td>A3-A5</td><td>Yedek</td><td>—</td></tr>
+<tr><td>A6-A7</td><td>Yedek</td><td>Sadece analog input</td></tr>
+<tr><td>5V</td><td>ESP8266 5V</td><td>USB veya ayrı</td></tr>
+<tr><td>GND</td><td>ESP8266 GND</td><td>—</td></tr>
 </table>
 <p><strong>Genel GPIO Komut Protokolü (ESP → Nano):</strong></p>
 <ul>
@@ -125,79 +127,130 @@
 
 <div class="section">
 <h2>Modül 4b: R413D08 (8CH RS485/Modbus RTU Röle — Bahçe Kapısı Motor Kontrolü)</h2>
-<p>Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle aynı kural). R413D08 kapı tarafına monte edilir (ESP8266 panosuyla arası 5cm), Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
+<p>Kapı1 = SOL kanat, Kapı2 = SAĞ kanat (depo alarm kapı sensörleriyle aynı kural). Nano'ya bağlı değil — mevcut Sudepo↔Konteyner RS485 hattına (MAX485, aynı A/B hattı) 3. node olarak eklenir, Modbus adresi <strong>1</strong>. Motor yönü 2 bağımsız röle ile kontrol edilir (H-köprüsü değil): AÇIK = A ON/B OFF, KAPALI = A OFF/B ON, DUR = ikisi de OFF.</p>
+<p><strong>2026-09-20 fiziksel yerleşim kararı:</strong> R413D08 + 8CH röle modülü + 2× ACS712, ESP8266 panosunun yanında DEĞİL, <strong>Sağ Kapı (Kapı2/SAĞ) tarafına/üzerine</strong> ayrı bir "Sağ Panel" içine konuyor. Üç fiziksel nokta var:</p>
+<ul>
+<li><strong>Sol Kapı (Kapı1/SOL):</strong> Motor1 + D2 (kapalı switch) + D7 (açık switch) — yerinde, kablosu Sağ Panel'e gidiyor</li>
+<li><strong>Sağ Panel</strong> (Sağ Kapı'ya yakın/üzerinde): R413D08, 8CH röle, 2× ACS712 + Motor2 + D3 + D9 + kilit solenoidi (bunların hepsi burada yerel/kısa tel ile)</li>
+<li><strong>ESP8266 panosu</strong> (Nano dahil): Sağ Panel'den <strong>5m</strong> uzakta</li>
+</ul>
+<p>Sol Kapı ↔ Sağ Panel arası <strong>3m</strong>, Sağ Panel ↔ ESP8266 panosu arası <strong>5m</strong> — her iki segmentte de sinyal (CAT5) ile besleme/motor kablosu AYRI kablolarda gidiyor (motor anahtarlama gürültüsü sinyal/analog okumayı bozmasın diye). Detay: <a href="#field-kablolama">Field Kablolama</a> tablosu.</p>
 <p><strong>Pozisyon algılama:</strong> Tam açık = Nano D7 (SOL) / D9 (SAĞ). Kapalı = Nano D2 (SOL) / D3 (SAĞ) (Modül 4 tablosu).</p>
 <p><strong>Röle yok — bu kart sadece sürücü:</strong> Elimizdeki R413D08 üzerinde fiziksel röle YOK, sadece RS485/Modbus alıp her kanal için ayrı bir tetikleme sinyali (Ch1-Ch8) üreten sürücü kartı. Gerçek anahtarlama (COM/NO/NC) ayrı, harici bir <a href="#modul4c">5V 8CH röle modülünde</a> yapılır — Ch1-Ch8, o modülün IN1-IN8'ine 1:1 kablolanır.</p>
 <table>
-<tr><th>R413D08 Terminal</th><th>Bağlı Olduğu</th><th>Kablo Rengi (CAT5)</th><th>Açıklama</th></tr>
-<tr><td>VIN / GND (klemens)</td><td>Yedek akü → 5V hattı</td><td><span class="swatch" style="background:#1e88e5"></span>Mavi (+5V) / <span class="swatch" style="background:#43a047"></span>Yeşil (GND)</td><td>5V DC güç girişi — henüz kablo çekilmedi, Saha CAT5 Standardı'ndaki mevcut +5V/GND çiftleri</td></tr>
-<tr><td>A / B (klemens)</td><td>Ortak RS485 hattı (MAX485)</td><td><span class="swatch" style="background:#6d4c33"></span>Kahve (A) / <span class="swatch" style="background:linear-gradient(90deg,#6d4c33 50%,#ffffff 50%)"></span>Kahve/Beyaz (B)</td><td>Sudepo↔Konteyner ile aynı A/B twisted pair'e paralel — A↔A, B↔B. Standarttaki "Sinyal" çifti burada differential pair (A/B) olarak kullanılıyor</td></tr>
-<tr><td>TTL header (GND/RXD/TXD/5V)</td><td>—</td><td>—</td><td>Yerel UART/programlama başlığı, kullanılmıyor — haberleşme RS485/A-B üzerinden</td></tr>
-<tr><td>Ch1-Ch8 (sağ pin header)</td><td><a href="#modul4c">5V 8CH Röle Modül</a> IN1-IN8</td><td>Kısa direkt tel (kartlar yan yana monte, CAT5/renk standardı gerekmiyor)</td><td>Kanal başına ayrı tetikleme çıkışı, 1:1 kablolanacak</td></tr>
-<tr><td>GND (sağ pin header)</td><td><a href="#modul4c">5V 8CH Röle Modül</a> GND</td><td>Kısa direkt tel</td><td>Ch1-Ch8 ile aynı sırada, ortak referans</td></tr>
-<tr><td>Vo (sağ pin header, tek pin, en sonda)</td><td><a href="#modul4c">5V 8CH Röle Modül</a> VCC (aday)</td><td>Kısa direkt tel</td><td>Kartın kendi VIN'ine doğrudan bağlı — güç çıkışı/pass-through, sinyal DEĞİL (DOĞRULA: akım payı ölç)</td></tr>
-<tr><td>M0/M1/M2 (lehim pedleri)</td><td>—</td><td>—</td><td>DIP anahtar değil — M0 köprülenirse AT komut modu, açıksa Modbus RTU modu (bu projede Modbus, M0 AÇIK bırakılmalı). Adres DIP ile değil, yazılım komutuyla (Fonksiyon 0x06, register 0x00FF) ayarlanıyor</td></tr>
+<tr><th>Uç A (R413D08)</th><th>Kablo</th><th>Uç B</th></tr>
+<tr><td>VIN / GND</td><td>Mavi+Mavi/B / Yeşil+Yeşil/B · CAT5-Güç</td><td>ESP8266 panosu +5V/GND *</td></tr>
+<tr><td>A / B</td><td><span class="swatch" style="background:#6d4c33"></span>Kahve(A)/Kahve-Beyaz(B)</td><td>MAX485 A/B (ortak RS485 hattı)</td></tr>
+<tr><td>TTL header</td><td>—</td><td>Kullanılmıyor</td></tr>
+<tr><td>Ch1-Ch8</td><td>Kısa direkt tel</td><td>8CH Röle IN1-IN8</td></tr>
+<tr><td>GND (sağ header)</td><td>Kısa direkt tel</td><td>8CH Röle GND</td></tr>
+<tr><td>Vo (sağ header)</td><td>Kısa direkt tel</td><td>8CH Röle VCC (5V besleme)</td></tr>
+<tr><td>M0/M1/M2</td><td>—</td><td>Modbus modu (M0 AÇIK bırak) **</td></tr>
 </table>
+<p style="color:var(--muted); font-size:0.9em">* Henüz kablo çekilmedi, bkz Field Kablolama. ** DIP anahtar değil, lehim pedi; adres DIP değil yazılım komutuyla (Fonksiyon 0x06, register 0x00FF) ayarlanıyor.</p>
 <table>
 <tr><th>R413D08 Kanal</th><th>Fonksiyon</th><th>8CH Röle Modül</th></tr>
 <tr><td>Ch1</td><td>Kapı 1 (SOL) motor rölesi A (açma yönü)</td><td>IN1</td></tr>
 <tr><td>Ch2</td><td>Kapı 1 (SOL) motor rölesi B (kapama yönü)</td><td>IN2</td></tr>
 <tr><td>Ch3</td><td>Kapı 2 (SAĞ) motor rölesi A (açma yönü)</td><td>IN3</td></tr>
 <tr><td>Ch4</td><td>Kapı 2 (SAĞ) motor rölesi B (kapama yönü)</td><td>IN4</td></tr>
-<tr><td>Ch5</td><td>Ortak elektrikli solenoid kilit (darbeli, 1sn) — iki kapı için TEK kilit, kanatlar ortada birleşince kilitlenir</td><td>IN5</td></tr>
+<tr><td>Ch5</td><td>Ortak kilit solenoidi (12V, darbeli 1sn) — iki kapı için TEK kilit, kanatlar ortada birleşince kilitlenir</td><td>IN5</td></tr>
 <tr><td>Ch6-Ch8</td><td>Kullanılmıyor</td><td>IN6-IN8</td></tr>
 </table>
 <p><strong>Motor bağlantısı (2 röle "reversing" devresi, H-köprüsü DEĞİL):</strong> Her motor için A/B röle çiftinin NO'ları ortak 12V hattına, NC'leri ortak GND'ye, COM'ları motorun 2 ucuna bağlanır. AÇIK=A ON/B OFF (uç1=12V/uç2=GND), KAPALI=A OFF/B ON (ters polarite), DUR=ikisi OFF (uç1=uç2=GND, gerilimsiz). Referans: <a href="https://mechatrofice.com/circuits/relay-dc-motor-driver">mechatrofice.com/circuits/relay-dc-motor-driver</a>.</p>
+<p><strong>Kilit solenoidi flyback diyotu (2026-09-20):</strong> Solenoid bobini indüktif yük — Ch5 röle kesilince (kapanış anı) bobin üzerinde yüksek gerilim darbesi oluşur, röle kontağına zarar verebilir. Solenoid TEK yönde enerjilendiğinden (COM hep +12V tarafında) bobin uçlarına ters polarite ile (katot/bantlı uç → +12V tarafı, anot → GND tarafı) basit bir flyback diyot yeterli. <strong>Varsayılan değer: 1N4007</strong> (1A / 1000V PIV) — tipik lock solenoidi akımı (birkaç yüz mA) için bolca yeterli. Solenoid akımı sahada ölçülüp 0.7A'i geçerse <strong>1N5408</strong>'e (3A) yükseltilmeli.</p>
+<p><strong>Motor koruması (2026-09-20) — solenoidden FARKLI:</strong> Motorlarda uçlar 2 röle ile hem +12V hem GND'ye anahtarlanıyor (yön değişimi) — solenoid gibi tek yönlü sabit bir flyback diyot buraya KONULAMAZ, ters yönde çalışırken diyot iletime geçip kaynağı kısa devre eder. Bunun yerine her motorun 2 ucuna paralel, yöne bağımsız (bidirectional) bir <strong>TVS diyot</strong> önerilir: <strong>P6KE18CA</strong> (18V standoff, bidirectional, ~600W darbe gücü) — 12V'ta iletken olmaz, sadece anahtarlama darbesini keser. Elde TVS yoksa alternatif: 2 adet 15V zener ters-seri bağlanarak aynı işlev sağlanabilir.</p>
 <p><strong>Güvenlik:</strong> Aşırı akımda (sıkışma) motor sadece durmaz, UL 325 prensibine göre ters yöne alınır — eşleştirilmiş (çift kanat) komutlarda biri sıkışırsa ikisi de geri döner (bkz bahce_kapisi.cpp kapiPoll). Standart uyumluluk detayları için <a href="../../esp32_master/docs/pinout.html#standartlar">esp32_master/docs/pinout.html → Standartlar ve Uyumluluk</a>.</p>
 <p class="no-print" style="color:var(--accent)">Henüz sahaya kurulmadı (2026-09-07 planlandı) — komutlar donanım bağlanınca çalışır.</p>
 </div>
 
-<div class="section" id="modul4c">
-<h2>Modül 4c: 5V 8CH Röle Modülü (Yedekte)</h2>
-<p class="no-print" style="color:var(--accent)">Kullanım alanı henüz belirlenmedi — hiçbir GPIO'ya bağlı değil. R413D08'in fiziksel röle içermemesi nedeniyle asıl anahtarlamayı bu kart yapacak (bkz Modül 4b).</p>
+<div class="section" id="field-kablolama">
+<h2>Field Kablolama (2026-09-20)</h2>
+<p>Sinyal (CAT5) ile besleme/motor kablosu her segmentte AYRI — motor anahtarlama gürültüsü sinyal/analog okumayı bozmasın diye. Motor ve kilit besleme kabloları için <strong>2x1mm TTR kablo</strong> kullanılacak (Sağ Panel'deki Motor2/kilit yerel bağlantıları dahil).</p>
+<h3>Segment 1: Sol Kapı → Sağ Panel (3m)</h3>
 <table>
-<tr><th>Terminal</th><th>Bağlı Olduğu</th><th>Açıklama</th></tr>
-<tr><td>VCC / GND</td><td>Paylaşılan 5V hattı VEYA R413D08 Vo</td><td>5V — Vo, VIN'e doğrudan bağlı pass-through (DOĞRULA: akım payı ölç)</td></tr>
-<tr><td>IN1-IN8</td><td>R413D08 Ch1-Ch8</td><td>Tetikleme girişleri, aktif-LOW (GND'ye çekilince röle çeker), 1:1 kablolanır</td></tr>
-<tr><td>Kanal başına COM / NO / NC</td><td>Anahtarlanan yük (motor/kilit)</td><td>8 adet, birbirinden bağımsız</td></tr>
+<tr><th>Uç A</th><th>Kablo</th><th>Uç B</th></tr>
+<tr><td>SW D2 (Kapı1 Kapalı)</td><td><span class="swatch" style="background:#fb8c00"></span>Turuncu · CAT5</td><td>Nano D2 *</td></tr>
+<tr><td>SW D7 (Kapı1 Açık)</td><td><span class="swatch" style="background:#1e88e5"></span>Mavi · CAT5</td><td>Nano D7 *</td></tr>
+<tr><td>—</td><td><span class="swatch" style="background:#43a047"></span>Yeşil+Beyaz · CAT5</td><td>Ortak GND</td></tr>
+<tr><td>—</td><td>Turuncu/B, Kahve, Kahve/B · CAT5</td><td>Yedek</td></tr>
+<tr><td>Motor1 (SOL)</td><td>2x1mm TTR</td><td>R413D08 Ch1/Ch2</td></tr>
+</table>
+<p style="color:var(--muted); font-size:0.9em">* Sağ Panel'de klemensten devrediliyor (aktif elektronik yok), Segment 2 ile devam eder.</p>
+<h3>Segment 2: Sağ Panel → ESP8266 Panosu (5m)</h3>
+<table>
+<tr><th>Uç A</th><th>Kablo</th><th>Uç B</th></tr>
+<tr><td>SW D2 (Kapı1 Kapalı)</td><td><span class="swatch" style="background:#fb8c00"></span>Turuncu · CAT5-B1</td><td>Nano D2</td></tr>
+<tr><td>SW D3 (Kapı2 Kapalı)</td><td>Turuncu/B · CAT5-B1</td><td>Nano D3</td></tr>
+<tr><td>SW D7 (Kapı1 Açık)</td><td><span class="swatch" style="background:#1e88e5"></span>Mavi · CAT5-B1</td><td>Nano D7</td></tr>
+<tr><td>SW D9 (Kapı2 Açık)</td><td>Mavi/B · CAT5-B1</td><td>Nano D9</td></tr>
+<tr><td>Zil butonu</td><td><span class="swatch" style="background:#6d4c33"></span>Kahve · CAT5-B1</td><td>Nano D10</td></tr>
+<tr><td>—</td><td>Yeşil+Beyaz · CAT5-B1</td><td>Ortak GND</td></tr>
+<tr><td>—</td><td>Kahve/B · CAT5-B1</td><td>Yedek</td></tr>
+<tr><td>Motor2 (SAĞ, yerel)</td><td>2x1mm TTR</td><td>R413D08 Ch3/Ch4</td></tr>
+<tr><td>Kilit solenoidi (yerel)</td><td>2x1mm TTR</td><td>R413D08 Ch5</td></tr>
+<tr><td>ACS712-1 OUT</td><td>Turuncu · CAT5-B2</td><td>Nano A1</td></tr>
+<tr><td>ACS712-1 GND</td><td>Turuncu/B · CAT5-B2</td><td>Nano GND (izole) *</td></tr>
+<tr><td>ACS712-2 OUT</td><td>Mavi · CAT5-B2</td><td>Nano A2</td></tr>
+<tr><td>ACS712-2 GND</td><td>Mavi/B · CAT5-B2</td><td>Nano GND (izole) *</td></tr>
+<tr><td>—</td><td>Yeşil çifti, Kahve çifti · CAT5-B2</td><td>Yedek</td></tr>
+<tr><td>ESP8266 panosu +12V</td><td><span class="swatch" style="background:#fb8c00"></span>Turuncu+Turuncu/B · CAT5-Güç</td><td>Sağ Panel — motor/kilit ortak hat</td></tr>
+<tr><td>ESP8266 panosu +5V</td><td><span class="swatch" style="background:#1e88e5"></span>Mavi+Mavi/B · CAT5-Güç</td><td>Sağ Panel — R413D08+röle bobini+ACS712 VCC</td></tr>
+<tr><td>ESP8266 panosu GND</td><td><span class="swatch" style="background:#43a047"></span>Yeşil+Yeşil/B · CAT5-Güç</td><td>Sağ Panel ortak</td></tr>
+<tr><td>—</td><td>Kahve çifti · CAT5-Güç</td><td>Yedek</td></tr>
+</table>
+<p style="color:var(--muted); font-size:0.9em">CAT5-Güç, Saha CAT5 Kablo Standardı'nı izler (Turuncu=+12V, Mavi=+5V, Yeşil=GND). Üç CAT5 (B1 dijital, B2 analog, Güç) birbirinden ve motor besleme kablosundan ayrı güzergahta. * ACS712 GND'si ortak/motor GND'sini PAYLAŞMAZ (185mV/A hassasiyette gürültü yanlış akım okutur). ACS712 VCC, Nano'dan değil Sağ Panel'in kendi yerel +5V'undan.</p>
+</div>
+
+<div class="section" id="modul4c">
+<h2>Modül 4c: 5V 8CH Röle Modülü (Bahçe Kapısı Motor/Kilit Anahtarlama)</h2>
+<p class="no-print" style="color:var(--accent)">2026-09-20: Sağ Panel içinde R413D08 ile birlikte monte ediliyor (bkz Modül 4b, Field Kablolama). R413D08'in fiziksel röle içermemesi nedeniyle asıl anahtarlamayı bu kart yapıyor.</p>
+<table>
+<tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>VCC / GND</td><td>R413D08 Vo</td><td>5V besleme, Vo pass-through</td></tr>
+<tr><td>IN1-IN8</td><td>R413D08 Ch1-Ch8</td><td>Aktif-LOW, 1:1</td></tr>
+<tr><td>COM/NO/NC (×8)</td><td>Anahtarlanan yük (motor/kilit)</td><td>Bağımsız</td></tr>
 </table>
 </div>
 
 <div class="section">
 <h2>Modül 4d: ACS712 5A Akım Sensörü (×2, Motor Sıkışma Tespiti)</h2>
+<p><strong>Fiziksel yerleşim (2026-09-20):</strong> Nano'nun yanında DEĞİL, Sağ Panel içinde (R413D08/8CH röle ile birlikte) — Nano'dan 5m uzakta. VCC yerel olarak Sağ Panel'in kendi +5V hattından (besleme kablosu) alınır; GND ve OUT ise <a href="#field-kablolama">CAT5-B2 (izole analog sinyal)</a> üzerinden Nano'ya gider — ortak/motor GND'sini PAYLAŞMAZ (motor anahtarlama gürültüsü 185mV/A'lık okumayı bozmasın diye).</p>
 <p><strong>Önemli prensip:</strong> VCC/GND/OUT sinyal pinleri Nano'ya gider, ama <strong>IP+/IP- vida terminalleri motorun güç hattına SERİ bağlanır</strong> (paralel DEĞİL) — sensör motora giden akımın tamamının kendi içinden geçmesiyle ölçüm yapar. IP+/IP-'nin hangi ucu + hangi ucu - olduğu önemli değildir (yön ters olursa okuma negatif çıkar, kod `fabs()` ile mutlak değer alıyor).</p>
 <table>
-<tr><th>ACS712 Pin</th><th>Bağlı Olduğu</th><th>Açıklama</th></tr>
-<tr><td>VCC</td><td>Nano 5V</td><td>Besleme</td></tr>
-<tr><td>GND</td><td>Nano GND</td><td>Ortak referans</td></tr>
-<tr><td>OUT</td><td>Kapı1: Nano A1 / Kapı2: Nano A2</td><td>Analog çıkış, 185mV/A hassasiyet (5A modül), sıfır noktası ~2.5V (ham ADC ~512, DOĞRULA — sahada kalibre edilmeli)</td></tr>
-<tr><td>IP+ / IP- (vida terminalleri)</td><td>İlgili kapı motorunun güç hattı (SERİ)</td><td>Motor besleme kablosunun ÜZERİNDEN kesilip bu iki terminale bağlanır — motoru besleyen tek bir teli sensörün içinden geçirin</td></tr>
+<tr><th>Uç A (ACS712)</th><th>Kablo</th><th>Uç B</th></tr>
+<tr><td>VCC</td><td>Yerel kısa tel</td><td>Sağ Panel +5V</td></tr>
+<tr><td>GND</td><td>CAT5-B2 (izole, kendi dönüşü)</td><td>Nano GND</td></tr>
+<tr><td>OUT</td><td>CAT5-B2</td><td>Nano A1 (Kapı1) / A2 (Kapı2)</td></tr>
+<tr><td>IP+ / IP-</td><td>Motor gücü (SERİ)</td><td>Motor besleme hattı üzerinden</td></tr>
 </table>
+<p style="color:var(--muted); font-size:0.9em">185mV/A hassasiyet (5A modül), sıfır noktası ~2.5V (ham ADC ~512, DOĞRULA — sahada kalibre edilmeli). IP+/IP- yönü önemsiz (kod fabs() alıyor).</p>
 <p class="no-print" style="color:var(--accent)">Kalibrasyon web arayüzünden yapılır (Ayarlar > Bahçe Kapısı > ACS712 kalibrasyonu) — Kapı1 ve Kapı2 için AYRI sıfır nokta + sıkışma eşiği (her modülün kendi üretim toleransı olduğundan), config.h'de sabit değil. Motor çalışırken gerçek akım ölçülüp girilmeli, şu an ikisi de varsayılan (512 / 4.0A).</p>
 </div>
 
 <div class="section">
 <h2>Modül 5: Depo Lambası (5V Power LED, MOSFET)</h2>
 <p><strong>2026-08-26:</strong> Röle değil, doğrudan MOSFET anahtarlama — lamba artık 5V power LED. <strong>2026-08-28:</strong> MOSFET modülü 400W/15A olan.</p>
+<p><strong>2026-09-20:</strong> Besleme kablosu güzergahı — lambanın GND ve besleme damarları, HC-SR04'ün ~3m'lik kablosuyla aynı fiziksel demet içinde (bkz Modül 1) ama ayrı damarlar, HC-SR04 pinlerine değil doğrudan MOSFET modülüne gidiyor.</p>
 <table>
-<tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
-<tr><td>Nano D13</td><td>GPIO</td><td>MOSFET gate (Depo iç lamba, 400W/15A modül)</td></tr>
+<tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>Nano D13</td><td>MOSFET gate</td><td>400W/15A modül</td></tr>
 <tr><td>MOSFET drain</td><td>LED −</td><td>Anahtarlanan taraf</td></tr>
-<tr><td>LED +</td><td>5V hattı</td><td>Power LED besleme</td></tr>
-<tr><td>Web Arayüzü</td><td>Kapı sekmesi</td><td>Lamba butonu</td></tr>
+<tr><td>LED +</td><td>5V hattı</td><td>—</td></tr>
 </table>
+<p style="color:var(--muted); font-size:0.9em">Lamba butonu: Web Arayüzü → Kapı sekmesi.</p>
 </div>
 
 <div class="section">
 <h2>Modül 6: Alarm Sireni (12V, IRF520 MOSFET) + Nem Rölesi (5V bobin)</h2>
 <p><strong>2026-09-08:</strong> Alarm sireni artık röle değil — IRF520 MOSFET modülü ile doğrudan <strong>12V</strong> anahtarlanıyor (low-side switch, HIGH=aktif). Nem rölesi değişmedi (5V bobin). Nem rölesi tetiklenince sulama <strong>30 dakika</strong> sürüyor.</p>
 <table>
-<tr><th>Bağlantı</th><th>Pin</th><th>Açıklama</th></tr>
-<tr><td>Nano D4</td><td>GPIO</td><td>IRF520 SIG (logic seviye, HIGH=aktif)</td></tr>
-<tr><td>IRF520 V+</td><td>12V hattı</td><td>Siren güç girişi (yerel 5V buck'ı bypass eder)</td></tr>
-<tr><td>IRF520 OUT</td><td>Siren +</td><td>Anahtarlanan taraf</td></tr>
-<tr><td>Siren −</td><td>GND</td><td>Ortak dönüş</td></tr>
-<tr><td>Nano D5</td><td>GPIO</td><td>Nem rölesi tetikleme (5V bobin) — tetiklenince 30dk sulama</td></tr>
+<tr><th>Uç A</th><th>Uç B</th><th>Not</th></tr>
+<tr><td>Nano D4</td><td>IRF520 SIG</td><td>HIGH=aktif</td></tr>
+<tr><td>IRF520 V+</td><td>12V hattı</td><td>Yerel 5V buck bypass</td></tr>
+<tr><td>IRF520 OUT</td><td>Siren +</td><td>—</td></tr>
+<tr><td>Siren −</td><td>GND</td><td>—</td></tr>
+<tr><td>Nano D5</td><td>Nem rölesi (5V bobin)</td><td>Tetiklenince 30dk sulama</td></tr>
 </table>
 </div>
 
@@ -285,6 +338,9 @@ Nano D5 → Nem Rölesi IN (5V bobin, tetiklenince 30dk sulama)
 Nano D13 → Depo Lambası MOSFET gate (5V power LED)
 Nano D2 → Kapı1 (SOL) sensör
 Nano D3 → Kapı2 (SAĞ) sensör
+
+Bahçe kapısı 3m/5m field kablolama (Sol Kapı / Sağ Panel / ESP8266 panosu)
+detayı için "Field Kablolama" bölümüne bak.
 </pre>
 </div>
 </body>
