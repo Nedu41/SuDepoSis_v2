@@ -24,6 +24,17 @@ unsigned long door1_last_change_ms = 0;
 unsigned long door2_last_change_ms = 0;
 
 // ============================================================
+// ZIL LATCH - hizli bas-birak, ESP8266'nin 300ms'lik GET_STATUS
+// araligina denk gelip kaybolmasin diye Nano kendi hizli donguesunde
+// (loop ~10ms) dusen kenari yakalar ve GET_STATUS okuyana kadar
+// bayrakta tutar. "Su an basili mi" yerine "son sorgudan beri
+// basildi mi" sorusuna donusturur - aliasing/kacirma sorununu cozer.
+// ============================================================
+bool zilPinOnceki = HIGH;
+bool zilBekliyor = false;
+unsigned long zilSonKenarMs = 0;
+
+// ============================================================
 // RÖLE POLARİTESİ - calisma-zamaninda ayarlanabilir (EEPROM'da kalici)
 // ============================================================
 // AMAC: D4 rolesinin "aktif" seviyesini (HIGH/LOW) donanim/kablolamaya gore
@@ -137,6 +148,17 @@ void readInputs() {
   }
 }
 
+void zilPoll() {
+  bool guncel = digitalRead(BAHCE_ZIL_PIN);
+  if (guncel != zilPinOnceki && millis() - zilSonKenarMs > DEBOUNCE_MS) {
+    zilSonKenarMs = millis();
+    zilPinOnceki = guncel;
+    if (guncel == LOW) {  // dusen kenar = basildi (INPUT_PULLUP)
+      zilBekliyor = true;
+    }
+  }
+}
+
 // NOT: Siren (D4) artik SADECE ESP8266'nin RELAY_ON/RELAY_OFF komutlarıyla
 // kontrol edilir (bkz handleSerialCommand). Eskiden burada kapı durumuna
 // gore rolenin kendi basina karar veren bir updateRelay() vardi - bu,
@@ -200,7 +222,8 @@ void handleSerialCommand() {
         response += ",ACIK2=";
         response += digitalRead(BAHCE_ACIK2_PIN) ? '1' : '0';
         response += ",ZIL=";
-        response += digitalRead(BAHCE_ZIL_PIN) ? '1' : '0';
+        response += zilBekliyor ? '0' : '1';  // 0 = "son sorgudan beri basildi" (ESP8266 ayni sekilde yorumluyor)
+        zilBekliyor = false;  // okundu, bayragi temizle
         Serial.println(response);
       } else if (inputString == F("LAMBA_ON")) {
         digitalWrite(LAMBA_PIN, LAMBA_ON_STATE);
@@ -410,6 +433,7 @@ void handleSerialCommand() {
 void loop() {
   // Input oku
   readInputs();
+  zilPoll();
 
   // Seri komutları dinle
   handleSerialCommand();
