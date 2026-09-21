@@ -2615,14 +2615,19 @@ void anaGucPoll() {
 
 // ============================================================
 // LAPTOP ADAPTORU KESME ROLESI (GPIO21/ADAPTOR_RELE_PIN) - ana guc dustugunde
-// (aksam/gunessiz) adaptorun 19.5V DC cikisini MOSFET (low-side) ile keser, mains
-// tasarrufu icin. AC (220V) tarafi kesilmiyor - sadece DC cikis. Histerezis:
+// (aksam/gunessiz) adaptorun 19.5V DC cikisini keser, mains tasarrufu icin.
+// AC (220V) tarafi kesilmiyor - sadece DC cikis. 2026-09-21: low-side MOSFET
+// modulunden ROLEYE gecildi - Schulzz PWM kontrolcude PV- ile BAT- icerde ortak
+// oldugundan (olculdu) low-side anahtar kurulamiyordu: modulun lojik GND'si IN-
+// ile ortak, sistem toprağina baglaninca MOSFET koprulenip devre disi kaliyor,
+// baglanmayinca Vgs tanimsiz kalip MOSFET isiniyordu. Role bobini kontaktan
+// izole oldugu icin bu sorunu yasamaz; adaptorun + hattinda NC kontak. Histerezis:
 // ANA_GUC_ADAPTOR_KESME_V'de keser, ancak ANA_GUC_ADAPTOR_BAGLA_V'ye cikana kadar
 // tekrar baglamaz (bkz config.h). ANA_GUC verisi bayat/okunamiyorsa DOKUNULMAZ -
 // son bilinen (veya boot varsayilani: BAGLI) durum korunur, fail-safe "kesmemek"
 // yonunde (sarjdan mahrum kalmaktan daha az riskli).
 // ============================================================
-bool adaptorBagli = true; // boot varsayilani: BAGLI (GPIO21 HIGH, modul aktif-HIGH)
+bool adaptorBagli = true; // boot varsayilani: BAGLI (GPIO21 HIGH, role NC/enerjisiz)
 
 float adaptorKesmeVolt = ANA_GUC_ADAPTOR_KESME_V;
 float adaptorBaglaVolt = ANA_GUC_ADAPTOR_BAGLA_V;
@@ -2731,7 +2736,13 @@ void adaptorReleGuncelle() {
     adaptorBagli = true;
   }
 
-  digitalWrite(ADAPTOR_RELE_PIN, adaptorBagli ? HIGH : LOW); // modul aktif-HIGH: HIGH=cikis var/bagli, LOW=kesili (sahada olculdu, 2026-09-06)
+  // Role NC kontaktan bagli + modul aktif-LOW: HIGH=bobin enerjisiz=kontak
+  // kapali=adaptor BAGLI, LOW=bobin enerjili=kontak acik=KESILI. 2026-09-21
+  // sahada iki yonde de dogrulandi (LOW'da cekiyor, HIGH'da birakiyor) - ilk
+  // denenen role modulu 3.3V ile cekiyor ama BIRAKMIYORDU (5V opto girisinde
+  // HIGH=3.3V, LED uzerinde 1.7V kalip optoyu iletimde tutuyordu), modul
+  // degistirilerek cozuldu.
+  digitalWrite(ADAPTOR_RELE_PIN, adaptorBagli ? HIGH : LOW);
 }
 
 // ============================================================
@@ -5216,7 +5227,7 @@ void setup() {
   digitalWrite(ACIL_LAMBA_PIN, LOW); // guvenli varsayilan: acil lamba kapali
 
   pinMode(ADAPTOR_RELE_PIN, OUTPUT);
-  digitalWrite(ADAPTOR_RELE_PIN, HIGH); // guvenli varsayilan: adaptor BAGLI (modul aktif-HIGH)
+  digitalWrite(ADAPTOR_RELE_PIN, HIGH); // guvenli varsayilan: adaptor BAGLI (role NC + aktif-LOW modul, bobin enerjisiz)
   pinMode(ACIL_BUTON_PIN, INPUT_PULLUP);
   pinMode(BAHCE_KAPI_BUTON_PIN, INPUT_PULLUP);
   anaGucEsikYukle();
