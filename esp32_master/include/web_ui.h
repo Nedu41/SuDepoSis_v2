@@ -245,7 +245,11 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
           <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
         </div>
-        <div class="row" style="margin-top:8px"><button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button></div>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+          <button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
+          <button class="btn" style="font-size:12px;padding:6px 10px" id="db-sudepo-lamba-btn" onclick="toggleLamba()">Sudepo Lamba: Aç</button>
+          <button class="btn" style="font-size:12px;padding:6px 10px" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
+        </div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
       <div class="card"><h3>Dış Sıcaklık ve Nem</h3><div class="kpi" id="kpi-temp">--</div><div style="margin-top:6px;font-size:13px;color:var(--muted)">Nem: <b id="kpi-nem">--</b></div></div>
@@ -257,10 +261,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
   <div id="kontrol" class="section">
     <div class="card">
       <h3>Lamba</h3>
-      <p style="font-size:12px;color:var(--muted);margin-top:-4px">İki zonun da kendi lambası var - Sudepo'nunki tamamen elle, Konteyner'inki hem elle hem alarm/siren ile otomatik yanabilir (ikisi birbirini bastırmaz - alarm sürerken elle kapatsanız bile alarm onu yeniden yakar).</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:-4px">İki zonun da kendi lambası var - Sudepo Lamba tamamen elle, Veranda Lamba hem elle hem alarm/siren ile otomatik yanabilir (ikisi birbirini bastırmaz - alarm sürerken elle kapatsanız bile alarm onu yeniden yakar).</p>
       <div class="row">
-        <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Sudepo Zonu: Aç</button>
-        <button class="btn btn-primary" id="konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Konteyner Zonu: Aç</button>
+        <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Sudepo Lamba: Aç</button>
+        <button class="btn btn-primary" id="konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba: Aç</button>
       </div>
       <div id="lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <div id="konteyner-lamba-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
@@ -470,7 +474,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row" style="gap:16px;align-items:center">
         <div><span class="led" id="kz-pir"></span> HC505-1 PIR</div>
         <div><span class="led" id="kz-swan"></span> Swan PIR</div>
-        <div><span class="led" id="kz-kapi"></span> Kapı</div>
+        <div><span class="led" id="kz-kapi"></span> Kapı Reed SW</div>
         <div><span class="led" id="kz-duman"></span> Duman</div>
         <div><span class="led" id="kz-gaz"></span> Gaz (MQ6)</div>
         <div><span class="led" id="kz-alarm"></span> Yerel Uyarı (LED/Buzzer) <small id="kz-alarm-txt" style="color:var(--muted)"></small></div>
@@ -481,7 +485,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <p class="sz-label" style="margin-top:12px">Sensör Aktif/Pasif</p>
       <div class="row" style="gap:16px" id="ayar-kz-sensorAktif">
         <label><input type="checkbox" id="kz_pirEtkin" onchange="konteynerSensorAktifKaydet()"> HC505-1 PIR Aktif</label>
-        <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Aktif</label>
+        <label><input type="checkbox" id="kz_kapiEtkin" onchange="konteynerSensorAktifKaydet()"> Kapı Reed SW Aktif</label>
         <label><input type="checkbox" id="kz_swanEtkin" onchange="konteynerSensorAktifKaydet()"> Swan PIR Aktif</label>
         <label><input type="checkbox" id="kz_dumanEtkin" onchange="konteynerSensorAktifKaydet()"> Duman Sensörü Aktif</label>
         <label><input type="checkbox" id="kz_gazEtkin" onchange="konteynerSensorAktifKaydet()"> Gaz (MQ6) Alarmı Aktif</label>
@@ -1284,8 +1288,9 @@ function renderUI(d){
     const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
     const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;
   }
-  $('#lamba-btn').textContent = 'Sudepo Zonu: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
-  { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
+  $('#lamba-btn').textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
+  { const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--'); }
+  { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Veranda Lamba: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
   $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
   { const ss=$('#sum-sudepo'); if(ss) ss.textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Aktif' : 'Kapalı'; }
@@ -1396,6 +1401,11 @@ function renderUI(d){
   if(alBtn){
     alBtn.textContent = ag.acil_lamba ? '🔴 ACİL LAMBA AÇIK (Kapat)' : '⚪ Acil Durum Lambası (Kapalı)';
     alBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
+  }
+  const dalBtn=$('#db-acil-lamba-btn');
+  if(dalBtn){
+    dalBtn.textContent = ag.acil_lamba ? '🔴 Acil Lamba (Kapat)' : '⚪ Acil Lamba (Aç)';
+    dalBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
   }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
   const bgv=$('#batarya-geri'); if(bgv&&!bgv.matches(':focus')&&!yakinKorumali('batarya-geri')&&bat.geri_volt!=null) bgv.value=bat.geri_volt;
