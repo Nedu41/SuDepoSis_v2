@@ -248,10 +248,10 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
           <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
-          <button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
-          <button class="btn btn-warn" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">⚪ Veranda Lamba</button>
-          <button class="btn btn-warn" style="grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px">
+          <button class="btn btn-accent" style="min-width:0" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
+          <button class="btn btn-warn" style="min-width:0" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">⚪ Veranda Lamba</button>
+          <button class="btn btn-warn" style="min-width:0;grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
         </div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
