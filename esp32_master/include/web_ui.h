@@ -239,16 +239,19 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           </div>
         </div>
         <div class="ledbar" id="ledbar-depo"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-primary" id="db-sudepo-lamba-btn" onclick="event.stopPropagation();toggleLamba()">⚪ Sudepo Lamba</button>
+        </div>
       </div>
       <div class="card"><h3>Bahçe Kapısı</h3>
         <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
           <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
           <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
         </div>
-        <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
           <button class="btn btn-accent" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
-          <button class="btn" style="font-size:12px;padding:6px 10px" id="db-sudepo-lamba-btn" onclick="toggleLamba()">Sudepo Lamba: Aç</button>
-          <button class="btn" style="font-size:12px;padding:6px 10px" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
+          <button class="btn btn-warn" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">⚪ Veranda Lamba</button>
+          <button class="btn btn-warn" style="grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
         </div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
@@ -1289,8 +1292,9 @@ function renderUI(d){
     const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;
   }
   $('#lamba-btn').textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
-  { const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--'); }
+  { const sudepoAcik=esp8266Ok&&!!d.nano.lamp; const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.textContent = (sudepoAcik?'🟡':'⚪')+' Sudepo Lamba'; }
   { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Veranda Lamba: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
+  { const verandaAcik=!!(d.konteyner&&d.konteyner.lamba); const dklb=$('#db-konteyner-lamba-btn'); if(dklb) dklb.textContent = (verandaAcik?'🟡':'⚪')+' Veranda Lamba'; }
   $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
   { const ss=$('#sum-sudepo'); if(ss) ss.textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Aktif' : 'Kapalı'; }
@@ -1404,7 +1408,7 @@ function renderUI(d){
   }
   const dalBtn=$('#db-acil-lamba-btn');
   if(dalBtn){
-    dalBtn.textContent = ag.acil_lamba ? '🔴 Acil Lamba (Kapat)' : '⚪ Acil Lamba (Aç)';
+    dalBtn.textContent = ag.acil_lamba ? '🔴 Acil Lamba' : '⚪ Acil Lamba';
     dalBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
   }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
