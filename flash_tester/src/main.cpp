@@ -32,6 +32,7 @@ static bool apModunda = false;
 #define CMD_JEDEC_ID    0x9F
 #define CMD_READ_STATUS 0x05
 #define CMD_READ_DATA   0x03
+#define CMD_UNIQUE_ID   0x4B   // fabrikada yazilmis 64-bit seri no
 
 static SPISettings ayar(SPI_HZ, MSBFIRST, SPI_MODE0);
 static WebServer server(80);
@@ -41,6 +42,8 @@ struct Sonuc {
   uint8_t  id[3];
   uint8_t  sr;
   uint8_t  veri[16];
+  uint8_t  uid[8];
+  bool     uidVar;
   uint32_t bayt;
 };
 static Sonuc son;
@@ -100,6 +103,20 @@ static void flashOku() {
   digitalWrite(FLASH_CS, HIGH);
   SPI.endTransaction();
 
+  // Benzersiz seri no - AYNI MODEL iki cipi birbirinden ayiran tek sey.
+  // Sokulmus cipler karistiginda hangisinin hangisi oldugunu bu soyler.
+  SPI.beginTransaction(ayar);
+  digitalWrite(FLASH_CS, LOW);
+  SPI.transfer(CMD_UNIQUE_ID);
+  for (uint8_t i = 0; i < 4; i++) SPI.transfer(0x00);   // 4 dummy bayt
+  son.uidVar = false;
+  for (uint8_t i = 0; i < 8; i++) {
+    son.uid[i] = SPI.transfer(0x00);
+    if (son.uid[i] != 0xFF && son.uid[i] != 0x00) son.uidVar = true;
+  }
+  digitalWrite(FLASH_CS, HIGH);
+  SPI.endTransaction();
+
   // Adres 0'dan 16 bayt - veri yolunun gercekten calistigini gosterir
   SPI.beginTransaction(ayar);
   digitalWrite(FLASH_CS, LOW);
@@ -136,6 +153,10 @@ static void seriYaz() {
     Serial.print(F("Uretici  : ")); Serial.println(ureticiAdi(son.id[0]));
     Serial.print(F("Kapasite : ")); Serial.println(kapasiteMetni());
     Serial.print(F("Status   : 0x")); Serial.println(hex2(son.sr));
+    Serial.print(F("SERI NO  : "));
+    if (son.uidVar) { for (uint8_t i = 0; i < 8; i++) Serial.print(hex2(son.uid[i])); }
+    else Serial.print(F("cip desteklemiyor"));
+    Serial.println();
     Serial.print(F("Ilk 16 B : "));
     for (uint8_t i = 0; i < 16; i++) { Serial.print(hex2(son.veri[i])); Serial.print(' '); }
     Serial.println();
@@ -155,6 +176,10 @@ static void apiGonder() {
   j += ",\"uretici\":\"" + String(ureticiAdi(son.id[0])) + "\"";
   j += ",\"kapasite\":\"" + kapasiteMetni() + "\"";
   j += ",\"status\":\"0x" + hex2(son.sr) + "\"";
+  String uidStr;
+  if (son.uidVar) { for (uint8_t i = 0; i < 8; i++) uidStr += hex2(son.uid[i]); }
+  else uidStr = "cip desteklemiyor";
+  j += ",\"seri\":\"" + uidStr + "\"";
   j += ",\"icerik\":\"" + String(icerikAdi()) + "\"";
   j += ",\"hex\":\"" + hexStr + "\"}";
 
@@ -174,7 +199,7 @@ static void wifiBaglan() {
     Serial.print(F("WiFi denemesi: ")); Serial.println(ssid[a]);
     WiFi.begin(ssid[a], sifre[a]);
     uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 8000) delay(200);
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 4000) delay(200);
     if (WiFi.status() == WL_CONNECTED) { apModunda = false; return; }
     WiFi.disconnect();
   }
