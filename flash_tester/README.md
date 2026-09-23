@@ -36,6 +36,28 @@ pio device monitor -e flash_tester
 
 Test her 2 saniyede tekrarlanir; cipi takip cikarirken canli izleyebilirsin.
 
+## Kayit tutma (lehim/sokme zahmetini azaltir)
+
+`tools/` altindaki arac, bir okumayi yakalayip PC'ye kalici kaydeder.
+Anahtar olarak cipin **fabrika seri numarasi (UID)** kullanilir - ayni cip
+tekrar takildiginda "bu cipi daha once gorduk" diye uyarir, kagit banta not
+yazmaya gerek kalmaz.
+
+Cift tiklayarak: **`tools\Cip Kaydet.bat`** (not sorar) ve
+**`tools\Kayitlari Listele.bat`**.
+
+Komut satirindan:
+```
+python tools\kaydet.py COM8 "eski S3 karttan cikan"
+python tools\kaydet.py --liste
+```
+
+Kayitlar `kayitlar.json` dosyasinda birikir.
+
+**UID neden onemli:** JEDEC ID sadece modeli soyler, ayni seri uretimden
+cikan iki cipte aynidir. Hatta ayni firmware'i tasiyan iki cipte adres 0'daki
+ilk baytlar bile aynidir. Cipleri birbirinden ayiran tek deger UID'dir.
+
 ## Ciktinin okunmasi
 
 ```
@@ -43,7 +65,9 @@ JEDEC ID : EF 40 18
 Uretici  : Winbond
 Kapasite : 16 MB (128 Mbit)
 Status   : 0x00
+SERI NO  : 500312912898820C
 Ilk 16 B : FF FF FF FF ...
+ICERIK   : ESP firmware image (0xE9)
 SONUC    : SAGLAM
 ```
 
@@ -51,6 +75,17 @@ SONUC    : SAGLAM
 
 `SONUC: CEVAP YOK` cikarsa (`FF FF FF` veya `00 00 00`): cip olu, takili
 degil, ters takilmis, ya da WP#/HOLD# 3.3V'a baglanmamis.
+
+## Web arayuzu
+
+Kart once ev agina baglanmayi dener (`include/secrets.h`), basarisiz olursa
+kendi AP'sini acar (`FlashTester` / `flash1234`, `192.168.4.1`).
+Baglanirsa: **http://flashtest.local**
+
+**DIKKAT:** Bu kart **ESP32-WROOM-32UE** - "UE" sonekinin anlami dahili PCB
+anteni OLMAMASI, sadece U.FL konnektor bulunmasi. **Anten takili degilken
+WiFi hic calismaz** (sahada dogrulandi: STA baglanamadi, AP bile telefonda
+gorunmedi). Anten gelene kadar seri monitor veya `tools/kaydet.py` kullanilir.
 
 ## Neden gerekli
 

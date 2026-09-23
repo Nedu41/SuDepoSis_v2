@@ -50,6 +50,7 @@ word-break:break-all;line-height:1.7}
 <div class="sat"><div class="eti">URETICI</div><div class="deg" id="uretici">--</div></div>
 <div class="sat"><div class="eti">KAPASITE</div><div class="deg vurgu" id="kap">--</div></div>
 <div class="sat"><div class="eti">STATUS</div><div class="deg" id="sr">--</div></div>
+<div class="sat"><div class="eti">SERI NO</div><div class="deg vurgu" id="seri">--</div></div>
 <div class="sat"><div class="eti">ICERIK</div><div class="deg" id="icerik">--</div></div>
 </div>
 
@@ -71,6 +72,7 @@ async function yenile(){
   document.getElementById('uretici').textContent=ok?d.uretici:'--';
   document.getElementById('kap').textContent=ok?d.kapasite:'--';
   document.getElementById('sr').textContent=ok?d.status:'--';
+  document.getElementById('seri').textContent=ok?d.seri:'--';
   document.getElementById('icerik').textContent=ok?d.icerik:'--';
   document.getElementById('hex').textContent=ok?d.hex:'--';
  }catch(e){}
