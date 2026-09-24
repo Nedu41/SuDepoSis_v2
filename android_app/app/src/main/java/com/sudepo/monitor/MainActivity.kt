@@ -3,6 +3,8 @@ package com.sudepo.monitor
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -31,7 +33,7 @@ class MainActivity : AppCompatActivity() {
     // Ev agindaki bilinen son IP'ler (router DHCP rezervasyonu onerilir, degisirse
     // burasi guncellenmeli). mDNS (.local) bircok Android cihazda/agda guvenilir
     // calismiyor (Note5'te dogrulandi: IP ile aciliyor, .local acilmiyordu).
-    private val evIpSudepo = "http://192.168.1.118"
+    private val evIpSudepo = "http://192.168.1.138"
     private val evIpKonteyner = "http://192.168.1.165"
 
     // mDNS (.local) cozumu Android'de guvenilir degil - basarisiz olunca WebView
@@ -44,6 +46,26 @@ class MainActivity : AppCompatActivity() {
     private var fallbackQueue: MutableList<String> = mutableListOf()
     private var taramaYapildiBuTurda = false
     private var sudepoAktif = true
+
+    // WebView'in kendi baglanti zaman asimi, olu/eski bir LAN IP'sine
+    // baglanmaya calisirken cok uzun surebiliyor (TCP retry'lari, bazen
+    // 20-30sn+) - bu da altta calisan guvenilir ag taramasina (CihazBulucu)
+    // sira gelmeden kullanicinin "hala eski IP'de takili" hissetmesine sebep
+    // oluyordu. Her deneme icin kisa, elle bir zaman asimi koyup suresi
+    // dolunca WebView'i beklemeden bir sonraki fallback'e (sonunda taramaya)
+    // geciyoruz - WLED'in yaklasimindaki hizli-basarisiz-ol prensibiyle ayni.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var timeoutRunnable: Runnable? = null
+    private val YUKLEME_ZAMAN_ASIMI_MS = 2000L
+
+    private fun loadWithTimeout(url: String, host: String) {
+        timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingHost = host
+        webView.loadUrl(url)
+        val runnable = Runnable { hataGeldi(host) }
+        timeoutRunnable = runnable
+        mainHandler.postDelayed(runnable, YUKLEME_ZAMAN_ASIMI_MS)
+    }
 
     private val prefs by lazy { getSharedPreferences("sudepo_monitor", MODE_PRIVATE) }
 
@@ -66,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 progressBar.visibility = android.view.View.GONE
                 swipeRefresh.isRefreshing = false
             }
@@ -125,11 +148,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun hataGeldi(failedHost: String) {
         if (failedHost != pendingHost) return // eski/ilgisiz bir istek
+        timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
 
         if (fallbackQueue.isNotEmpty()) {
             val nextUrl = fallbackQueue.removeAt(0)
-            pendingHost = Uri.parse(nextUrl).host ?: ""
-            webView.loadUrl(nextUrl)
+            loadWithTimeout(nextUrl, Uri.parse(nextUrl).host ?: "")
         } else if (!taramaYapildiBuTurda) {
             taramaYapildiBuTurda = true
             taramaBaslat()
@@ -167,8 +190,7 @@ class MainActivity : AppCompatActivity() {
             mutableListOf(url, apFallbackUrl)
         }
 
-        pendingHost = Uri.parse(ilkUrl).host ?: ""
-        webView.loadUrl(ilkUrl)
+        loadWithTimeout(ilkUrl, Uri.parse(ilkUrl).host ?: "")
     }
 
     // Tum sabit adresler (.local, AP IP, bilinen ev IP'si) basarisiz olunca son
