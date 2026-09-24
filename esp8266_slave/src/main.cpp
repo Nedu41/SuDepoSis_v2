@@ -468,6 +468,12 @@ unsigned long sonRS485AlinanMs = 0;
 // Hostname, WIFI_AP_SSID'den türetilir (küçük harf, boşluk -> "-")
 // Böylece AP adı = mDNS hostname (örn "SuDepo" -> "sudepo.local")
 bool mdnsAktif = false;
+// Kayitli STA agina (orn. ev WiFi'si) menzil disindayken (bahcede) surekli
+// baglanma denemesi AP radyosunu mesgul edip AP tarafindaki web sunucusunu
+// tepkisiz birakiyordu (2026-09-24, sahada 2 telefon + PC'de dogrulandi).
+// WiFiManager tarzi fallback: baglanamazsa STA tamamen kapatilir (saf AP),
+// periyodik olarak kisa bir pencerede tekrar denenir.
+bool staAPOnlyFallback = false;
 String mdnsHostname() {
   String h = String(WIFI_AP_SSID);
   h.toLowerCase();
@@ -2440,6 +2446,36 @@ bool pinKorumali(int pin) {
 // kadar hizli kaymadigindan bu araligin kisaltilmasina gerek yok - gercek
 // ihtiyac "hic butona basilmasa bile dogru saat gorunmesi", periyodik durum
 // sorgusu (15sn) zaten ekrani surekli tazeliyor.
+// WiFiManager tarzi STA fallback: setup() STA'ya baglanamayip saf AP'ye
+// dustuyse (staAPOnlyFallback), burada periyodik olarak kisa bir pencerede
+// tekrar denenir. Basarisiz olursa hemen saf AP'ye geri donulur - boylece
+// cogu zaman AP radyosu STA denemesiyle mesgul edilmez, ama kayitli ag
+// tekrar menzile girerse (orn. eve donulunce) otomatik yakalanir.
+#define WIFI_FALLBACK_DENEME_ARALIK_MS (120000UL) // 2 dakikada bir dene
+#define WIFI_FALLBACK_DENEME_SURESI_MS (20000UL)  // her denemede max 20sn bekle (AP+STA ayni radyoyu paylastigindan el sikisma+DHCP 8sn'den uzun surebiliyor, 2026-09-24 olculdu: ~12-14sn)
+unsigned long wifiFallbackSonDenemeMs = 0;
+void wifiFallbackPoll() {
+  if (!staAPOnlyFallback || strlen(wifiAyar.ssid) == 0) return;
+  unsigned long simdi = millis();
+  if (wifiFallbackSonDenemeMs != 0 && simdi - wifiFallbackSonDenemeMs < WIFI_FALLBACK_DENEME_ARALIK_MS) return;
+  wifiFallbackSonDenemeMs = simdi;
+  DEBUG_PRINTLN("[WIFI] Fallback: STA tekrar deneniyor...");
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(wifiAyar.ssid, wifiAyar.sifre);
+  unsigned long baslaMs = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < WIFI_FALLBACK_DENEME_SURESI_MS) {
+    delay(100);
+    yield();
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    DEBUG_PRINTLN("[WIFI] Fallback basarili, STA baglandi");
+    staAPOnlyFallback = false;
+  } else {
+    DEBUG_PRINTLN("[WIFI] Fallback basarisiz, saf AP'ye donuluyor");
+    WiFi.mode(WIFI_AP);  // radyoyu tekrar sadece AP icin serbest birak
+  }
+}
+
 #define NTP_OTOMATIK_ARALIK_MS (3600000UL) // 1 saat
 unsigned long ntpSonSenkronMs = 0;   // 0 = henuz hic basarili senkron olmadi
 bool ntpConfigTetiklendi = false;
@@ -2548,9 +2584,21 @@ void setup() {
   // sudepo.local cozulemez.
   if (strlen(wifiAyar.ssid) > 0) {
     unsigned long baslaMs = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < 8000) {
+    // 20sn (2026-09-24 olculdu): AP+STA ayni radyoyu paylastigindan el
+    // sikisma+DHCP 8sn'de bitmiyordu, gercekte ~12-14sn suruyor - eskiden
+    // 8sn'de vazgecilip yanlislikla "baglanamadi" denip saf AP'ye dusuluyordu.
+    while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < 20000) {
       delay(100);
       yield();  // watchdog reset
+    }
+    // FIX (2026-09-24): kayitli ag menzil disindaysa (sahada/bahcede) STA'yi
+    // acik birakmak radyoyu mesgul edip AP'yi tepkisiz birakiyordu - STA'yi
+    // tamamen kapat, saf AP'ye don. wifiFallbackPoll() periyodik tekrar dener.
+    if (WiFi.status() != WL_CONNECTED) {
+      DEBUG_PRINTLN("[WIFI] STA baglanamadi, saf AP moduna donuluyor");
+      WiFi.mode(WIFI_AP);
+      staAPOnlyFallback = true;
+      wifiFallbackSonDenemeMs = millis();  // ilk fallback denemesi de tam araligi beklesin
     }
   }
 
@@ -2862,6 +2910,7 @@ void loop() {
   kapiPoll();  // Bahce kapisi hareket halindeyse limit switch/akim kontrolu (bloklayici, sadece hareket sirasinda)
   bahceNanoPoll();  // Bahce kapisi limit switch'leri + zil butonu (tek PIN_READ_ALL turu)
   ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
+  wifiFallbackPoll();  // Saf AP'ye dusulduyse 2dk'da bir kisa STA denemesi
   server.handleClient();
   rs485KomutDinle();
   server.handleClient();  // FIX: RS485 dinleme sonrası web isteklerini işle
