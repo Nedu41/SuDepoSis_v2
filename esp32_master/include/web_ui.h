@@ -814,6 +814,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <summary>WiFi & Sistem</summary>
       <div id="bilgi-sistem" class="kv" style="font-size:13px">Yükleniyor...</div>
       <div id="build-info" style="font-size:12px;color:var(--muted);margin-top:8px">Yükleniyor...</div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px"><b>Sahada Sudepo AP'sine yeni ağ tanıtma (2026-09-24):</b> Sudepo'nun (192.168.4.1) SPA sekmeleri kayıtlı-ama-menzil-dışı bir ev WiFi'si yüzünden tepki vermeyebiliyor - bu durumda tarayıcı adres çubuğuna doğrudan şunu yaz (JS/sekmeye gerek yok):<br><code>http://192.168.4.1/wifi/kaydet?ssid=HOTSPOT_ADI&amp;sifre=HOTSPOT_SIFRESI</code><br>Kayıt olunca cihaz otomatik yeniden başlar ve yeni ağa bağlanmayı dener.</p>
     </details>
 
     <details class="card">
@@ -2020,6 +2021,7 @@ bildirimIzniDurumGuncelle();
 connectSSE();
 setInterval(guncelle, 5000); guncelle();
 yedekDurumYukle();
+firmwareDurumYukle();
 setInterval(weatherYukleUI, 5*60*1000); weatherYukleUI();
 function alarmLoguYukle(){
   api('/api/alarm/log').then(list=>{
