@@ -621,7 +621,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
       </div>
       <div class="row">
-        <button class="btn btn-primary" onclick="wifiKaydet()">Bağlan &amp; Kaydet</button>
+        <button class="btn btn-accent" onclick="wifiKaydet()">Kaydet</button>
+        <button class="btn btn-primary" onclick="restartSistem()">Bağlan (Yeniden Başlat)</button>
         <button class="btn btn-danger" onclick="wifiKaldir()">Kaldır</button>
       </div>
       <div id="wifi-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
@@ -1913,7 +1914,7 @@ function wifiKaydet(){
   const s=$('#staSSID').value || sel;
   if(!s){$('#wifi-sonuc').textContent='SSID gerekli';return;}
   api('/api/wifi?ssid='+encodeURIComponent(s)+'&sifre='+encodeURIComponent($('#staPASS').value))
-    .then(d=>{$('#wifi-sonuc').textContent=d.mesaj||''; setTimeout(guncelle,4000); wifiGecmisYukle();});
+    .then(d=>{$('#wifi-sonuc').textContent=(d.mesaj||'')+' - baglanmak icin "Baglan" butonuna bas'; wifiGecmisYukle();});
 }
 function togglePw(){
   const i=$('#staPASS'); const b=$('#pwToggleBtn');

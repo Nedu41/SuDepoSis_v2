@@ -2236,17 +2236,15 @@ void handleWifiKaydet() {
   }
   wifiAyarlariKaydet();
   DEBUG_PRINTF("[WIFI] Kaydedilen SSID: %s, sifreVar=%d\n", wifiAyar.ssid, strlen(wifiAyar.sifre) > 0);
-  // FIX (kullanici sikayeti, 2026-09-08: "baglan-kaydet dedigimde durum
-  // yazilari refresh olmuyor, ancak reset atinca degisiyor"): STA zaten
-  // baska bir aga baglanmisken WiFi.disconnect()+WiFi.begin() ile CANLI
-  // ag degistirmek ESP8266 WiFi surucusunde bilinen bir sorun - radyo bazen
-  // duzgun yeniden iliskilenmiyor, sadece temiz bir ESP.restart() sonrasi
-  // yeni SSID'ye gercekten baglaniyor (bkz handleRestart yorumu, ayni
-  // gecikme/flush deseni). Kayittan hemen sonra kendini yeniden baslatir.
-  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi, yeniden baslatiliyor\"}");
-  server.client().flush();
-  delay(500);
-  ESP.restart();
+  // FIX (kullanici talebi 2026-09-25: "baglan/kaydet butonlarini ayiralim"):
+  // eskiden kayittan hemen sonra OTOMATIK restart olurdu (STA zaten baska
+  // bir aga baglanmisken WiFi.disconnect()+WiFi.begin() ile CANLI ag
+  // degistirmek ESP8266 WiFi surucusunde guvenilmez - bkz asagidaki
+  // handleRestart yorumu, hala gecerli). Artik SADECE kaydediyor, restart
+  // ayri "Baglan" butonuyla (mevcut /restart endpoint'i) tetikleniyor -
+  // kullanici SSID/sifreyi kaydedip cihazi hemen yeniden baslatmadan da
+  // birakabilsin diye.
+  server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaydedildi\"}");
 }
 
 void handleWifiScan() {
@@ -2491,10 +2489,12 @@ void wifiFallbackPoll() {
   wifiFallbackSonDenemeMs = simdi;
 
   const char* ssid; const char* sifre;
+  int kullanilanAday = 0; // 0=aktif ag, 1..WIFI_GECMIS_SAYISI=gecmis[idx-1]
   int deneme = 0;
   do {
     if (wifiFallbackAdayIndex == 0) { ssid = wifiAyar.ssid; sifre = wifiAyar.sifre; }
     else { ssid = wifiAyar.gecmis[wifiFallbackAdayIndex - 1].ssid; sifre = wifiAyar.gecmis[wifiFallbackAdayIndex - 1].sifre; }
+    kullanilanAday = wifiFallbackAdayIndex;
     wifiFallbackAdayIndex = (wifiFallbackAdayIndex + 1) % (1 + WIFI_GECMIS_SAYISI);
     deneme++;
   } while (strlen(ssid) == 0 && deneme <= (1 + WIFI_GECMIS_SAYISI));
@@ -2511,6 +2511,12 @@ void wifiFallbackPoll() {
   if (WiFi.status() == WL_CONNECTED) {
     DEBUG_PRINTLN("[WIFI] Fallback basarili, STA baglandi");
     staAPOnlyFallback = false;
+    // FIX (kullanici sikayeti 2026-09-25: "gercekte Emiliya'ya bagli ama
+    // arayuzde hala EncanA01 gorunuyor"): handleWifiDurum() HER ZAMAN
+    // wifiAyar.ssid'i (kaydedilmis "aktif ag" alani) gosterir, WiFi.SSID()
+    // DEGIL - baglanilan ag gecmisten geldiyse (kullanilanAday>0) bu alan
+    // guncellenip EEPROM'a yazilmazsa arayuz gercek durumu yansitmaz.
+    if (kullanilanAday > 0) wifiGecmisiAktifYap(kullanilanAday - 1);
   } else {
     DEBUG_PRINTLN("[WIFI] Fallback basarisiz, saf AP'ye donuluyor");
     WiFi.mode(WIFI_AP);  // radyoyu tekrar sadece AP icin serbest birak
