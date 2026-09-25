@@ -2454,14 +2454,55 @@ bool pinKorumali(int pin) {
 #define WIFI_FALLBACK_DENEME_ARALIK_MS (120000UL) // 2 dakikada bir dene
 #define WIFI_FALLBACK_DENEME_SURESI_MS (20000UL)  // her denemede max 20sn bekle (AP+STA ayni radyoyu paylastigindan el sikisma+DHCP 8sn'den uzun surebiliyor, 2026-09-24 olculdu: ~12-14sn)
 unsigned long wifiFallbackSonDenemeMs = 0;
+// FIX (kullanici talebi 2026-09-25: "baglantisi kopunca kayitli baska bir
+// aga baglansin"): eskiden HER denemede sadece aktif ag (wifiAyar.ssid)
+// tekrar denenirdi - o ag menzil disindaysa asla gecmis aglara gecilmezdi.
+// Artik her 2dk'lik denemede SIRAYLA bir sonraki aday (aktif + gecmis)
+// denenir - mevcut 20sn'lik bloklama suresi/2dk araligi DEGISMEDI (sahada
+// olculmus deger, dokunulmadi), sadece hangi SSID'nin denendigi degisiyor.
+int wifiFallbackAdayIndex = 0; // 0=aktif ag, 1..WIFI_GECMIS_SAYISI=gecmis
+
+// FIX (kullanici sikayeti 2026-09-25: "A01 kapatildi ama Sudepo Emiliya'ya
+// gecmiyor"): staAPOnlyFallback eskiden SADECE setup()'ta STA hic
+// baglanamazsa true oluyordu - "onceden BAGLIYDI, sonra aktif ag kayboldu"
+// durumu hic ele alinmiyordu, cunku bu setup() SONRASI olur. O durumda
+// ESP8266'nin dahili otomatik-yeniden-baglanma mekanizmasi olu SSID'yi
+// sonsuza kadar arar, wifiFallbackPoll() (dolayisiyla gecmis ag denemesi)
+// devreye hic girmezdi. Burada STA kesintisiz KOPMA_ESIK_MS boyunca kopuk
+// kalirsa (dahili auto-reconnect'e once sans taninir) fallback moduna
+// gecilir - artik wifiFallbackPoll() gecmis aglari da sirayla dener.
+#define WIFI_KOPMA_ESIK_MS (30000UL) // 30sn kesintisiz kopuk kalirsa fallback moduna gec
+unsigned long staKopmaBaslangicMs = 0; // 0 = bagli/henuz kopmadi
+void wifiKopmaTespitPoll() {
+  if (staAPOnlyFallback || strlen(wifiAyar.ssid) == 0) return; // zaten fallback modunda veya ozel ag yok
+  if (WiFi.status() == WL_CONNECTED) { staKopmaBaslangicMs = 0; return; }
+  if (staKopmaBaslangicMs == 0) { staKopmaBaslangicMs = millis(); return; }
+  if (millis() - staKopmaBaslangicMs >= WIFI_KOPMA_ESIK_MS) {
+    DEBUG_PRINTLN("[WIFI] STA 30sn'dir kopuk, fallback moduna geciliyor (gecmis aglar da denenecek)");
+    staAPOnlyFallback = true;
+    wifiFallbackSonDenemeMs = 0; // ilk deneme HEMEN yapilsin (boot'takinin aksine, burada zaten 30sn beklendi)
+  }
+}
+
 void wifiFallbackPoll() {
   if (!staAPOnlyFallback || strlen(wifiAyar.ssid) == 0) return;
   unsigned long simdi = millis();
   if (wifiFallbackSonDenemeMs != 0 && simdi - wifiFallbackSonDenemeMs < WIFI_FALLBACK_DENEME_ARALIK_MS) return;
   wifiFallbackSonDenemeMs = simdi;
-  DEBUG_PRINTLN("[WIFI] Fallback: STA tekrar deneniyor...");
+
+  const char* ssid; const char* sifre;
+  int deneme = 0;
+  do {
+    if (wifiFallbackAdayIndex == 0) { ssid = wifiAyar.ssid; sifre = wifiAyar.sifre; }
+    else { ssid = wifiAyar.gecmis[wifiFallbackAdayIndex - 1].ssid; sifre = wifiAyar.gecmis[wifiFallbackAdayIndex - 1].sifre; }
+    wifiFallbackAdayIndex = (wifiFallbackAdayIndex + 1) % (1 + WIFI_GECMIS_SAYISI);
+    deneme++;
+  } while (strlen(ssid) == 0 && deneme <= (1 + WIFI_GECMIS_SAYISI));
+  if (strlen(ssid) == 0) return; // aktif ag her zaman dolu (yukaridaki guard), buraya dusmemeli
+
+  DEBUG_PRINT("[WIFI] Fallback: deneniyor: "); DEBUG_PRINTLN(ssid);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(wifiAyar.ssid, wifiAyar.sifre);
+  WiFi.begin(ssid, sifre);
   unsigned long baslaMs = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < WIFI_FALLBACK_DENEME_SURESI_MS) {
     delay(100);
@@ -2910,6 +2951,7 @@ void loop() {
   kapiPoll();  // Bahce kapisi hareket halindeyse limit switch/akim kontrolu (bloklayici, sadece hareket sirasinda)
   bahceNanoPoll();  // Bahce kapisi limit switch'leri + zil butonu (tek PIN_READ_ALL turu)
   ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
+  wifiKopmaTespitPoll();  // Bagliyken aktif ag kaybolursa (30sn) fallback moduna gecisi tetikler
   wifiFallbackPoll();  // Saf AP'ye dusulduyse 2dk'da bir kisa STA denemesi
   server.handleClient();
   rs485KomutDinle();

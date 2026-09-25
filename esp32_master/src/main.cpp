@@ -5079,6 +5079,13 @@ void setup_ota() {
 
 WiFiMulti wifiMulti;
 
+// wifiReconnectPoll()'un bloklamadan sirayla denedigi aday ag listesi -
+// wifi_connect() icinde bir kez doldurulur (bkz asagisi).
+#define WIFI_RECONNECT_ADAY_MAX (1 + WIFI_GECMIS_SAYISI)
+String wifiReconnectSsid[WIFI_RECONNECT_ADAY_MAX];
+String wifiReconnectPass[WIFI_RECONNECT_ADAY_MAX];
+int wifiReconnectAdaySayisi = 0;
+
 void wifi_connect() {
   // ESP8266'daki gibi: AP her zaman acik (STA basarisiz olsa da paneline
   // erisim kaybolmasin), STA kayitli ag varsa ona baglanir.
@@ -5111,14 +5118,28 @@ void wifi_connect() {
     IPAddress(255, 255, 255, 0)
   );
 
-  // Ozel ag kaydedilmisse (web arayuzunden) sadece o denenir. Yoksa iki
-  // varsayilan ag da eklenir (WIFI_SSID/WIFI_SSID2) - WiFiMulti taranan
-  // aglar arasindan menzilde/bilinen olana (en guclu sinyalliye) baglanir.
+  // Ozel ag kaydedilmisse (web arayuzunden) aktif ag + gecmis aglar (en
+  // fazla WIFI_GECMIS_SAYISI adet) eklenir - WiFiMulti taranan aglar
+  // arasindan menzilde/bilinen olana (en guclu sinyalliye) baglanir. Ozel ag
+  // yoksa iki varsayilan ag denenir (WIFI_SSID/WIFI_SSID2). FIX (kullanici
+  // talebi 2026-09-25: "baglantisi kopunca kayitli baska bir aga baglansin")
+  // - eskiden ozel ag sadece TEK basina eklenirdi, koptugunda gecmis aglara
+  // otomatik gecis yoktu.
+  wifiReconnectAdaySayisi = 0;
   if (ozelAg) {
     wifiMulti.addAP(savedSSID.c_str(), savedPass.c_str());
+    wifiReconnectSsid[wifiReconnectAdaySayisi] = savedSSID; wifiReconnectPass[wifiReconnectAdaySayisi] = savedPass; wifiReconnectAdaySayisi++;
+    for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+      if (wifiGecmisSsid[i].length() > 0) {
+        wifiMulti.addAP(wifiGecmisSsid[i].c_str(), wifiGecmisPass[i].c_str());
+        wifiReconnectSsid[wifiReconnectAdaySayisi] = wifiGecmisSsid[i]; wifiReconnectPass[wifiReconnectAdaySayisi] = wifiGecmisPass[i]; wifiReconnectAdaySayisi++;
+      }
+    }
   } else {
     wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
     wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
+    wifiReconnectSsid[wifiReconnectAdaySayisi] = WIFI_SSID; wifiReconnectPass[wifiReconnectAdaySayisi] = WIFI_PASSWORD; wifiReconnectAdaySayisi++;
+    wifiReconnectSsid[wifiReconnectAdaySayisi] = WIFI_SSID2; wifiReconnectPass[wifiReconnectAdaySayisi] = WIFI_PASSWORD2; wifiReconnectAdaySayisi++;
   }
 
   // FIX (kullanici sikayeti, 2026-09-08: "flasliyorum ama web sayfa
@@ -5171,15 +5192,28 @@ void wifi_connect() {
 // AP/RS485/lokal islevler etkilenmedigi icin "sistem calisiyor ama sayfa
 // acilmiyor" seklinde kafa karistirici bir belirti veriyordu (2026-08-26,
 // sahada `ping`in "Destination host unreachable" dondurmesiyle dogrulandi).
-// WiFi.reconnect() asenkron/bloke etmeyen bir cagri - periyodik (15sn'de
-// bir, sadece kopukken) tekrar tetiklenir.
+// WiFi.reconnect() YERINE aday listesi (wifiReconnectSsid/Pass, bkz
+// wifi_connect()) uzerinde sirayla WiFi.begin(ssid,pass) cagrilir - FIX
+// (kullanici talebi 2026-09-25: aktif ag koptugunda kayitli baska bir aga
+// otomatik gecsin). BILEREK wifiMulti.run() KULLANILMIYOR: o once
+// WiFi.scanNetworks() ile TUM kanallari bloklayarak tarar (birkac saniye
+// surer) - bu RS485 alarm polling'ini (loop() ic ice, bkz RS485Kilit) o
+// sure boyunca durdurup gecikme yaratirdi. WiFi.begin(ssid,pass) ise
+// BELLI bir SSID'ye dogrudan baglanma denemesini arka planda (WiFi
+// surucu gorevinde) baslatir ve HEMEN doner - loop() bloklanmaz. Periyodik
+// (15sn'de bir, sadece kopukken) bir sonraki adaya gecilir.
 void wifiReconnectPoll() {
   static unsigned long sonDenemeMs = 0;
-  if (WiFi.status() == WL_CONNECTED) return;
+  static int adayIndex = 0;
+  if (WiFi.status() == WL_CONNECTED) { adayIndex = 0; return; }
+  if (wifiReconnectAdaySayisi == 0) return;
   if (millis() - sonDenemeMs < 15000) return;
   sonDenemeMs = millis();
-  DEBUG_PRINTLN("[WiFi] STA bagli degil, yeniden baglanma deneniyor...");
-  WiFi.reconnect();
+  const String& ssid = wifiReconnectSsid[adayIndex];
+  const String& pass = wifiReconnectPass[adayIndex];
+  DEBUG_PRINT("[WiFi] STA bagli degil, deneniyor: "); DEBUG_PRINTLN(ssid);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  adayIndex = (adayIndex + 1) % wifiReconnectAdaySayisi;
 }
 
 // Beklenmedik reset (crash/brownout/watchdog) BLE baglantisini telefona hic
