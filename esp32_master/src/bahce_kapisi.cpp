@@ -19,8 +19,9 @@ extern bool bahceKapi1TamAcikAl();
 extern bool bahceKapi1TamKapaliAl();
 extern bool bahceKapi2TamAcikAl();
 extern bool bahceKapi2TamKapaliAl();
-bool bahceKapiKomutGonder(const char* aksiyon, String& reply);           // tanimi asagida
-bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply); // tanimi asagida
+// bahceKapiKomutGonder/bahceKapiTekKomutGonder artik bahce_kapisi.h'de
+// deklare ediliyor (main.cpp'nin WebSocket komut sozlugunden de cagirmasi
+// icin, 2026-09-27) - burada tekrar deklare etmeye gerek yok.
 
 // Fiziksel Bahce Kapisi Butonu (GPIO47, INPUT_PULLUP, aktif-LOW).
 // 2026-09-18 kullanici talebi: eski "kisa/cift TIK sayma" semasindan basili-

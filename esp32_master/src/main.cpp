@@ -4708,6 +4708,23 @@ bool komutCalistir(const String& komut, String& mesaj) {
     bool panicActive = false;
     ok = panikTetikle(panicActive, reply);
     mesaj = ok ? ("PANIC=" + String(panicActive ? "1" : "0")) : "PANIK";
+  } else if (komut == "BAHCE_KAPI_AC" || komut == "BAHCE_KAPI_KAPAT" || komut == "BAHCE_KAPI_DUR") {
+    // Bahce kapisi (arac girisi, 2 kanat) - KAPI_AC/KAPI_TOGGLE ile
+    // KARISTIRILMASIN, o aslinda alarm rolesinin takma adi (bkz kapiAyarla
+    // yorumu), bahce kapisiyla ilgisi yok. Karar (ac/kapat/dur) BURADA
+    // DEGIL, JS tarafinda (bahceKapiToggle) zaten hesaplaniyor - ayni
+    // mevcut HTTP /api/bahce_kapi akisiyla BIREBIR ayni, sadece tasiyici WS.
+    const char* aksiyon = komut == "BAHCE_KAPI_AC" ? "AC" : (komut == "BAHCE_KAPI_KAPAT" ? "KAPAT" : "DUR");
+    ok = bahceKapiKomutGonder(aksiyon, reply);
+    mesaj = ok ? komut : "BAHCE_KAPI_HATA";
+  } else if (komut == "BAHCE_KAPI1_AC" || komut == "BAHCE_KAPI1_KAPAT" || komut == "BAHCE_KAPI1_DUR") {
+    const char* aksiyon = komut == "BAHCE_KAPI1_AC" ? "AC" : (komut == "BAHCE_KAPI1_KAPAT" ? "KAPAT" : "DUR");
+    ok = bahceKapiTekKomutGonder(1, aksiyon, reply);
+    mesaj = ok ? komut : "BAHCE_KAPI1_HATA";
+  } else if (komut == "BAHCE_KAPI2_AC" || komut == "BAHCE_KAPI2_KAPAT" || komut == "BAHCE_KAPI2_DUR") {
+    const char* aksiyon = komut == "BAHCE_KAPI2_AC" ? "AC" : (komut == "BAHCE_KAPI2_KAPAT" ? "KAPAT" : "DUR");
+    ok = bahceKapiTekKomutGonder(2, aksiyon, reply);
+    mesaj = ok ? komut : "BAHCE_KAPI2_HATA";
   } else {
     mesaj = "BILINMEYEN_KOMUT";
   }

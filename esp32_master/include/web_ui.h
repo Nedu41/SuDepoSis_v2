@@ -1557,13 +1557,20 @@ function toggleLamba(){
   const acik = $('#lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#lamba-btn', '/api/lamba?durum='+(acik?0:1), '#lamba-sonuc');
 }
+// WS pilotu genisletildi (2026-09-27): karar (ac/kapat/dur) BURADA, tipki
+// eskisi gibi client tarafinda hesaplaniyor - sadece tasiyici degisti.
+var BAHCE_KOMUT_MAP = {ac:'AC', kapat:'KAPAT', dur:'DUR'};
 function bahceKapiKomut(durum){
+  const k = BAHCE_KOMUT_MAP[durum];
+  if (k && wsKomutGonder('BAHCE_KAPI_'+k, '#bahce-kapi-sonuc')) return;
   sendCommand(null, '/api/bahce_kapi?durum='+durum, '#bahce-kapi-sonuc');
 }
 function bahceKapiToggle(){
   bahceKapiKomut(bahceHareketVar ? 'dur' : (bahceAcikSayilirmi ? 'kapat' : 'ac'));
 }
 function bahceKapiTekKomut(kapi, durum){
+  const k = BAHCE_KOMUT_MAP[durum];
+  if (k && wsKomutGonder('BAHCE_KAPI'+kapi+'_'+k, '#bahce-kapi-sonuc')) return;
   sendCommand(null, '/api/bahce_kapi?durum='+durum+'&kapi='+kapi, '#bahce-kapi-sonuc');
 }
 // Home: her kanadi KENDI gercek limit switch konumuna gore ac/kapat komutuyla

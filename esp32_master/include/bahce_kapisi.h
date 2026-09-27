@@ -9,6 +9,7 @@
 
 void bahceKapiButonPoll();
 bool bahceKapiKomutGonder(const char* aksiyon, String& reply);
+bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply);
 void handleAPI_BahceKapi();
 
 #endif
