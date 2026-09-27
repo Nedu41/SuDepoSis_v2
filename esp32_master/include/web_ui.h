@@ -1485,6 +1485,50 @@ function api(p){
     .catch(()=>({basarili:false,mesaj:'Bağlantı hatası'}));
 }
 
+// WEBSOCKET PILOT (2026-09-27, kullanici talebi): sadece Panik/Acil Lamba/
+// Konteyner Lamba/Sudepo Lamba butonlari icin denenip HTTP'ye kiyasla
+// gercek hizlanma sagliyor mu diye degerlendiriliyor - port 81, ESP32
+// tarafinda ayri bir WebSocketsServer (mevcut :80 HTTP API'ye DOKUNULMADI).
+// Baglanti yoksa/koparsa fonksiyonlar sessizce eski HTTP yoluna (sendCommand)
+// duser - pilot basarisiz olsa bile hicbir ozellik kaybolmaz.
+var wsBaglanti = null, wsHazir = false;
+// FIX (kullanici geri bildirimi "ufak takilmalar oluyor"): onmessage HER
+// cagride yeniden atanıyordu - art arda iki komut hizli gonderilirse ilk
+// cevap gelmeden ikinci atama onu EZIYORDU, ilk komutun sonucu kayboluyordu
+// (veya yanlis butona yaziliyordu). WebSocket TEK baglanti uzerinde mesaj
+// SIRASINI korur - basit bir FIFO kuyrukla (gonderilen sirayla resultId
+// biriktirilir, cevap gelince basdan cikarilir) dogru eslesme garanti edilir.
+var wsBekleyenKuyruk = [];
+function wsBaglan(){
+  try {
+    wsBaglanti = new WebSocket('ws://' + location.hostname + ':81/');
+    wsBaglanti.onopen = function(){ wsHazir = true; wsBekleyenKuyruk = []; };
+    wsBaglanti.onclose = function(){ wsHazir = false; wsBekleyenKuyruk = []; setTimeout(wsBaglan, 3000); };
+    wsBaglanti.onerror = function(){ wsHazir = false; };
+    wsBaglanti.onmessage = function(ev){
+      var resultId = wsBekleyenKuyruk.shift();
+      try {
+        var d = JSON.parse(ev.data);
+        if(resultId){ var el=$(resultId); if(el) el.textContent = d.mesaj || ''; }
+      } catch(e){}
+      fetch('/api/status').then(r=>r.json()).then(renderUI).catch(()=>{}).finally(()=>{
+        if(resultId) setTimeout(function(){ var el=$(resultId); if(el) el.textContent=''; }, 4000);
+      });
+    };
+  } catch(e) { wsHazir = false; }
+}
+wsBaglan();
+// komut: ortak komut sozlugundeki (komutCalistir, main.cpp - BLE/IR kumanda
+// ile AYNI) metin, orn. 'PANIK', 'ALARM_TOGGLE', 'KAPI_TOGGLE'. Baglanti
+// hazirsa true donup WS uzerinden gonderir (cagiran HTTP'ye dusmez), degilse
+// false donup cagiran taraf eski sendCommand'a duser.
+function wsKomutGonder(komut, resultId){
+  if(!wsHazir || !wsBaglanti) return false;
+  wsBekleyenKuyruk.push(resultId);
+  wsBaglanti.send(komut);
+  return true;
+}
+
 // sendCommand: butonu KİLİTLEMİYOR/disable etmiyor artık - tekrar basma
 // engeli, komut surerken butonda gorunen "yasak/dur" imleci gibi UI
 // surtunmesi gecikme hissi yaratiyordu. RS485 tarafinda gercek komut zaten
@@ -1507,6 +1551,7 @@ function sendCommand(btnId, path, resultId, label){
 }
 
 function toggleLamba(){
+  if (wsKomutGonder('LAMBA_TOGGLE', '#lamba-sonuc')) return; // pilot: WS basariyla gonderildiyse HTTP'ye dusme
   // Mevcut durumu buton metninden değil, sunucu state'inden bil
   // Butonda 'Kapat' yazıyorsa lamba açık demek → hedef=0
   const acik = $('#lamba-btn').textContent.trim().endsWith('Kapat');
@@ -1532,10 +1577,12 @@ function bahceHomeTetikle(){
   const s=$('#bahce-kapi-sonuc'); if(s) s.textContent='Home gönderildi';
 }
 function toggleKonteynerLamba(){
+  if (wsKomutGonder('KONTEYNER_LAMBA_TOGGLE', '#konteyner-lamba-sonuc')) return;
   const acik = $('#konteyner-lamba-btn').textContent.trim().endsWith('Kapat');
   sendCommand('#konteyner-lamba-btn', '/api/konteyner/lamba?durum='+(acik?0:1), '#konteyner-lamba-sonuc');
 }
 function toggleAcilLamba(){
+  if (wsKomutGonder('ACIL_LAMBA_TOGGLE', '#acil-lamba-sonuc')) return;
   const acik = $('#acil-lamba-btn').textContent.includes('AÇIK');
   sendCommand('#acil-lamba-btn', '/api/acil-lamba?durum='+(acik?0:1), '#acil-lamba-sonuc');
 }
@@ -1572,14 +1619,17 @@ function setMoistureThresholds(){
   sendCommand(null,'/api/moisture/threshold?low='+low+'&high='+high,'#moisture-settings-msg');
 }
 function toggleAlarm(){
+  if (wsKomutGonder('ALARM_TOGGLE_SUDEPO', '#alarm-sonuc')) return;
   const aktif = $('#alarm-btn').textContent.trim().endsWith('Alarmı Kapat');
   sendCommand('#alarm-btn', '/api/alarm?aktif='+(aktif?0:1), '#alarm-sonuc');
 }
 function toggleKonteynerAlarm(){
+  if (wsKomutGonder('ALARM_TOGGLE_KONTEYNER', '#konteyner-alarm-sonuc')) return;
   const aktif = $('#konteyner-alarm-btn').textContent.trim().endsWith('Alarmı Kapat');
   sendCommand('#konteyner-alarm-btn', '/api/konteyner/alarm?aktif='+(aktif?0:1), '#konteyner-alarm-sonuc');
 }
 function togglePanic(){
+  if (wsKomutGonder('PANIK', '#panic-sonuc')) return;
   sendCommand('#panic-btn', '/api/panic', '#panic-sonuc');
 }
 function setAlarmMod(){

@@ -8,6 +8,7 @@
 #include <WiFiMulti.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h> // PILOT (2026-09-27) - bkz komutCalistir yakinindaki not
 #include "build_info.h"  // scripts/gen_build_info.py tarafindan HER derlemede uretilir
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
@@ -4714,6 +4715,30 @@ bool komutCalistir(const String& komut, String& mesaj) {
 }
 
 // ============================================================
+// WEBSOCKET PILOT (2026-09-27, kullanici talebi - "web sayfasi/buton
+// gecikmesi" arastirmasi sonucu WebSocket denemesi)
+// ============================================================
+// Mevcut senkron WebServer.h (port 80) TAMAMEN DEGISTIRILMEDI - o buyuk/
+// riskli bir mimari degisiklik olurdu (TUM ~60 uc noktayi yeniden yazmak
+// gerekirdi). Bunun yerine ayri, dusuk riskli bir port (81) uzerinde
+// WebSocketsServer eklendi - SADECE birkac pilot komut (Panik, Acil Lamba,
+// Konteyner Lamba, Sudepo Lamba) icin denenip HTTP'ye kiyasla gercekten
+// hizlanma sagliyor mu diye degerlendirilecek. Basarili olursa kapsam
+// genisletilir. ORTAK KOMUT SOZLUGU (komutCalistir, yukarida) zaten
+// BLE/IR kumanda tarafindan kullanilan HAZIR/TEST EDILMIS fonksiyon -
+// burada da AYNEN reutilize edildi, hicbir yeni is mantigi yazilmadi.
+WebSocketsServer wsServer(81);
+
+void wsOlayIsle(uint8_t istemciNo, WStype_t tip, uint8_t* veri, size_t uzunluk) {
+  if (tip != WStype_TEXT) return; // baglanti/kopma olaylari - simdilik loglama disi
+  String komut = String((char*)veri).substring(0, uzunluk);
+  String mesaj;
+  bool ok = komutCalistir(komut, mesaj);
+  String yanit = "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + jsonKacir(mesaj) + "\"}";
+  wsServer.sendTXT(istemciNo, yanit);
+}
+
+// ============================================================
 // IR KUMANDA ESLESTIRME (kod -> komut, SPIFFS'te kalici, web'den yonetilir)
 // ============================================================
 // irKumandaIsle() (konteynerDonanimi bolumunde, sadece ham kod yakalar) ile
@@ -5229,6 +5254,10 @@ void setupWebServer() {
 
   server.begin();
   DEBUG_PRINTLN("[WEB] Server started on port 80");
+
+  wsServer.begin();
+  wsServer.onEvent(wsOlayIsle);
+  DEBUG_PRINTLN("[WS] WebSocket pilot sunucusu port 81'de baslatildi");
 }
 
 void setup_ota() {
@@ -5620,6 +5649,7 @@ void loop() {
 
   // Web Server handle
   server.handleClient();
+  wsServer.loop(); // WebSocket pilot (port 81)
   ArduinoOTA.handle();
 
   // RS485 Polling
