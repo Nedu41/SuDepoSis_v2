@@ -1,4 +1,29 @@
 function temaAyarla(k){document.body.classList.toggle('dark',k);document.getElementById('temaBtn').innerHTML=k?'Sun':'Moon';localStorage.setItem('tema',k?'dark':'light')}
+// WEBSOCKET PILOT (2026-09-27) - esp32_master (Kalburum) tarafinda denenip
+// hizlanma dogrulandiktan sonra Sudepo'nun KENDI arayuzune de tasindi. Port
+// 81, sadece Lamba/Nem/Role/Panik icin - mevcut HTTP uclarina DOKUNULMADI,
+// baglanti yoksa/koparsa fonksiyonlar sessizce eski fetch() yoluna duser.
+var wsBaglanti=null, wsHazir=false, wsBekleyenKuyruk=[];
+function wsBaglan(){
+  try {
+    wsBaglanti=new WebSocket('ws://'+location.hostname+':81/');
+    wsBaglanti.onopen=function(){wsHazir=true;wsBekleyenKuyruk=[];};
+    wsBaglanti.onclose=function(){wsHazir=false;wsBekleyenKuyruk=[];setTimeout(wsBaglan,3000);};
+    wsBaglanti.onerror=function(){wsHazir=false;};
+    wsBaglanti.onmessage=function(ev){
+      var cb=wsBekleyenKuyruk.shift();
+      if(cb) try{ cb(JSON.parse(ev.data)); }catch(e){}
+      olc();
+    };
+  } catch(e){ wsHazir=false; }
+}
+wsBaglan();
+function wsKomutGonder(komut,cb){
+  if(!wsHazir||!wsBaglanti) return false;
+  wsBekleyenKuyruk.push(cb||null);
+  wsBaglanti.send(komut);
+  return true;
+}
 function temaDegistir(){temaAyarla(!document.body.classList.contains('dark'))}
 function sekmeAc(ad){document.querySelectorAll('.sekme-icerik').forEach(e=>e.style.display='none');document.getElementById('sekme-'+ad).style.display='block';document.querySelectorAll('.sekme-btn').forEach(b=>b.classList.remove('aktif'));document.querySelector('[data-sekme="'+ad+'"]').classList.add('aktif');try{localStorage.setItem('sonSekme',ad);}catch(e){}if(ad=='kayitlar')kayitlariYukle();if(ad=='ayarlar'){loadAyarlar();wifiDurumYukle();}if(ad=='alarm'){loadAyarlar();loadTriggers();alarmLoguTamYukle();}}
 var alarmModAdi={1:'Sesli',2:'Sessiz',3:'Onayli'};
@@ -50,7 +75,7 @@ function alarmOnayla(){fetch('/alarm/onayla').then(r=>r.json()).then(d=>{olc();}
 function alarmOnaylaLamba(){fetch('/alarm/onayla_lamba').then(r=>r.json()).then(d=>{olc();}).catch(()=>{});}
 function rolePolariteAyarla(){var v=document.getElementById('rolePolarite').value;fetch('/role/polarite?aktif='+v).then(r=>r.json()).then(d=>{document.getElementById('polariteSonuc').innerHTML=d.mesaj;});}
 function olc(){fetch('/olc').then(r=>r.json()).then(d=>{guncelle(d);document.getElementById('sonuc').innerHTML='Guncellendi: '+d.zaman;}).catch(()=>{document.getElementById('sonuc').innerHTML='Hata!';});}
-function moistureToggle(){fetch('/nem?durum='+(moistureOutputActive?0:1)).then(r=>r.json()).then(d=>{document.getElementById('moistureSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();});}
+function moistureToggle(){if(wsKomutGonder('NEM_TOGGLE',function(d){document.getElementById('moistureSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;}))return;fetch('/nem?durum='+(moistureOutputActive?0:1)).then(r=>r.json()).then(d=>{document.getElementById('moistureSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();});}
 function moistureModeToggle(){fetch('/nem/mod?otomatik='+(moistureAuto?0:1)).then(r=>r.json()).then(d=>{document.getElementById('moistureSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;var mas=document.getElementById('moistureAuto');if(mas)mas.value=moistureAuto?0:1;olc();});}
 function zamanGoster(){fetch('/zaman').then(r=>r.json()).then(d=>{document.getElementById('sonuc').innerHTML=(d.ntpSenkron?'Internetten senkronize edildi: ':'RTC: ')+d.zaman;if(d.tarihISO)document.getElementById('kTarih').value=d.tarihISO;});}
 function zamanAyarla(){var v=document.getElementById('zamanInput').value;if(!v){document.getElementById('sonuc').innerHTML='Zaman secin!';return;}fetch('/ayarla?zaman='+v).then(r=>r.json()).then(d=>{document.getElementById('sonuc').innerHTML=d.mesaj;zamanGoster();});}
@@ -99,11 +124,11 @@ function wifiBaglan(){if(!confirm('Kaydedilmis aga baglanmak icin cihaz yeniden 
 function wifiScan(){document.getElementById('wifiSonuc').innerHTML='Taraniyor...';fetch('/wifi/scan').then(r=>r.json()).then(list=>{var sel=document.getElementById('staSSIDSel');sel.innerHTML='<option value="">Ag secin...</option>';(Array.isArray(list)?list:[]).forEach(function(n){var o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' ('+n.rssi+'dBm'+(n.secured?', kilitli':'')+')';sel.appendChild(o);});document.getElementById('wifiSonuc').innerHTML=(Array.isArray(list)?list.length:0)+' ag bulundu';}).catch(()=>{document.getElementById('wifiSonuc').innerHTML='Tarama hatasi';});}
 function togglePw(){var i=document.getElementById('staSifre');var b=document.getElementById('pwToggleBtn');if(i.type==='password'){i.type='text';b.innerHTML='Gizle';}else{i.type='password';b.innerHTML='Goster';}}
 function wifiKaldir(){if(!confirm('Kaldirilsin mi?'))return;fetch('/wifi/kaydet?s=').then(r=>r.json()).then(d=>{document.getElementById('wifiSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;document.getElementById('staSSID').value='';document.getElementById('staSifre').value='';wifiDurumYukle();});}
-function roleToggle(){var y=roleAktif?0:1;fetch('/role/ayarla?aktif='+y).then(r=>r.json()).then(d=>{document.getElementById('roleSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();});}
+function roleToggle(){if(wsKomutGonder('ROLE_TOGGLE',function(d){document.getElementById('roleSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;}))return;var y=roleAktif?0:1;fetch('/role/ayarla?aktif='+y).then(r=>r.json()).then(d=>{document.getElementById('roleSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();});}
 var panicAktif=false;
-function panicToggle(){var hedef=panicAktif?0:1;fetch('/role/panic?aktif='+hedef).then(r=>r.json()).then(d=>{if(d.basarili){panicAktif=d.panic;document.getElementById('panicBtn').innerHTML=panicAktif?'Panik Acik':'Panik';}document.getElementById('panicSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();}).catch(()=>{document.getElementById('panicSonuc').innerHTML='Hata!';});}
+function panicToggle(){if(wsKomutGonder('PANIK',function(d){document.getElementById('panicSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;}))return;var hedef=panicAktif?0:1;fetch('/role/panic?aktif='+hedef).then(r=>r.json()).then(d=>{if(d.basarili){panicAktif=d.panic;document.getElementById('panicBtn').innerHTML=panicAktif?'Panik Acik':'Panik';}document.getElementById('panicSonuc').innerHTML=(d.basarili?'OK ':'HATA ')+d.mesaj;olc();}).catch(()=>{document.getElementById('panicSonuc').innerHTML='Hata!';});}
 var lambaAktif=false;
-function lambaToggle(){fetch('/lamba?durum='+(lambaAktif?0:1)).then(r=>r.json()).then(d=>{if(d.basarili){lambaAktif=!lambaAktif;document.getElementById('lambaToggleBtn').innerHTML=lambaAktif?'Lamba Kapat':'Lamba Ac';}});}
+function lambaToggle(){if(wsKomutGonder('LAMBA_TOGGLE',null))return;fetch('/lamba?durum='+(lambaAktif?0:1)).then(r=>r.json()).then(d=>{if(d.basarili){lambaAktif=!lambaAktif;document.getElementById('lambaToggleBtn').innerHTML=lambaAktif?'Lamba Kapat':'Lamba Ac';}});}
 var bahceKapiDurumEtiket={kapali:'Kapali',acik:'Acik',kilit_aciliyor:'Kilit Aciliyor',aciliyor:'Aciliyor',kapaniyor:'Kapaniyor',hata:'HATA',nano_bekleniyor:'Nano Baglantisi Koptu - Bekleniyor'};
 var bahceKapiDurum={1:'kapali',2:'kapali'};
 // yon: 'ac' veya 'kapat'. Kapi o yonde zaten hareket ediyorsa (ayni butona
