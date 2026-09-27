@@ -38,30 +38,58 @@ WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
 // ============ WiFi (STA) - NVS'de kalici, ESP8266'daki gibi ============
+// FIX (kullanici sikayeti 2026-09-27, "hala AP/STA baglanma sorunu
+// yasiyorum" - arastirma sonucu): ESP32'de AP+STA TEK radyoyu paylasir,
+// STA hangi kanala baglanirsa AP ZORLA o kanala kayar (Espressif resmi
+// dokumani: "kanalin dis AP'ye ait olani, ESP AP kanalindan onceliklidir").
+// AP kanali eskiden sabit 6'ydi - Emiliya kanal 6'da degilse HER
+// baglanma/yeniden baglanma'da AP kanal degistirip bagli telefonu
+// dusuruyordu (round-robin ozelligiyle ilgisiz, temel bir sorun). Cozum:
+// son basarili baglantinin kanal+BSSID'sini NVS'e kaydet, AP'yi bastan bu
+// kanalda ac (migrasyon sadece ilk baglantida olur) VE WiFi.begin()'e
+// kanal+BSSID vererek tarama atlanip doğrudan baglanilsin (Arduino-ESP32
+// resmi API: WiFi.begin(ssid,pass,channel,bssid) tarama olmadan ~1.5sn'de
+// baglanir, ~6sn'lik tarama yerine - hem hizli hem AP'yi rahatsiz etmiyor).
 Preferences wifiPrefs;
 String savedSSID = "";
 String savedPass = "";
+uint8_t savedChannel = 0;           // 0 = bilinmiyor/hic baglanilmadi, ilk seferde tarama gerekir
+uint8_t savedBSSID[6] = {0,0,0,0,0,0};
+
+bool bssidBosMu(const uint8_t* b) {
+  return b[0]==0 && b[1]==0 && b[2]==0 && b[3]==0 && b[4]==0 && b[5]==0;
+}
 
 void wifiCredYukle() {
   wifiPrefs.begin("wifi", true);
   savedSSID = wifiPrefs.getString("ssid", "");
   savedPass = wifiPrefs.getString("pass", "");
+  savedChannel = wifiPrefs.getUChar("ch", 0);
+  uint8_t bos[6] = {0,0,0,0,0,0};
+  wifiPrefs.getBytes("bssid", savedBSSID, 6);
+  (void)bos;
   wifiPrefs.end();
 }
 
 // 2026-09-08 kullanici talebi: "bagli oldugum wifi aglari hafizada kalsin,
 // listede gorunsun" - aktif agin (savedSSID/savedPass) DISINDA, daha once
 // baglanilmis aglarin kisa gecmisi. ESP8266'daki wifiGecmis* ile AYNI
-// mantik/isimlendirme, burada NVS (Preferences) uzerinde tutulur.
+// mantik/isimlendirme, burada NVS (Preferences) uzerinde tutulur. Her
+// gecmis kaydi da kendi kanal/BSSID'sini tasir (2026-09-27) - gecmis bir
+// aga donuldugunde de hizli/az-kesintili baglanti icin.
 #define WIFI_GECMIS_SAYISI 2
 String wifiGecmisSsid[WIFI_GECMIS_SAYISI];
 String wifiGecmisPass[WIFI_GECMIS_SAYISI];
+uint8_t wifiGecmisChannel[WIFI_GECMIS_SAYISI];
+uint8_t wifiGecmisBSSID[WIFI_GECMIS_SAYISI][6];
 
 void wifiGecmisYukle() {
   wifiPrefs.begin("wifi", true);
   for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
     wifiGecmisSsid[i] = wifiPrefs.getString(("h" + String(i) + "s").c_str(), "");
     wifiGecmisPass[i] = wifiPrefs.getString(("h" + String(i) + "p").c_str(), "");
+    wifiGecmisChannel[i] = wifiPrefs.getUChar(("h" + String(i) + "c").c_str(), 0);
+    wifiPrefs.getBytes(("h" + String(i) + "b").c_str(), wifiGecmisBSSID[i], 6);
   }
   wifiPrefs.end();
 }
@@ -70,23 +98,34 @@ void wifiGecmisKaydet() {
   for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
     wifiPrefs.putString(("h" + String(i) + "s").c_str(), wifiGecmisSsid[i]);
     wifiPrefs.putString(("h" + String(i) + "p").c_str(), wifiGecmisPass[i]);
+    wifiPrefs.putUChar(("h" + String(i) + "c").c_str(), wifiGecmisChannel[i]);
+    wifiPrefs.putBytes(("h" + String(i) + "b").c_str(), wifiGecmisBSSID[i], 6);
   }
   wifiPrefs.end();
 }
 // ssid zaten gecmiste varsa once oradan cikarilir (duplike birikmesin),
 // sonra en basa eklenir - en eski kayit WIFI_GECMIS_SAYISI'ni asinca dusurulur.
-void wifiGecmiseEkle(const String& ssid, const String& pass) {
+void wifiGecmiseEkle(const String& ssid, const String& pass, uint8_t channel = 0, const uint8_t* bssid = nullptr) {
   if (ssid.length() == 0) return;
+  uint8_t bos[6] = {0,0,0,0,0,0};
+  if (!bssid) bssid = bos;
   String yeniSsid[WIFI_GECMIS_SAYISI], yeniPass[WIFI_GECMIS_SAYISI];
-  yeniSsid[0] = ssid; yeniPass[0] = pass;
+  uint8_t yeniChannel[WIFI_GECMIS_SAYISI]; uint8_t yeniBSSID[WIFI_GECMIS_SAYISI][6];
+  yeniSsid[0] = ssid; yeniPass[0] = pass; yeniChannel[0] = channel; memcpy(yeniBSSID[0], bssid, 6);
   int n = 1;
   for (int i = 0; i < WIFI_GECMIS_SAYISI && n < WIFI_GECMIS_SAYISI; i++) {
     if (wifiGecmisSsid[i].length() == 0 || wifiGecmisSsid[i] == ssid) continue;
-    yeniSsid[n] = wifiGecmisSsid[i]; yeniPass[n] = wifiGecmisPass[i]; n++;
+    yeniSsid[n] = wifiGecmisSsid[i]; yeniPass[n] = wifiGecmisPass[i];
+    yeniChannel[n] = wifiGecmisChannel[i]; memcpy(yeniBSSID[n], wifiGecmisBSSID[i], 6);
+    n++;
   }
   for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
-    if (i < n) { wifiGecmisSsid[i] = yeniSsid[i]; wifiGecmisPass[i] = yeniPass[i]; }
-    else { wifiGecmisSsid[i] = ""; wifiGecmisPass[i] = ""; }
+    if (i < n) {
+      wifiGecmisSsid[i] = yeniSsid[i]; wifiGecmisPass[i] = yeniPass[i];
+      wifiGecmisChannel[i] = yeniChannel[i]; memcpy(wifiGecmisBSSID[i], yeniBSSID[i], 6);
+    } else {
+      wifiGecmisSsid[i] = ""; wifiGecmisPass[i] = ""; wifiGecmisChannel[i] = 0; memset(wifiGecmisBSSID[i], 0, 6);
+    }
   }
   wifiGecmisKaydet();
 }
@@ -94,29 +133,52 @@ void wifiGecmiseEkle(const String& ssid, const String& pass) {
 // koyar (basit takas) - "kayitli aglardan birine tikla, baglan" akisi.
 // wifiCredKaydet() asagida bu fonksiyondan SONRA tanimli oldugu icin ileri
 // bildirim gerekir.
-void wifiCredKaydet(const String& ssid, const String& pass);
+void wifiCredKaydet(const String& ssid, const String& pass, uint8_t channel = 0, const uint8_t* bssid = nullptr);
 bool wifiGecmisiAktifYap(int idx) {
   if (idx < 0 || idx >= WIFI_GECMIS_SAYISI || wifiGecmisSsid[idx].length() == 0) return false;
   String eskiSsid = savedSSID, eskiPass = savedPass;
+  uint8_t eskiChannel = savedChannel; uint8_t eskiBSSID[6]; memcpy(eskiBSSID, savedBSSID, 6);
   String yeniSsid = wifiGecmisSsid[idx], yeniPass = wifiGecmisPass[idx];
-  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = "";
-  wifiGecmiseEkle(eskiSsid, eskiPass);
-  wifiCredKaydet(yeniSsid, yeniPass);
+  uint8_t yeniChannel = wifiGecmisChannel[idx]; uint8_t yeniBSSID[6]; memcpy(yeniBSSID, wifiGecmisBSSID[idx], 6);
+  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = ""; wifiGecmisChannel[idx] = 0; memset(wifiGecmisBSSID[idx], 0, 6);
+  wifiGecmiseEkle(eskiSsid, eskiPass, eskiChannel, eskiBSSID);
+  wifiCredKaydet(yeniSsid, yeniPass, yeniChannel, yeniBSSID);
   return true;
 }
 void wifiGecmisiSil(int idx) {
   if (idx < 0 || idx >= WIFI_GECMIS_SAYISI) return;
-  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = "";
+  wifiGecmisSsid[idx] = ""; wifiGecmisPass[idx] = ""; wifiGecmisChannel[idx] = 0; memset(wifiGecmisBSSID[idx], 0, 6);
   wifiGecmisKaydet();
 }
 
-void wifiCredKaydet(const String& ssid, const String& pass) {
+void wifiCredKaydet(const String& ssid, const String& pass, uint8_t channel, const uint8_t* bssid) {
+  uint8_t bos[6] = {0,0,0,0,0,0};
+  if (!bssid) bssid = bos;
   wifiPrefs.begin("wifi", false);
   wifiPrefs.putString("ssid", ssid);
   wifiPrefs.putString("pass", pass);
+  wifiPrefs.putUChar("ch", channel);
+  wifiPrefs.putBytes("bssid", bssid, 6);
   wifiPrefs.end();
   savedSSID = ssid;
   savedPass = pass;
+  savedChannel = channel;
+  memcpy(savedBSSID, bssid, 6);
+}
+
+// STA basariyla baglandiktan SONRA cagrilir - gercek kanal/BSSID'yi
+// yakalayip (degistiyse) NVS'e yazar. Bir sonraki baglanti denemesinde
+// (reconnect VEYA bir sonraki boot) tarama atlanip dogrudan bu kanala
+// gidilir - AP'nin kanal degistirmesi/bagli istemcinin dusmesi bir daha
+// olmaz (ayni kanalda kalinir).
+void wifiChannelBilgisiGuncelle() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  uint8_t ch = WiFi.channel();
+  uint8_t* bssid = WiFi.BSSID();
+  if (!bssid) return;
+  if (ch == savedChannel && memcmp(bssid, savedBSSID, 6) == 0) return; // degismedi, NVS asinmasina gerek yok
+  wifiCredKaydet(savedSSID, savedPass, ch, bssid);
+  DEBUG_PRINT("[WiFi] Kanal/BSSID guncellendi: kanal="); DEBUG_PRINTLN(ch);
 }
 
 // Sudepo (ESP8266) yerel HTTP API'sine komut gonderir (tanimi asagida) -
@@ -4891,16 +4953,17 @@ void handleAPI_Wifi() {
   // Bos SSID -> kayitli agi kaldir, varsayilana don (2026-09-08: kaldirilan
   // ag gecmise eklenir, "hafizada kalsin" istegi - tamamen kaybolmasin)
   if (ssid.length() == 0) {
-    wifiGecmiseEkle(savedSSID, savedPass);
+    wifiGecmiseEkle(savedSSID, savedPass, savedChannel, savedBSSID);
     wifiCredKaydet("", "");
     WiFi.disconnect();
     server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"Kaldirildi\"}");
     return;
   }
 
-  // Farkli bir aga geciliyorsa eski aktif ag gecmise eklenir (kaybolmasin)
-  if (savedSSID != ssid) wifiGecmiseEkle(savedSSID, savedPass);
-  wifiCredKaydet(ssid, sifre);
+  // Farkli bir aga geciliyorsa eski aktif ag gecmise eklenir (kaybolmasin) -
+  // kanal/BSSID de tasinir ki gecmisten geri donulunce yine hizli baglansin.
+  if (savedSSID != ssid) wifiGecmiseEkle(savedSSID, savedPass, savedChannel, savedBSSID);
+  wifiCredKaydet(ssid, sifre); // yeni ag icin kanal/BSSID henuz bilinmiyor (varsayilan 0/bos) - ilk baglantida taranir
   DEBUG_PRINT("[WiFi] Kaydedilen SSID: "); DEBUG_PRINTLN(ssid);
   // FIX (kullanici talebi 2026-09-25: "baglan/kaydet butonlarini ayiralim"):
   // eskiden kayittan hemen sonra OTOMATIK guvenliRestart() cagrilirdi (STA
@@ -5077,6 +5140,33 @@ void setup_ota() {
 
 WiFiMulti wifiMulti;
 
+// wifiReconnectPoll()'un bloklamadan sirayla denedigi aday ag listesi -
+// her adayin kendi kanal/BSSID'si de tutulur (2026-09-27, bkz yukaridaki
+// genel WiFi notu) - varsa taramasiz/hizli/AP'yi rahatsiz etmeyen baglanti
+// icin kullanilir. wifiReconnectAdaylariOlustur() boot'ta VE bir gecmis
+// aday basariyla aktif olunca (wifiGecmisiAktifYap sonrasi) tekrar cagrilir.
+#define WIFI_RECONNECT_ADAY_MAX (1 + WIFI_GECMIS_SAYISI)
+String wifiReconnectSsid[WIFI_RECONNECT_ADAY_MAX];
+String wifiReconnectPass[WIFI_RECONNECT_ADAY_MAX];
+uint8_t wifiReconnectChannel[WIFI_RECONNECT_ADAY_MAX];
+uint8_t wifiReconnectBSSID[WIFI_RECONNECT_ADAY_MAX][6];
+int wifiReconnectAdaySayisi = 0;
+
+void wifiReconnectAdaylariOlustur() {
+  wifiReconnectAdaySayisi = 0;
+  if (savedSSID.length() == 0) return; // ozel ag yok - varsayilan aglarda round-robin yok (WiFiMulti zaten hallediyor)
+  wifiReconnectSsid[0] = savedSSID; wifiReconnectPass[0] = savedPass;
+  wifiReconnectChannel[0] = savedChannel; memcpy(wifiReconnectBSSID[0], savedBSSID, 6);
+  wifiReconnectAdaySayisi = 1;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (wifiGecmisSsid[i].length() == 0) continue;
+    int k = wifiReconnectAdaySayisi;
+    wifiReconnectSsid[k] = wifiGecmisSsid[i]; wifiReconnectPass[k] = wifiGecmisPass[i];
+    wifiReconnectChannel[k] = wifiGecmisChannel[i]; memcpy(wifiReconnectBSSID[k], wifiGecmisBSSID[i], 6);
+    wifiReconnectAdaySayisi++;
+  }
+}
+
 void wifi_connect() {
   // ESP8266'daki gibi: AP her zaman acik (STA basarisiz olsa da paneline
   // erisim kaybolmasin), STA kayitli ag varsa ona baglanir.
@@ -5096,11 +5186,17 @@ void wifi_connect() {
   // bir kez denenip bu riskten dolayi geri alindi. Besleme guclendirilirse
   // (kondansator/daha iyi adaptor) IR zamanlama iyilestirmesi icin tekrar
   // denenebilir, ama o zamana kadar KAPALI kalmali.
+  // AP kanali ARTIK SABIT 6 DEGIL (2026-09-27 FIX, bkz asagidaki genel not):
+  // son basarili STA baglantisinin kanaliyla ayni baslatilir - boylece
+  // ESP32'nin TEK radyosunun AP'yi STA kanaliyla eslesmeye zorlamasi
+  // (Espressif resmi davranisi) sadece ILK baglantida olur, sonraki her
+  // reconnect zaten dogru kanalda oldugundan AP'ye bagli istemci dusmez.
+  uint8_t apKanal = (ozelAg && savedChannel >= 1 && savedChannel <= 13) ? savedChannel : 6;
   // WiFi.softAP sessizce basarisiz olabilir (ornegin AP_PASSWORD 8 karakterden
   // kisaysa WPA2 gereksinimini karsilamaz) - donus degeri kontrol edilmezse
   // cihaz farkedilmeden sifresiz/varsayilan (ESP_xxxxxx) AP'ye duser. Bir kez
   // basimiza geldi (bkz proje hafizasi), o yuzden artik loglaniyor.
-  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, 6, 0, 4)) {
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, apKanal, 0, 4)) {
     DEBUG_PRINTLN("[WiFi] UYARI: softAP baslatilamadi! (sifre >=8 karakter mi?)");
   }
   WiFi.softAPConfig(
@@ -5109,12 +5205,19 @@ void wifi_connect() {
     IPAddress(255, 255, 255, 0)
   );
 
-  // Ozel ag kaydedilmisse (web arayuzunden) sadece o denenir. Yoksa iki
-  // varsayilan ag da eklenir (WIFI_SSID/WIFI_SSID2) - WiFiMulti taranan
-  // aglar arasindan menzilde/bilinen olana (en guclu sinyalliye) baglanir.
+  wifiReconnectAdaylariOlustur();
   if (ozelAg) {
-    wifiMulti.addAP(savedSSID.c_str(), savedPass.c_str());
+    // Kanal/BSSID onbellegi varsa (daha once en az bir kez baglanilmis)
+    // TARAMASIZ dogrudan baglanma denenir (~1.5sn, AP'yi rahatsiz etmez) -
+    // yoksa (ilk kez kaydedilen ag) normal WiFi.begin() tarama yapar.
+    if (savedChannel >= 1 && savedChannel <= 13 && !bssidBosMu(savedBSSID)) {
+      WiFi.begin(savedSSID.c_str(), savedPass.c_str(), savedChannel, savedBSSID);
+    } else {
+      WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    }
   } else {
+    // Ozel ag yoksa iki varsayilan ag denenir (WIFI_SSID/WIFI_SSID2) -
+    // WiFiMulti taranan aglar arasindan menzilde/bilinen olana baglanir.
     wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
     wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
   }
@@ -5130,9 +5233,14 @@ void wifi_connect() {
   // setup() devam eder, wifiReconnectPoll() (loop() icinde) arka planda
   // denemeye devam eder.
   unsigned long wifiBaslangicMs = millis();
-  while (wifiMulti.run() != WL_CONNECTED && millis() - wifiBaslangicMs < 4000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiBaslangicMs < 4000) {
+    if (!ozelAg) wifiMulti.run(); // ozelAg'de WiFi.begin() zaten yukarida dogrudan cagrildi
     DEBUG_PRINT(".");
     yield();
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiChannelBilgisiGuncelle(); // gercek kanal/BSSID'yi yakala (ilk baglantiysa tarama sonucu, degilse onbellek dogrulandi)
   }
 
   // Statik IP sadece varsayilan/birincil ag (WIFI_SSID) icin gecerli - hem
@@ -5169,28 +5277,80 @@ void wifi_connect() {
 // AP/RS485/lokal islevler etkilenmedigi icin "sistem calisiyor ama sayfa
 // acilmiyor" seklinde kafa karistirici bir belirti veriyordu (2026-08-26,
 // sahada `ping`in "Destination host unreachable" dondurmesiyle dogrulandi).
-// WiFi.reconnect() asenkron/bloke etmeyen bir cagri - periyodik (15sn'de
-// bir, sadece kopukken) tekrar tetiklenir.
-// NOT (2026-09-25): burada bir ara WiFi.begin(ssid,pass) ile gecmis aglar
-// arasinda sirayla deneme yapan bir surum denendi ("aktif ag koptugunda
-// kayitli baska bir aga otomatik gecsin" - kullanici talebi), ama SSID'yi
-// bulmak icin yapilan arka plan taramasi ESP32'nin TEK radyosunu AP'nin
-// sabit kanalindan (6) gecici olarak uzaklastirip AP'ye bagli olan
-// telefonun sayfa isteklerini kesip/dusuruyordu (kullanici sahada dogruladi:
-// "AP'den kalburuma bagliyim ama surekli dusuyor" - AP'ye bagli istemci
-// varken taramayi erteleyen guard bile yeterli olmadi). Kalburum'da zaten
-// baska bir kayitli ag olmadigindan bu ozelligin faydasi da yoktu, riski
-// faydasindan fazlaydi - sabahki basit/guvenilir hale geri donuldu. Ayni
-// ozellik esp8266_slave'de FARKLI (cok daha seyrek, 2dk'da bir, AP+STA
-// radyo paylasimi ESP8266'da farkli davraniyor) bir mekanizmayla calisiyor
-// ve orada sorunsuz - o taraf DEGISTIRILMEDI.
+//
+// GECMIS (2026-09-25): Once WiFi.begin(ssid,pass) ile gecmis aglar arasinda
+// sirayla deneme yapan bir surum denendi, ama SSID'yi bulmak icin yapilan
+// TARAMA (kanal/BSSID onbellegi yoktu) ESP32'nin TEK radyosunu AP'nin
+// kanalindan uzaklastirip bagli telefonu dusuruyordu - geri alinip sabahki
+// basit WiFi.reconnect()'e donuldu.
+//
+// KOK NEDEN + DOGRU COZUM (2026-09-27, kullanici hala sorun yasadigini
+// bildirince arastirildi - Espressif resmi dokumani + WiFiManager gibi
+// olgun kutuphanelerin mimarisi incelendi, bkz proje hafizasi
+// esp32s3_gpio... degil, ayri arastirma notu): Sorun sadece "hangi SSID"
+// degil, "hangi KANALDA" baglaniliyor sorusuymus - AP'nin STA kanaliyla
+// eslenmeye ZORLANMASI (Espressif: "dis AP'nin kanali ESP AP kanalindan
+// onceliklidir") HER STA baglanti/reconnect olayinda gecerli, sadece
+// round-robin ozelligiyle sinirli degil. Duz WiFi.reconnect() bile AP
+// kanali sabit 6 kaldigi surece (Emiliya farkli kanaldaysa) migrasyon
+// tetikler. Cozum: wifi_connect() artik AP'yi son bilinen STA kanaliyla
+// baslatiyor (migrasyon sadece ilk baglantida olur) VE burada WiFi.begin()
+// kanal+BSSID onbellegiyle (varsa) TARAMASIZ baglaniyor - resmi
+// Arduino-ESP32 API'si, ~6sn'lik taramali baglanmayi ~1.5sn'ye indirip
+// AP'yi rahatsiz etmiyor (bkz WiFi.begin(ssid,pass,channel,bssid)).
+// Round-robin (gecmis aglara otomatik gecis) bu onbellekle GERI GETIRILDI -
+// artik SADECE tarama gerektiginde (ilk kez baglanilan bir gecmis ag)
+// AP'yi rahatsiz eder, bu da nadir bir durum. AP'ye bagli istemci varken
+// deneme hala ertelenir (asagida). Deneme araligi da artik SABIT 15sn
+// DEGIL, Espressif'in onerdigi "hemen dene, sonra sirayla seyreklet"
+// (exponential backoff, 5sn->10->20...300sn tavan) desenine cevrildi -
+// olu bir ag surekli aranarak AP gereksiz rahatsiz edilmiyor.
+#define WIFI_RECONNECT_ARALIK_MIN_MS 5000UL
+#define WIFI_RECONNECT_ARALIK_MAX_MS 300000UL // 5dk tavan
 void wifiReconnectPoll() {
   static unsigned long sonDenemeMs = 0;
-  if (WiFi.status() == WL_CONNECTED) return;
-  if (millis() - sonDenemeMs < 15000) return;
-  sonDenemeMs = millis();
-  DEBUG_PRINTLN("[WiFi] STA bagli degil, yeniden baglanma deneniyor...");
-  WiFi.reconnect();
+  static unsigned long aralikMs = WIFI_RECONNECT_ARALIK_MIN_MS;
+  static int adayIndex = 0;
+  static int sonDenenenAday = -1; // -1 = henuz deneme yok
+  static bool oncekiBagliMi = false;
+
+  bool bagliMi = (WiFi.status() == WL_CONNECTED);
+  if (bagliMi && !oncekiBagliMi) {
+    // Yeni baglanti kuruldu (ilk baglanti veya reconnect sonrasi) - gercek
+    // kanal/BSSID'yi yakala, gecmisten gelen bir aday basarili olduysa onu
+    // aktif ag yap (NVS + aday listesi tutarli kalsin, bir sonraki
+    // kopmada dogru sirayla/kanalla denensin).
+    wifiChannelBilgisiGuncelle();
+    if (sonDenenenAday > 0) {
+      wifiGecmisiAktifYap(sonDenenenAday - 1); // aday listesinde 1..N = gecmis[0..N-1]
+      wifiReconnectAdaylariOlustur();
+    }
+  }
+  oncekiBagliMi = bagliMi;
+  if (bagliMi) { adayIndex = 0; aralikMs = WIFI_RECONNECT_ARALIK_MIN_MS; return; }
+  if (wifiReconnectAdaySayisi == 0) return;
+  // AP'ye bagli aktif istemci varken STA taramasi/baglanmasi denemesini
+  // ertele - kimse bagli degilken dene, aktif kullanicinin sayfasini bozma
+  // (2026-09-25 sahada dogrulanan sikayet, hala gecerli bir guvenlik onlemi).
+  if (WiFi.softAPgetStationNum() > 0) return;
+
+  unsigned long simdi = millis();
+  if (simdi - sonDenemeMs < aralikMs) return;
+  sonDenemeMs = simdi;
+
+  const String& ssid = wifiReconnectSsid[adayIndex];
+  const String& pass = wifiReconnectPass[adayIndex];
+  uint8_t ch = wifiReconnectChannel[adayIndex];
+  uint8_t* bssid = wifiReconnectBSSID[adayIndex];
+  sonDenenenAday = adayIndex;
+  DEBUG_PRINT("[WiFi] STA bagli degil, deneniyor: "); DEBUG_PRINTLN(ssid);
+  if (ch >= 1 && ch <= 13 && !bssidBosMu(bssid)) {
+    WiFi.begin(ssid.c_str(), pass.c_str(), ch, bssid); // onbellekli - taramasiz, hizli, AP'yi rahatsiz etmez
+  } else {
+    WiFi.begin(ssid.c_str(), pass.c_str()); // ilk kez denenen aday - tarama gerekir (nadir)
+  }
+  adayIndex = (adayIndex + 1) % wifiReconnectAdaySayisi;
+  aralikMs = min(aralikMs * 2, WIFI_RECONNECT_ARALIK_MAX_MS); // Espressif onerisi: hemen dene, sonra sirayla seyreklet
 }
 
 // Beklenmedik reset (crash/brownout/watchdog) BLE baglantisini telefona hic
