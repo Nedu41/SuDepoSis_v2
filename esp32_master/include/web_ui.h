@@ -1634,9 +1634,11 @@ function togglePanic(){
 }
 function setAlarmMod(){
   const m = $('#alarm-mod-sel').value;
+  if (wsKomutGonder('ALARM_MOD='+m, '#alarm-sonuc')) return;
   sendCommand(null, '/api/alarm/mod?mod='+m, '#alarm-sonuc');
 }
 function alarmMute(){
+  if (wsKomutGonder('ALARM_SUSTUR', '#alarm-sonuc')) return;
   sendCommand('#alarm-mute-btn', '/api/alarm/mute', '#alarm-sonuc');
 }
 // Banner butonlari icin - lamba/alarm butonlarindaki ayni gecikme-hissi
@@ -1738,6 +1740,7 @@ function telegramTest(){
 }
 let telegramAktifBilinen=true;
 function telegramAcKapa(){
+  if (wsKomutGonder('TELEGRAM_TOGGLE', null)) return; // /api/status yenilemesi renderUI ile butonu zaten gunceller
   api('/api/telegram/ayar?aktif='+(telegramAktifBilinen?0:1)).then(d=>{
     telegramAktifBilinen=d.aktif;
     $('#telegram-ac-kapa-btn').textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı';
