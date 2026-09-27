@@ -2693,20 +2693,22 @@ void setup() {
   server.on("/wifi/gecmis", handleWifiGecmisListe);
   server.on("/wifi/gecmis_bagla", handleWifiGecmisBagla);
   server.on("/wifi/gecmis_sil", handleWifiGecmisSil);
-  server.on("/lamba", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt(); // Buffer temizle, komutu gönder, ACK bekle (max 300ms)
-  while (Serial.available()) Serial.read();
-  Serial.println(y ? "LAMBA_ON" : "LAMBA_OFF");
-  unsigned long t = millis(); bool ok = false;
-  while (millis() - t < 300) {
-    if (Serial.available()) {
-      String r = Serial.readStringUntil('\n'); r.trim();
-      if (r.indexOf("ACK:LAMBA") >= 0) { ok = true; break; }
-    }
-    yield();
-  }
-  if (ok) lambaAcik = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(lambaAcik?"Acik":"Kapali"):"Hatali") + "\"}");});  
-  server.on("/nem", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt(); while (Serial.available()) Serial.read(); Serial.println(y ? "MOISTURE_ON" : "MOISTURE_OFF"); unsigned long t = millis(); bool ok = false; while (millis() - t < 300) { if (Serial.available()) { String r = Serial.readStringUntil('\n'); r.trim(); if (r.indexOf("ACK:MOISTURE") >= 0) { ok = true; break; } } yield(); }
-  if (ok) moistureOutputActive = (y == 1); server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(moistureOutputActive?"Vana Engellendi":"Vana Serbest"):"Hatali") + "\"}");});
+  // FIX (kullanici sikayeti 2026-09-27, "Kalburum'dan lamba ac/kapatta
+  // feedback bazen gec geliyor"): eskiden burada da /role/ayarla ile AYNI
+  // Nano ACK'i bekleyen (max 300ms, Nano yanit suresine gore degisken)
+  // bloklayan kod vardi - handleRoleAyarla/handleRolePanic COKTAN nanoRoleKontrol()
+  // ile async/optimistik hale getirilmisti, /lamba ve /nem bu gecisten
+  // GERI kalmisti (tutarsizlik). Ayni proven async deseni (nanoLambaKontrol/
+  // nanoMoistureKontrol - zaten baska yerlerden, orn. RS485 SET_LAMBA
+  // komutundan, kullaniliyordu) burada da kullanilip ACK beklenmeden hemen
+  // yanit donduruluyor - lambaAcik/moistureOutputActive zaten bu fonksiyonlarin
+  // ICINDE optimistik guncelleniyor.
+  server.on("/lamba", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt();
+  bool ok = nanoLambaKontrol(y == 1);
+  server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(lambaAcik?"Acik":"Kapali"):"Hatali") + "\"}");});
+  server.on("/nem", []() { if (!server.hasArg("durum")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } int y = server.arg("durum").toInt();
+  bool ok = nanoMoistureKontrol(y == 1);
+  server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ok?(moistureOutputActive?"Vana Engellendi":"Vana Serbest"):"Hatali") + "\"}");});
   server.on("/nem/mod", []() { if (!server.hasArg("otomatik")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; } ayar.moistureAutomatic = server.arg("otomatik").toInt()?1:0; ayarlariKaydet(); if (ayar.moistureAutomatic) { olcumYap(); } server.send(200, "application/json", "{\"basarili\":true,\"mesaj\":\"" + String(ayar.moistureAutomatic?"Otomatik":"Manuel") + "\"}"); });
   server.on("/nem/olc", handleNemOlc);
   // 2026-09-15: RS485 SET_RAIN_SKIP/SET_BATTERY_LOW icin yerel HTTP karsiligi
