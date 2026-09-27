@@ -2199,10 +2199,25 @@ String rs485_read_line() {
   // dardi ve mesaji ortadan kesip komple dusuruyordu (anlik degerlerin
   // "sifirlanip duzelmesi" buradan kaynaklaniyordu). ESP8266 tarafi 320
   // byte'lik buffer kullaniyor, burada da ayni paye ile 400'e cikarildi.
+  //
+  // FIX (kullanici sikayeti 2026-09-27, "web sayfasi gecikmesi" - arastirma
+  // sonucu): loop() icinde server.handleClient() SADECE bir kez, en basta
+  // cagriliyordu. ESP8266 cevap vermedigi her turda bu dongu RS485_TIMEOUT_MS
+  // (400ms) kadar bloke oluyor, o sure boyunca gelen HTTP istekleri hic
+  // islenmiyordu - ESP8266'nin RS485'e hic bagli olmadigi (bkz bench test)
+  // veya cevap vermedigi durumlarda sayfa acilmasi/gecikmesi buradan
+  // kaynaklaniyordu. ESP8266_slave tarafinda AYNI sorun icin zaten
+  // server.handleClient() bloklayan cagrilarin arasina serpistirilmis -
+  // burada da ayni desen uygulandi. GUVENLI: RS485Kilit (bu fonksiyon
+  // cagrilirken zaten tutuluyor) SADECE rs485_poll() icinde kullaniliyor,
+  // hicbir API handler'i RS485 komutu gondermiyor (hepsi sudepoHttpGet/Post
+  // ile dogrudan HTTP kullaniyor, 2026-09-15) - yani reentrant kilitlenme
+  // riski yok, handleClient() icindeki hicbir kod bu kilidi tekrar almiyor.
   while (millis() - start_ms < RS485_TIMEOUT_MS && buffer.length() < 400) {
+    server.handleClient();
     if (Serial1.available()) {
       char c = Serial1.read();
-      
+
       if (c == '\n') {
         return buffer;
       } else if (c != '\r' && c >= 32) {  // Printable chars only
