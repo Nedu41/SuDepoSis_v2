@@ -2163,13 +2163,39 @@ void rs485_send(const char* data) {
 // polling icin kanitlanmis stabil bir kanal). RS485 SADECE durum senkronu
 // (periyodik masterGonder() push'u) icin kullanilmaya devam eder - bu
 // fonksiyonlar durum/telemetri OKUMAZ, sadece komut GONDERIR.
+// FIX (kullanici sikayeti 2026-09-27, "banner buton (Onayla/Sustur/Panik)
+// cok gecikiyor" - arastirma sonucu): "http://sudepo.local" HER cagrida
+// yeniden mDNS COZUYORDU - ESP32 forum/GitHub kaynaklarina gore ".local"
+// hostname'in her cozumu tek basina ~3sn'ye kadar surebiliyor (mDNS sorgu +
+// yanit bekleme), HTTP istegi baslamadan once. Alarm banner butonlari
+// (onayla/sustur/panik) TAM OLARAK bu fonksiyonlari cagiriyor - her
+// tiklamada bu 3sn'lik cozumleme ustune bir de gercek HTTP suresi
+// ekleniyordu. Cozum: IP'yi bir kez coz, onbellekte tut, sadece baglanti
+// GERCEKTEN basarisiz olursa (Sudepo'nun IP'si degismis olabilir, orn.
+// DHCP lease yenilendi) onbellegi sifirlayip bir SONRAKI cagrida yeniden
+// coz - boylece normal calismada mDNS gecikmesi sadece ilk cagrida olur.
+IPAddress sudepoIP((uint32_t)0); // 0.0.0.0 = henuz cozulmedi/gecersiz
+
+bool sudepoUrlOlustur(const String& path, String& url) {
+  if (sudepoIP == IPAddress((uint32_t)0)) {
+    IPAddress bulunan = MDNS.queryHost("sudepo");
+    if (bulunan == IPAddress((uint32_t)0)) return false; // cozulemedi (Sudepo agda yok/kapali)
+    sudepoIP = bulunan;
+    DEBUG_PRINT("[Sudepo] IP cozuldu ve onbellege alindi: "); DEBUG_PRINTLN(sudepoIP);
+  }
+  url = "http://" + sudepoIP.toString() + path;
+  return true;
+}
+
 bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms) {
+  String url;
+  if (!sudepoUrlOlustur(path, url)) return false;
   WiFiClient client;
   HTTPClient http;
-  String url = "http://sudepo.local" + path;
   http.setTimeout(timeout_ms);
   if (!http.begin(client, url)) return false;
   int code = http.GET();
+  if (code < 0) sudepoIP = IPAddress((uint32_t)0); // baglanti hatasi - IP degismis olabilir, bir sonrakinde yeniden coz
   bool ok = (code == 200);
   if (ok) reply = http.getString();
   http.end();
@@ -2177,13 +2203,15 @@ bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms) {
 }
 
 bool sudepoHttpPost(const String& path, const String& body, String& reply, uint16_t timeout_ms) {
+  String url;
+  if (!sudepoUrlOlustur(path, url)) return false;
   WiFiClient client;
   HTTPClient http;
-  String url = "http://sudepo.local" + path;
   http.setTimeout(timeout_ms);
   if (!http.begin(client, url)) return false;
   http.addHeader("Content-Type", "text/plain");
   int code = http.POST((uint8_t*)body.c_str(), body.length());
+  if (code < 0) sudepoIP = IPAddress((uint32_t)0); // baglanti hatasi - IP degismis olabilir, bir sonrakinde yeniden coz
   bool ok = (code == 200);
   if (ok) reply = http.getString();
   http.end();
@@ -2383,6 +2411,50 @@ void parse_esp8266_data(String payload) {
   // Kapinin motorla acilmasi alarm sayiliyordu; depoda ayri kapi sensoru yok.
 
   ssePush(); // ESP8266'dan taze veri geldi - baglı istemcilere aninda pushla
+}
+
+// ============================================================
+// RS485 ELLE TEST (kalici tanilama - kullanici talebi 2026-09-27)
+// ============================================================
+// "MAX485 kopuk gorunuyor" turu sikayetlerde ayri bir test firmware'i
+// flaslamak (bkz test/rs485_trace_test.cpp) yerine web arayuzunden anlik
+// tek-atislik test - GET_STATUS gonderir, ham cevabi (varsa) ve sureyi
+// dondurur. rs485_read_line() KULLANILMIYOR (o server.handleClient() cagirir
+// - bu fonksiyon BIR web istegi icinden cagrildigindan iceriden tekrar
+// handleClient() cagirmak reentrant bir riskti, kacinildi) - kendi basit/
+// bloklayan okuma dongusu var, tek seferlik elle tetiklenen bir test icin
+// bu kabul edilebilir (RS485_TIMEOUT_MS=400ms, surekli/periyodik degil).
+String rs485_test_read_line() {
+  String buffer = "";
+  unsigned long start_ms = millis();
+  while (millis() - start_ms < RS485_TIMEOUT_MS && buffer.length() < 400) {
+    if (Serial1.available()) {
+      char c = Serial1.read();
+      if (c == '\n') return buffer;
+      else if (c != '\r' && c >= 32) buffer += c;
+    }
+    yield();
+  }
+  return buffer;
+}
+void handleAPI_Rs485Test() {
+  unsigned long t0 = millis();
+  String msg;
+  {
+    RS485Kilit kilit;
+    while (Serial1.available()) Serial1.read(); // bayat veriyi temizle
+    rs485_send("GET_STATUS\n");
+    msg = rs485_test_read_line();
+  }
+  unsigned long sure = millis() - t0;
+  bool ok = msg.length() > 0;
+  String j = "{\"basarili\":" + String(ok ? "true" : "false") +
+             ",\"mesaj\":\"" + jsonKacir(msg) + "\"" +
+             ",\"sure_ms\":" + String(sure) +
+             ",\"rx_pin\":" + String(RS485_RX_PIN) +
+             ",\"tx_pin\":" + String(RS485_TX_PIN) +
+             ",\"de_pin\":" + String(RS485_DE_PIN) + "}";
+  server.send(200, "application/json", j);
 }
 
 // ============================================================
@@ -5113,6 +5185,7 @@ void setupWebServer() {
   server.on("/api/panic", handleAPI_Panic);
   server.on("/api/wifi", handleAPI_Wifi);
   server.on("/api/wifi/scan", handleAPI_WifiScan);
+  server.on("/api/rs485/test", handleAPI_Rs485Test);
   server.on("/api/wifi/gecmis", handleAPI_WifiGecmisListe);
   server.on("/api/wifi/gecmis_bagla", handleAPI_WifiGecmisBagla);
   server.on("/api/wifi/gecmis_sil", handleAPI_WifiGecmisSil);
