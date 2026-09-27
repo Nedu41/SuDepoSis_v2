@@ -106,18 +106,24 @@ void bahceKapiButonPoll() {
 // anda acilmasina yol aciyordu (sahada goruldu). Sudepo'nun KENDI "Ikisini
 // de Ac/Kapat" butonu da ayni hataya dusup ayni sekilde duzeltildi - dogru
 // karsilik Sudepo'nun /api/kapi/ac_cift|kapat_cift|dur_cift ucu.
+// FIX (kullanici sikayeti 2026-09-27, "komut gelince role titresim yapiyor"):
+// last_rs485_update_ms sifirlamasi eskiden HTTP cagrisindan SONRA yapiliyordu
+// - bu, Kalburum'un GET_STATUS'unun Sudepo'nun R413D08'e Modbus yazdigi TAM
+// o anda (2026-09-15 yorumundaki bilinen "ayni hatta cakisip kaybolma" riski,
+// bkz yukarisi) devreye girmesini ENGELLEMIYORDU. Simdi HTTP cagrisindan
+// ONCE sifirlaniyor - Kalburum bu komutun tüm gonderim/röle-yazma penceresi
+// boyunca (bir sonraki RS485_UPDATE_INTERVAL=600ms) kendi GET_STATUS'unu
+// gondermeyi erteliyor, hat Sudepo'nun R413D08 yazimina acik kaliyor.
 bool bahceKapiKomutGonder(const char* aksiyon, String& reply) {
+  last_rs485_update_ms = millis(); // RS485 hattini Sudepo'nun role yazimina birak
   const char* ek = (String(aksiyon) == "AC") ? "ac_cift" : (String(aksiyon) == "KAPAT") ? "kapat_cift" : "dur_cift";
-  bool ok = sudepoHttpGet(String("/api/kapi/") + ek, reply, 2000);
-  if (ok) last_rs485_update_ms = millis();
-  return ok;
+  return sudepoHttpGet(String("/api/kapi/") + ek, reply, 2000);
 }
 
 bool bahceKapiTekKomutGonder(int kapi, const char* aksiyon, String& reply) {
+  last_rs485_update_ms = millis(); // RS485 hattini Sudepo'nun role yazimina birak
   const char* yon = (String(aksiyon) == "AC") ? "ac" : (String(aksiyon) == "KAPAT") ? "kapat" : "dur";
-  bool ok = sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=" + String(kapi), reply, 2000);
-  if (ok) last_rs485_update_ms = millis();
-  return ok;
+  return sudepoHttpGet(String("/api/kapi/") + yon + "?kapi=" + String(kapi), reply, 2000);
 }
 
 void handleAPI_BahceKapi() {
