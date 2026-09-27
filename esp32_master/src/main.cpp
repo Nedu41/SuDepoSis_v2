@@ -2175,16 +2175,41 @@ void rs485_send(const char* data) {
 // DHCP lease yenilendi) onbellegi sifirlayip bir SONRAKI cagrida yeniden
 // coz - boylece normal calismada mDNS gecikmesi sadece ilk cagrida olur.
 IPAddress sudepoIP((uint32_t)0); // 0.0.0.0 = henuz cozulmedi/gecersiz
+// FIX (kullanici sikayeti 2026-09-27, "lamba ac/kapada hala gecikme var" -
+// olcumle dogrulandi: istekler ~0.3sn/~3sn arasinda ikili dagiliyordu):
+// onbellek TEK bir basarisizlikta sifirlaniyordu - bazi arka plan cagrilari
+// (orn. hava durumu /zaman/oku SADECE 500ms timeout ile) Sudepo bir anlik
+// mesgulken (tek-threadli, kendi RS485/sensor islerinden) rastgele zaman
+// asimina ugrayabiliyor, bu da PAYLASILAN onbellegi gereksiz yere sifirlayip
+// bir SONRAKI (lamba dahil, ilgisiz) cagrinin ~3sn'lik mDNS'e yeniden
+// dusmesine yol aciyordu. Simdi ust uste SUDEPO_ARDISIK_HATA_ESIGI kadar
+// basarisizlik olmadan onbellek sifirlanmiyor - tek seferlik/gecici bir
+// yavaslama artik butun sistemi yeniden-cozumlemeye zorlamiyor.
+#define SUDEPO_ARDISIK_HATA_ESIGI 3
+int sudepoArdisikHata = 0;
 
 bool sudepoUrlOlustur(const String& path, String& url) {
   if (sudepoIP == IPAddress((uint32_t)0)) {
     IPAddress bulunan = MDNS.queryHost("sudepo");
     if (bulunan == IPAddress((uint32_t)0)) return false; // cozulemedi (Sudepo agda yok/kapali)
     sudepoIP = bulunan;
+    sudepoArdisikHata = 0;
     DEBUG_PRINT("[Sudepo] IP cozuldu ve onbellege alindi: "); DEBUG_PRINTLN(sudepoIP);
   }
   url = "http://" + sudepoIP.toString() + path;
   return true;
+}
+
+// Basarili cagridan sonra ardisik hata sayacini sifirlar, basarisizda
+// arttirip esigi asinca onbellegi gecersiz kilar (IP degismis olabilir).
+void sudepoSonucBildir(bool basarili) {
+  if (basarili) { sudepoArdisikHata = 0; return; }
+  sudepoArdisikHata++;
+  if (sudepoArdisikHata >= SUDEPO_ARDISIK_HATA_ESIGI) {
+    sudepoIP = IPAddress((uint32_t)0);
+    sudepoArdisikHata = 0;
+    DEBUG_PRINTLN("[Sudepo] Ust uste hata esigi asildi, IP onbellegi sifirlandi");
+  }
 }
 
 bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms) {
@@ -2195,8 +2220,8 @@ bool sudepoHttpGet(const String& path, String& reply, uint16_t timeout_ms) {
   http.setTimeout(timeout_ms);
   if (!http.begin(client, url)) return false;
   int code = http.GET();
-  if (code < 0) sudepoIP = IPAddress((uint32_t)0); // baglanti hatasi - IP degismis olabilir, bir sonrakinde yeniden coz
   bool ok = (code == 200);
+  sudepoSonucBildir(ok);
   if (ok) reply = http.getString();
   http.end();
   return ok;
@@ -2211,8 +2236,8 @@ bool sudepoHttpPost(const String& path, const String& body, String& reply, uint1
   if (!http.begin(client, url)) return false;
   http.addHeader("Content-Type", "text/plain");
   int code = http.POST((uint8_t*)body.c_str(), body.length());
-  if (code < 0) sudepoIP = IPAddress((uint32_t)0); // baglanti hatasi - IP degismis olabilir, bir sonrakinde yeniden coz
   bool ok = (code == 200);
+  sudepoSonucBildir(ok);
   if (ok) reply = http.getString();
   http.end();
   return ok;
