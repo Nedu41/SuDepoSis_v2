@@ -651,6 +651,11 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="row">
         <button class="btn btn-danger" onclick="restartSistem()">Yeniden Başlat</button>
       </div>
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 6px;">RS485 hattına (Sudepo/ESP8266) tek seferlik GET_STATUS gönderip cevap gelip gelmediğini kontrol eder - "MAX485 kopuk mu" şüphesinde önce burayı dene.</p>
+      <div class="row">
+        <button class="btn btn-primary" onclick="rs485Test()">RS485 Test Et</button>
+      </div>
+      <div id="rs485-test-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <p style="font-size:12px;color:var(--muted);margin:12px 0 6px;">Tüm Konteyner ayarları (sensör hassasiyeti, siren zamanlama, batarya/adaptör eşikleri vb) tek dosyada yedeklenir - hem cihazın kendi hafızasına hem bilgisayarına.</p>
       <div class="row">
         <a href="/api/ayarlar/yedekle" download="konteyner_ayarlar.json"><button class="btn btn-primary">Ayarları Yedekle (Cihaza + Bilgisayara)</button></a>
@@ -1960,6 +1965,14 @@ function wifiScan(){
 function restartSistem(){
   if(confirm('Yeniden başlatılsın mı?'))
     api('/api/restart').then(()=>{$('#wifi-sonuc').textContent='Yeniden başlatılıyor...';}).catch(()=>{});
+}
+function rs485Test(){
+  const el=$('#rs485-test-sonuc');
+  el.textContent='Test ediliyor... (~400ms\'ye kadar sürebilir)';
+  api('/api/rs485/test').then(d=>{
+    if(d.basarili) el.textContent='✅ Cevap alındı ('+d.sure_ms+'ms): "'+d.mesaj+'" — RX='+d.rx_pin+' TX='+d.tx_pin+' DE='+d.de_pin;
+    else el.textContent='❌ Cevap yok ('+d.sure_ms+'ms timeout) — RX='+d.rx_pin+' TX='+d.tx_pin+' DE='+d.de_pin+' — kablo/pin/karşı taraf kontrol et';
+  }).catch(()=>{el.textContent='Hata: istek başarısız';});
 }
 // Yedekleme <a download> linkiyle yapılıyor (tarayıcı indirir + sunucu
 // aynı istekte SPIFFS'e de yazar, bkz handleAPI_AyarlarYedekle) - burada

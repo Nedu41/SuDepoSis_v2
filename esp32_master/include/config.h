@@ -76,9 +76,29 @@
 // uygun herhangi bir SERBEST GPIO'ya (asagidaki Konteyner Donanimi bolumundeki
 // listeye bkz) tasinabilir - donanimsal/yazilimsal bir kisit yok. Kartin sag-
 // orta bolgesine denk gelen GPIO37/38/39 secildi (kullanicinin tercihi).
+//
+// FIX (2026-09-27, kullanici sikayeti "N8R2 karta gecince RS485 hic
+// calismadi" - kart tam olarak YD-ESP32-S3 klonu, silkscreen'de "2022-V1.3"
+// yaziyor, arastirma sonucu KESINLESTI): Ilk teori (GPIO38 = onbord RGB
+// LED, Espressif'in resmi v1.1 kartinda gecerli) bu klon icin YANLIS
+// cikti - kullanici GPIO38'de neopixelWrite() ile LED testi yapti, hicbir
+// tepki yok (klonun RGB LED'i GPIO48'de, resmi karttan farkli). GERCEK
+// sorun: uretici VCC-GND Studio'nun kendi resmi pinout referansina gore
+// (github.com/vcc-gnd/YD-ESP32-S3) GPIO35/36/37 bu klonda "Internal use
+// only - not available for external connections" (SPI Flash/PSRAM,
+// PSRAM tipinden bagimsiz - N8R2/Quad olsa da klon karti bu ucu disari
+// hic cikarmiyor). RS485_RX_PIN tam GPIO37'deydi - TX (38) degil, ASIL
+// SORUN RX (37) imis. Ayni kaynaga gore GPIO38/39 tamamen serbest/
+// standart I/O (RGB LED GPIO48'de, USB-seri koprusu CH343P uzerinden
+// GPIO43/44'te - bunlara da DOKUNULMADI). Cozum: RX GPIO37'den (yasakli)
+// simdi bosalan GPIO38'e tasindi, TX zaten GPIO11'e tasinmisti (o pin de
+// ayni kaynakta serbest onaylandi), DE GPIO39'da kaldi (sahada 0.05V/LOW
+// olcup dogru calistigi zaten dogrulanmisti, ayrica kaynakta da serbest).
+// FIZIKSEL: MAX485 RO kablosu eski GPIO37'den YENI GPIO38'e, DI kablosu
+// eski GPIO38'den YENI GPIO11'e tasinmali - DE (39) kablosu degismiyor.
 #define RS485_BAUDRATE 9600
-#define RS485_RX_PIN 37      // GPIO37 - MAX485 RO (Alici cikisi -> ESP32 RX)
-#define RS485_TX_PIN 38      // GPIO38 - MAX485 DI (Verici girisi <- ESP32 TX)
+#define RS485_RX_PIN 38      // GPIO38 - MAX485 RO (Alici cikisi -> ESP32 RX) - eskiden GPIO37'ydi, bu klon kartta o pin SPI Flash/PSRAM'e ayrilmis, disari cikmiyor
+#define RS485_TX_PIN 11      // GPIO11 - MAX485 DI (Verici girisi <- ESP32 TX) - eskiden GPIO38'di
 #define RS485_DE_PIN 39      // GPIO39 - MAX485 DE/RE (Verici Enable)
 #define RS485_UART_NUM 1     // UART1
 
