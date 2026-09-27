@@ -271,14 +271,27 @@ void varsayilanAyarlar() {
   ayar.bahceAsiriAkimPayiMs = 1000;
 }
 
-void ayarlariKaydet() {
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.put(0, ayar);
-  // FIX: commit() sonucu kontrol edilmiyordu; yazma hatasinda veri kaybi
-  // fark edilmiyordu. Artik debug'ta gercek durum gorunur.
-  bool ok = EEPROM.commit();
-  EEPROM.end();
-  DEBUG_PRINTF("[EEPROM] Kaydedildi: %s\n", ok ? "OK" : "HATA");
+// FIX (kullanici sikayeti 2026-09-27, "nem oto/manuel konumu bazen
+// korunmuyor" - olcumle dogrulandi: 5 denemeden 1'i restart sonrasi eski
+// ayara donuyordu): commit() sonucu loglaniyordu ama BASARISIZ olsa bile
+// hicbir sey yapilmiyordu - cagiran taraf (tum HTTP handler'lar) sonucu
+// kontrol etmeden "basarili:true" donduruyordu, kullanici fark etmiyordu.
+// Simdi basarisiz olursa kisa bir bekleme ile 3 kere tekrar denenir -
+// ESP8266'nin EEPROM (flash sektor) yazimi ara sira (arka plan WiFi/RS485
+// isi ile CPU/flash yolu paylasimindan) tek seferde basarisiz olabiliyor,
+// tekrar deneme cogu zaman yeterli. Fonksiyon artik bool donduruyor -
+// eski cagiran kod (sonucu kontrol etmeyen) degismeden calisir.
+bool ayarlariKaydet() {
+  bool ok = false;
+  for (int deneme = 0; deneme < 3 && !ok; deneme++) {
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.put(0, ayar);
+    ok = EEPROM.commit();
+    EEPROM.end();
+    if (!ok) delay(20);
+  }
+  DEBUG_PRINTF("[EEPROM] Kaydedildi: %s%s\n", ok ? "OK" : "HATA", (!ok) ? " (3 deneme basarisiz)" : "");
+  return ok;
 }
 
 void ayarlariYukle() {

@@ -1310,7 +1310,7 @@ function renderUI(d){
   { const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
   { const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
   { const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
-  { const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Manuel' : 'Otomatik'; }
+  { const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Otomatik' : 'Manuel'; }
   if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; const st=$('#sum-telegram'); if(st) st.textContent=telegramAktifBilinen?'Açık':'Kapalı'; }
   // Nem verileri - ESP8266 uzerinden geliyor, ayni tazelik esigiyle korunur
   // (bkz. level/sicaklik icin yukarida yapilan esp8266Baglı fix'i - kullanici
@@ -1613,8 +1613,12 @@ function toggleMoisture(){
   sendCommand('#moisture-settings-toggle-btn', '/api/moisture?durum='+(acik?0:1), '#moisture-settings-msg');
 }
 function toggleMoistureAuto(){
-  const manuel = $('#moisture-settings-auto-btn').textContent.trim() === 'Manuel';
-  sendCommand('#moisture-settings-auto-btn', '/api/moisture/auto?aktif='+(manuel?0:1), '#moisture-settings-msg');
+  // FIX (kullanici sikayeti 2026-09-27): buton eskiden HEDEF modu gosterirdi
+  // ("Manuel" yaziyorsa aslinda su an Otomatik demekti) - "Ac/Kapat" gibi
+  // fiil olmadigindan kafa karistiriyordu. Artik buton GERCEK mevcut modu
+  // gosteriyor (renderUI), o yuzden okuma da GERCEK moda gore yapiliyor.
+  const otomatik = $('#moisture-settings-auto-btn').textContent.trim() === 'Otomatik';
+  sendCommand('#moisture-settings-auto-btn', '/api/moisture/auto?aktif='+(otomatik?0:1), '#moisture-settings-msg');
 }
 function setMoistureThresholds(){
   yakinDuzenlendi('moisture-settings-low'); yakinDuzenlendi('moisture-settings-high');
