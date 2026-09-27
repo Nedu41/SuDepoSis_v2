@@ -388,16 +388,18 @@ DEĞİL. Eski RS485/Modbus register yaklaşımı tamamen değiştirildi. Bu port
 <tr><td>18</td><td>GP2Y10 LED Kontrol (MOSFET YOK)</td><td>Dijital çıkış (OUTPUT)</td><td>Doğrudan sensör Pin3'e — LOW=LED açık (Sharp resmi pin fonksiyonu)</td></tr>
 <tr><td>0, 3, 45, 46</td><td>—</td><td>KULLANILMAZ (strapping/boot pinleri)</td><td>Asla eklenti için kullanma</td></tr>
 <tr><td>1, 3 (UART0)</td><td>USB Debug</td><td>Serial Monitor (115200 baud)</td><td>PC'ye USB üzerinden</td></tr>
-<tr><td>26-37</td><td>—</td><td>KULLANILMAZ (Quad Flash + Octal PSRAM)</td><td>N16R8: GPIO26-32 flash, GPIO33-37 Octal PSRAM'a dahili — dışarı hiç çıkmaz ****</td></tr>
+<tr><td>26-32</td><td>—</td><td>KULLANILMAZ (Flash SPI)</td><td>Her ESP32-S3 modülünde/PSRAM tipinde sabit yasak ****</td></tr>
+<tr><td>33, 34</td><td>—</td><td>KULLANILMAZ (fiziksel pin yok)</td><td>WROOM-1/1U/2 modüllerinde PSRAM tipinden bağımsız olarak dışarı hiç çıkmaz — kullanılacak pin mevcut değil ****</td></tr>
 <tr><td>15</td><td>Fiziksel Acil Durum Butonu</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Web Panik butonuyla aynı işlevi tetikler — SCART Pin17 (Yeşil)</td></tr>
 <tr><td>47</td><td>Bahçe Kapısı (araç girişi) Butonu</td><td>Dijital giriş (INPUT_PULLUP)</td><td>Kısa=Kapı2, 3sn=iki kapı (HATA'da Home) — HTTP ile Sudepo'ya (RS485 değil) *****</td></tr>
 <tr><td>11, 19, 20</td><td>—</td><td>Serbest (gelecekteki eklentiler) — DİKKAT</td><td>GPIO11=TOUCH11, GPIO19/20=native USB-JTAG olabilir — yeni buton için GPIO11'den kaçın</td></tr>
 <tr><td>43, 44</td><td>—</td><td>Serbest (gelecekteki eklentiler)</td><td>Dokunma/ADC yok, güvenli adaylar — ekran eklenirse I2C ekran mevcut hatta biner, SPI için CS/DC/RST/SCK/MOSI yeterli</td></tr>
+<tr><td>35</td><td>—</td><td>Serbest (N8R2'de doğrulandı)</td><td>Quad PSRAM modülünde (R8 altı) GPIO35 normal GPIO — sadece Octal PSRAM'da (R8+) yasak. Eski N16R8 kartta 0V ölçülüp şüpheli bulunmuştu, o zaman Octal PSRAM'a bağlıydı (bkz *); N8R2 Quad PSRAM olduğundan bu kısıt geçerli değil</td></tr>
 </table>
-<p style="font-size:13px;color:var(--muted)">* 2026-09-12: önce GPIO35 denendi, sahada sürekli 0V ölçüldü (sonradan SCART Pin19'un şaseye temas ettiği de fark edildi, kısa devre mi PSRAM kısıtı mı kesin ayrılamadı) — GPIO48'e taşınıp LED testiyle doğrulandı, config.h ZIL_HOPARLOR_VAR=1.<br>
+<p style="font-size:13px;color:var(--muted)">* 2026-09-12: önce GPIO35 denendi (o zamanki kart N16R8/Octal PSRAM'dı, GPIO35 gerçekten yasaktı), sahada sürekli 0V ölçüldü — GPIO48'e taşınıp LED testiyle doğrulandı, config.h ZIL_HOPARLOR_VAR=1. Kart artık N8R2 (Quad PSRAM), GPIO35 orada serbest olurdu ama zil hoparlörü GPIO48'de kalmaya devam ediyor (taşımaya gerek yok).<br>
 ** MPPT portu RS485 değil RS232 (MAX485 değil MAX3232) — eski MAX485 modülü söküldükten (2026-08-14) sonra bu pinlere taşındı.<br>
 *** 2026-09-04 kararı: eşik/histerezis varsayılan 25.0/25.5V (web'den ayarlanabilir), DC çıkış kesiliyor (AC/mains değil — izolasyon riski yok), logic-level SMD MOSFET (IRF520 bu akımda 3.3V gate ile tam doymayabilirdi).<br>
-**** Yazılımda PSRAM kapatmanın (proje 8MB/DIO/PSRAM'sız çalışıyor) önemi yok, bağlantı donanımsal. 2026-09-12: GPIO35 denemesi burada sorun çıkarmıştı (bkz *). GPIO36/37 aynı aralıkta olmasına rağmen çalışıyor — GARANTİ değil, açıklanamayan kararsızlıkta ilk şüpheli burası.<br>
+**** GPIO26-32 (flash SPI) her modülde/PSRAM tipinde sabit yasak. GPIO33/34 ise PSRAM tipinden bağımsız olarak WROOM-1/1U/2 modül paketinde hiç dışarı çıkmıyor (fiziksel pin yok) — Octal/Quad ayrımı burada geçersiz, ikisi de kullanılamaz. GPIO35/36/37 ise SADECE Octal PSRAM modüllerinde (R8+) yasak; kartın şu anki N8R2 (Quad PSRAM, R2) modülünde bu üçü normal GPIO — nitekim GPIO36 (AHT10 SDA) ve GPIO37 (RS485 RX) zaten kullanımda ve sorunsuz çalışıyor (2026-09-25 doğrulandı).<br>
 ***** Motor/röle mantığı ESP8266/R413D08 tarafında; /api/kapi/* uçlarına 2026-09-15'te RS485'ten HTTP'ye taşındı. Dış çıkışı CN5 pin13 → SCART pin18 (Kırmızı/Beyaz), eskiden bu iki pin GND'ydi.</p>
 <p style="margin-top:8px">Yedek akü (GPIO2) için adım adım kablolama kılavuzu: <a href="yedek-aku-baglanti-kilavuzu.html">yedek-aku-baglanti-kilavuzu.html</a> — <b>DİKKAT:</b> bu kılavuz GPIO21'in eski (2026-08-24'te kaldırılan) şarj rölesi işlevini anlatıyor, güncel değil, sadece GPIO2 (akü voltaj izleme) kısmı hâlâ geçerli.</p>
 </div>
