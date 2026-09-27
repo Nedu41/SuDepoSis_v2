@@ -7,6 +7,7 @@
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h> // WebSocket pilotu (2026-09-27) - bkz wsOlayIsle, ayni desen esp32_master'da da var
 #include <ESP8266mDNS.h>
 #include <Wire.h>
 #include <RTClib.h>
@@ -2079,17 +2080,16 @@ void handleRoleAyarla() {
   if (ok) { ayar.alarmRoleAktif = ac ? 1 : 0; ayarlariKaydet(); }
   server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(ayar.alarmRoleAktif?"Aktif":"Pasif") + "\"}");
 }
-void handleRolePanic() {
-  // FIX (kullanici sikayeti, 2026-08-31 - "kapata basiyorum ama kapanmiyor,
-  // 3-4 denemede kapandi"): eskiden KOSULSUZ TOGGLE'di - istek network
-  // gecikmesi/kaybi yuzunden sessizce basarisiz olursa (kullanici fark etmez,
-  // tekrar tiklar) cift sayida gercek varis YANLIS yone donduruyordu. ESP32
-  // tarafinda panikTetikleHedef()/alarmSustur() icin AYNI bug daha once
-  // duzeltilmisti (bkz o dosyalardaki yorumlar) - burada da HEDEF acikca
-  // "aktif" parametresiyle alinir, kac kere tekrar gonderilirse gonderilsin
-  // sonuc ayni (idempotent). Parametre verilmezse (eski istemci) toggle'a
-  // geri duser.
-  bool hedef = server.hasArg("aktif") ? (server.arg("aktif").toInt() != 0) : !panicRoleAktif;
+// FIX (kullanici sikayeti, 2026-08-31 - "kapata basiyorum ama kapanmiyor,
+// 3-4 denemede kapandi"): eskiden KOSULSUZ TOGGLE'di - istek network
+// gecikmesi/kaybi yuzunden sessizce basarisiz olursa (kullanici fark etmez,
+// tekrar tiklar) cift sayida gercek varis YANLIS yone donduruyordu. ESP32
+// tarafinda panikTetikleHedef()/alarmSustur() icin AYNI bug daha once
+// duzeltilmisti (bkz o dosyalardaki yorumlar) - burada da HEDEF acikca
+// parametreyle alinir, kac kere tekrar gonderilirse gonderilsin sonuc ayni
+// (idempotent). handleRolePanic (HTTP) VE wsOlayIsle (WebSocket, 2026-09-27
+// pilotu) AYNI bu fonksiyonu cagirir - mantik TEK yerde, iki kopya olmasin.
+bool panikUygula(bool hedef) {
   panicRoleAktif = hedef;
   if (!panicRoleAktif) { sirenEpisodeBaslangicMs = 0; sirenFaz = 0; sirenFazBaslangicMs = 0; alarmSusturuldu = false; }
   bool ok = nanoRoleKontrol(panicRoleAktif);
@@ -2099,7 +2099,52 @@ void handleRolePanic() {
   // YAN ETKISIYLE baska istemcilere yansiyordu - baska bir sekme/telefon
   // acikken buyuk gecikme gibi hissediliyordu. Artik aninda push ediliyor.
   ssePush();
+  return ok;
+}
+void handleRolePanic() {
+  // Parametre verilmezse (eski istemci) toggle'a geri duser.
+  bool hedef = server.hasArg("aktif") ? (server.arg("aktif").toInt() != 0) : !panicRoleAktif;
+  bool ok = panikUygula(hedef);
   server.send(200, "application/json", "{\"basarili\":" + String(ok?"true":"false") + ",\"mesaj\":\"" + String(panicRoleAktif?"Panik Acik":"Panik Kapali") + "\",\"panic\":" + String(panicRoleAktif?"true":"false") + "}");
+}
+
+// ============================================================
+// WEBSOCKET PILOT (2026-09-27) - esp32_master'daki AYNI desen
+// ============================================================
+// Kullanici talebi: Kalburum'da (esp32_master) HTTP+mDNS gecikmesi
+// WebSocket ile ~10ms'ye indirildi, ayni pilotu Sudepo'nun KENDI web
+// arayuzune de (sudepo.local uzerinden dogrudan erisimde) tasi. Mevcut
+// ESP8266WebServer (port 80) DEGISTIRILMEDI, ayri bir portta (81)
+// WebSocketsServer eklendi - SADECE en sik tiklanan 4 komut (Lamba, Nem,
+// Role/Alarm, Panik) icin, zaten var olan async Nano fonksiyonlari
+// (nanoLambaKontrol/nanoMoistureKontrol/nanoRoleKontrol/panikUygula)
+// dogrudan cagrilarak - hicbir yeni is mantigi yazilmadi, sadece
+// HTTP yerine WS'ten tetikleniyor.
+WebSocketsServer wsServer(81);
+
+void wsOlayIsle(uint8_t istemciNo, WStype_t tip, uint8_t* veri, size_t uzunluk) {
+  if (tip != WStype_TEXT) return;
+  String komut = String((char*)veri).substring(0, uzunluk);
+  bool ok = false; String mesaj;
+  if (komut == "LAMBA_TOGGLE") {
+    ok = nanoLambaKontrol(!lambaAcik);
+    mesaj = "LAMBA=" + String(lambaAcik ? "1" : "0");
+  } else if (komut == "NEM_TOGGLE") {
+    ok = nanoMoistureKontrol(!moistureOutputActive);
+    mesaj = "NEM=" + String(moistureOutputActive ? "1" : "0");
+  } else if (komut == "ROLE_TOGGLE") {
+    bool yeni = !ayar.alarmRoleAktif;
+    ok = nanoRoleKontrol(yeni);
+    if (ok) { ayar.alarmRoleAktif = yeni ? 1 : 0; ayarlariKaydet(); }
+    mesaj = "ROLE=" + String(ayar.alarmRoleAktif ? "1" : "0");
+  } else if (komut == "PANIK") {
+    ok = panikUygula(!panicRoleAktif);
+    mesaj = "PANIC=" + String(panicRoleAktif ? "1" : "0");
+  } else {
+    mesaj = "BILINMEYEN_KOMUT";
+  }
+  String yanit = "{\"basarili\":" + String(ok ? "true" : "false") + ",\"mesaj\":\"" + mesaj + "\"}";
+  wsServer.sendTXT(istemciNo, yanit);
 }
 void handleRolePolarite() {
   if (!server.hasArg("aktif")) { server.send(400, "application/json", "{\"basarili\":false,\"mesaj\":\"param eksik\"}"); return; }
@@ -2877,6 +2922,10 @@ void setup() {
   server.on("/restart", handleRestart);
   server.on("/update", HTTP_POST, handleFileUploadUpdate, handleFileUploadProgress);
   server.begin();
+
+  wsServer.begin();
+  wsServer.onEvent(wsOlayIsle);
+
   sonOtomatikOlcumMs = millis();
   
   // ===== BILGILER =====
@@ -2909,6 +2958,7 @@ void setup() {
 // ============ LOOP ============
 void loop() {
   ArduinoOTA.handle(); server.handleClient();
+  wsServer.loop(); // WebSocket pilot (port 81)
 
   // AP her zaman acik olmali (STA baglantisindan bagimsiz). Nadiren heap
   // parcalanmasi/RF sorunu ile AP dusebiliyor - periyodik kontrol edip
