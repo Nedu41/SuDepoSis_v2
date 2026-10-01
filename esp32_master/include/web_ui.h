@@ -6,11 +6,12 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
+<meta name="color-scheme" content="dark">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Kalburum - Merkez Kontrol</title>
 <style>
 :root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--shadow:0 1px 3px rgba(0,0,0,.1);--grid-dot:rgba(79,127,224,.12)}
-@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--shadow:0 1px 3px rgba(0,0,0,.4);--grid-dot:rgba(96,165,250,.16)}}
+@media all{:root{--bg:#040406;--card:#0c0e13;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--shadow:0 1px 3px rgba(0,0,0,.4);--grid-dot:rgba(96,165,250,.16)}}
 *{margin:0;padding:0;box-sizing:border-box}
 /* Simulasyon panosu hissi (kullanici talebi, 2026-08-28): sayfa arka planina
    soluk nokta izgarasi - kontrol panosu/HMI ekranlarindaki gibi. */
@@ -25,6 +26,31 @@ body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background-color
 .card summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px}
 .card summary::-webkit-details-marker{display:none}
 .card summary::before{content:'▸';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}
+/* === PANO TEMASI (ESP32 web_ui.h ve Sudepo main.cpp handleCSS AYNI blok - birini degistirince digerini de guncelle) ===
+   Eski, koyu boyali elektrik panosu: lekeli boya + pas izi + citik + gren + kenar kararmasi; kartlar cerceve+civata plakasi, basliklar yaslanmis etiket. */
+:root,.dark{--bg:#060607;--card:#0b0c0f;--text:#e5e7eb;--muted:#9ca3af;--border:#3a3f48;--border-strong:#5b616c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#101216;--shadow:0 2px 8px rgba(0,0,0,.8);--grid-dot:rgba(150,160,180,.05)}
+body{color-scheme:dark;background-color:#08090a;background-attachment:fixed;background-image:radial-gradient(ellipse at 50% 38%,rgba(0,0,0,0) 30%,rgba(0,0,0,.85) 100%),linear-gradient(180deg,rgba(150,72,26,.30),rgba(150,72,26,0) 42%) 7% 0/5px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.22),rgba(150,72,26,0) 42%) 23% 0/3px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.26),rgba(150,72,26,0) 42%) 58% 0/6px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.28),rgba(150,72,26,0) 42%) 81% 0/4px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.2),rgba(150,72,26,0) 42%) 94% 0/3px 100% no-repeat,repeating-linear-gradient(118deg,transparent 0 170px,rgba(255,255,255,.05) 171px,transparent 173px,transparent 310px,rgba(255,255,255,.035) 311px,transparent 312px),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27700%27%20height%3D%27700%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.007%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%20.75%20%200%200%200%200%20.78%20%200%200%200%200%20.85%20%201.1%200%200%200%20-.38%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E'),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27500%27%20height%3D%27500%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.012%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%200%20%200%200%200%200%200%20%200%200%200%200%200%20%201.3%200%200%200%20-.55%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E'),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27160%27%20height%3D%27160%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.9%27%20numOctaves%3D%272%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%201%20%200%200%200%200%201%20%200%200%200%200%201%20%200%200%200%20.16%200%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E');background-size:auto,auto,auto,auto,auto,auto,700px 700px,500px 500px,160px 160px}
+.card,details.card{background-color:transparent;border-width:4px;border-style:solid;border-top-color:#6a707c;border-right-color:#4b515c;border-bottom-color:#3a3f48;border-radius:6px;box-shadow:0 0 0 2px #000,inset 0 0 0 1px #000,inset 0 2px 0 rgba(255,255,255,.07),inset 0 0 24px rgba(0,0,0,.6),0 5px 14px rgba(0,0,0,.9);background-repeat:no-repeat;background-image:radial-gradient(circle 4.5px at 12px 12px,#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at calc(100% - 12px) 12px,#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at 12px calc(100% - 12px),#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at calc(100% - 12px) calc(100% - 12px),#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%)}
+.card h3,.card>summary,details.card>summary{text-transform:uppercase;letter-spacing:1.6px;font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:13px;font-weight:700;color:#dcd2ac;text-shadow:0 1px 0 #000,0 0 7px rgba(220,210,172,.18)}
+.card h3{padding-bottom:6px;border-bottom:1px dashed #454a54}
+.btn{padding:10px 12px;border:1px solid #000;border-radius:9px;cursor:pointer;font-weight:600;background-color:#020203;background-image:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,0) 45%,rgba(0,0,0,.4));color:#a3a8b2;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.5);transition:transform .08s ease,box-shadow .25s,color .25s;filter:none}
+.btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.6);filter:none}
+/* Kapaliyken TUM butonlar sonuk gri (LED sonuk hissi); anlam tonu (--t) sadece basilirken ve durum acikken (btn-on) yanar: primary/mavi=genel islem, accent/yesil=olumlu, warn/turuncu=dikkat, danger/kirmizi=tehlikeli */
+.btn{color:#7d828c}
+.btn-primary,.btn-mavi{--t:96,165,250}.btn-accent,.btn-yesil{--t:34,230,96}.btn-danger,.btn-kirmizi{--t:255,85,85}.btn-warn,.btn-turuncu{--t:255,190,70}
+.btn:active{color:rgb(var(--t,200,205,215));text-shadow:0 0 5px rgb(var(--t,200,205,215)),0 0 12px rgba(var(--t,200,205,215),.6)}
+.btn-primary,.btn-accent,.btn-danger,.btn-warn,.btn-yesil,.btn-turuncu,.btn-mavi,.btn-kirmizi{background-color:#020203}
+/* Durum (acik/aktif): zemin siyah, yazi + cevre --t tonunda neon, yavasca nefes alir. Varsayilan yesil; ton-kirmizi=tehlike aktif, ton-amber=uyari durumu, ton-mavi=bilgi/bahce kapisi */
+.btn.btn-on{--t:34,230,96;font-weight:800;color:rgb(var(--t));text-shadow:0 0 4px rgb(var(--t)),0 0 10px rgba(var(--t),.8),0 0 20px rgba(var(--t),.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 6px 1px rgba(var(--t),.6),0 0 22px 5px rgba(var(--t),.35);animation:btnNefes 3.6s ease-in-out infinite}
+.btn.btn-on.ton-kirmizi{--t:255,85,85}.btn.btn-on.ton-amber{--t:255,190,70}.btn.btn-on.ton-mavi{--t:70,150,255}.btn.btn-on.sabit{animation:none}
+@keyframes btnNefes{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 5px 1px rgba(var(--t),.45),0 0 16px 3px rgba(var(--t),.22);text-shadow:0 0 3px rgb(var(--t)),0 0 7px rgba(var(--t),.7),0 0 14px rgba(var(--t),.5)}}
+@media(prefers-reduced-motion:reduce){.btn.btn-on{animation:none}}
+.nav,.sekmeler,.dark .sekmeler{background:rgba(5,5,6,.35)}
+body .nav button,body .sekme-btn{background:transparent;border:1px solid #3a3f48;color:#a3a8b2;box-shadow:none}
+body .nav button.active,body .sekme-btn.aktif{background:transparent;color:#9ec3f5;border-color:#60a5fa;text-shadow:0 0 6px rgba(96,165,250,.8);box-shadow:0 0 8px rgba(96,165,250,.45)}
+input,select,.input,textarea{background:#060708;border:1px solid #3a3f48;color:#e5e7eb}
+.tema-btn{display:none}
+/* === /PANO TEMASI === */
 .card[open]>summary::before{transform:rotate(90deg)}
 .card.zone-sudepo{border-left:7px solid #3b82f6}
 .card.zone-konteyner{border-left:7px solid var(--warn)}
@@ -70,12 +96,19 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
    daha canli ve gercekci olsun") - ust parlak cizgi + alt golge ile kabartma,
    basinca (:active) gomulu/basik gorunum. Renk varyantlari background-color
    kullanir (background shorthand DEGIL) ki bu parlaklik katmani ustte kalsin. */
-.btn{padding:10px 12px;border:1px solid rgba(0,0,0,.18);border-radius:9px;cursor:pointer;font-weight:600;flex:1;min-width:120px;background-image:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 45%,rgba(0,0,0,.10) 100%);box-shadow:0 2px 0 rgba(0,0,0,.22),0 5px 10px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease}
-.btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.35);filter:brightness(.93)}
-.btn-primary{background-color:var(--primary);color:#fff}
-.btn-accent{background-color:var(--accent);color:#fff}
-.btn-danger{background-color:var(--danger);color:#fff}
-.btn-warn{background-color:var(--warn);color:#3d2c02}
+.btn{padding:10px 12px;border:1px solid #000;border-radius:9px;cursor:pointer;font-weight:600;flex:1;min-width:120px;background-color:#020203;background-image:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,0) 45%,rgba(0,0,0,.4));color:#a3a8b2;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.5);transition:transform .08s ease,box-shadow .25s,color .25s}
+.btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.6)}
+/* Tum butonlar siyah parlak; varyant = yazi tonu (anlam): primary=genel islem, accent=olumlu, warn=dikkat, danger=tehlikeli/geri donusu zor */
+.btn-primary{color:#9ec3f5}
+.btn-accent,.btn-yesil{color:#8fe3b5}
+.btn-danger{color:#f3a0a0}
+.btn-warn{color:#f2cc85}
+/* Durum (acik/aktif): zemin siyah kalir, yazi + cevre --t tonunda parlar ve yavasca nefes alir. Varsayilan yesil (lamba vb. acik), ton-kirmizi=tehlike aktif (panik/acil), ton-amber=uyari durumu (susturuldu) */
+.btn.btn-on{--t:34,230,96;font-weight:800;color:rgb(var(--t));text-shadow:0 0 4px rgb(var(--t)),0 0 10px rgba(var(--t),.8),0 0 20px rgba(var(--t),.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 6px 1px rgba(var(--t),.6),0 0 22px 5px rgba(var(--t),.35);animation:btnNefes 3.6s ease-in-out infinite}
+.btn.btn-on.ton-kirmizi{--t:255,85,85}
+.btn.btn-on.ton-amber{--t:255,190,70}
+@keyframes btnNefes{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 5px 1px rgba(var(--t),.45),0 0 16px 3px rgba(var(--t),.22);text-shadow:0 0 3px rgb(var(--t)),0 0 7px rgba(var(--t),.7),0 0 14px rgba(var(--t),.5)}}
+@media(prefers-reduced-motion:reduce){.btn.btn-on{animation:none}}
 .btn:disabled{opacity:.6;cursor:not-allowed}
 /* Simulasyonun iki yaninda, kanadin kendi motor akimini SUREKLI gosteren
    dijital gosterge (sol=Sol Kapi, sag=Sag Kapi). */
@@ -145,8 +178,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
 .sz-cbgrid input{width:auto}
 .section{display:none}
 .section.active{display:block}
-.nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100;padding:8px 0;background:rgba(246,248,250,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-@media(prefers-color-scheme:dark){.nav{background:rgba(11,18,32,.75)}}
+.nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100;padding:8px 0;background:rgba(4,4,5,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .nav button{padding:8px 12px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;cursor:pointer}
 .nav button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .alert{padding:10px;border-radius:8px;background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3);margin-bottom:10px}
@@ -161,8 +193,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <div class="meta">ESP32-S3 Master • RS485 Hub</div>
     </div>
     <div style="text-align:right">
-      <div class="meta" id="clock">--</div>
       <div class="meta" id="wifi-topbar">WiFi: -</div>
+      <div class="meta" id="build-topbar">Son güncelleme: -</div>
     </div>
   </div>
 
@@ -240,7 +272,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         </div>
         <div class="ledbar" id="ledbar-depo"></div>
         <div class="row" style="margin-top:8px">
-          <button class="btn btn-primary" id="db-sudepo-lamba-btn" onclick="event.stopPropagation();toggleLamba()">⚪ Sudepo Lamba</button>
+          <button class="btn" id="db-sudepo-lamba-btn" onclick="event.stopPropagation();toggleLamba()">Sudepo Lamba</button>
         </div>
       </div>
       <div class="card"><h3>Bahçe Kapısı</h3>
@@ -249,9 +281,9 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
         </div>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px">
-          <button class="btn btn-accent" style="min-width:0" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
-          <button class="btn btn-warn" style="min-width:0" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">⚪ Veranda Lamba</button>
-          <button class="btn btn-warn" style="min-width:0;grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Lamba</button>
+          <button class="btn ton-mavi" style="min-width:0" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
+          <button class="btn" style="min-width:0" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba</button>
+          <button class="btn btn-danger ton-kirmizi" style="min-width:0;grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">Acil Lamba</button>
         </div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
@@ -266,8 +298,8 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <h3>Lamba</h3>
       <p style="font-size:12px;color:var(--muted);margin-top:-4px">İki zonun da kendi lambası var - Sudepo Lamba tamamen elle, Veranda Lamba hem elle hem alarm/siren ile otomatik yanabilir (ikisi birbirini bastırmaz - alarm sürerken elle kapatsanız bile alarm onu yeniden yakar).</p>
       <div class="row">
-        <button class="btn btn-primary" id="lamba-btn" onclick="toggleLamba()">Sudepo Lamba: Aç</button>
-        <button class="btn btn-primary" id="konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba: Aç</button>
+        <button class="btn" id="lamba-btn" onclick="toggleLamba()">Sudepo Lamba: Aç</button>
+        <button class="btn" id="konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba: Aç</button>
       </div>
       <div id="lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
       <div id="konteyner-lamba-sonuc" style="margin-top:4px;font-size:12px;color:var(--muted)"></div>
@@ -298,7 +330,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <span><span class="led" id="bahce-zil-led"></span> Zil</span>
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn btn-accent" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
+        <button class="btn ton-mavi" id="bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
       </div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
         <button class="btn btn-primary" onclick="bahceKapiTekKomut(1,'ac')">Sol Aç</button>
@@ -313,7 +345,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <div class="card" style="border:2px solid var(--danger)">
       <h3>🚨 Acil Durum Lambası</h3>
       <p style="font-size:12px;color:var(--muted);margin-top:-4px">Ana güç düşük seviyeye inince (aşağıdaki eşikler) sadece bildirim gelir, lamba OTOMATİK açılmaz - gerek görürsen buradan manuel aç. Panik veya Konteyner alarmında ise otomatik/anında yanar.</p>
-      <button class="btn" style="font-size:16px;padding:14px 20px;width:100%" id="acil-lamba-btn" onclick="toggleAcilLamba()">⚪ Acil Durum Lambası (Kapalı)</button>
+      <button class="btn btn-danger ton-kirmizi" style="font-size:16px;padding:14px 20px;width:100%" id="acil-lamba-btn" onclick="toggleAcilLamba()">Acil Durum Lambası (Kapalı)</button>
       <div id="acil-lamba-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
 
@@ -330,7 +362,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
           <option value="2">2 - Sessiz</option>
           <option value="3">3 - Onaylı</option>
         </select>
-        <button class="btn btn-warn" id="alarm-mute-btn" onclick="alarmMute()">Sustur/Sireni Kapat</button>
+        <button class="btn btn-warn ton-amber" id="alarm-mute-btn" onclick="alarmMute()">Sustur/Sireni Kapat</button>
       </div>
       <p style="font-size:12px;color:var(--muted);margin-top:8px">Onay bekleyen bir tetiklenme olursa "Sesli"/"Sessiz" secenekleri ekranin ustundeki uyari kutusunda (hangi sekmede olursan ol) cikar.</p>
       <div id="alarm-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
@@ -340,7 +372,7 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
     <div class="card">
       <h3>Panik</h3>
       <div class="row">
-        <button class="btn btn-danger" id="panic-btn" onclick="togglePanic()">Panik</button>
+        <button class="btn btn-danger ton-kirmizi" id="panic-btn" onclick="togglePanic()">Panik</button>
       </div>
       <div id="panic-sonuc" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
@@ -1138,6 +1170,7 @@ function renderUI(d){
     else if(d.wifi_ssid){ wt.textContent='WiFi: '+d.wifi_ssid+' (bağlanamadı, AP: '+(d.ap_ip||'-')+')'; }
     else { wt.textContent='WiFi: tanımsız, AP: '+(d.ap_ip||'-'); }
   }
+  const bt=$('#build-topbar'); if(bt && d.build_date) bt.textContent=(d.firmware_version?'v'+d.firmware_version+' • ':'')+'Son güncelleme: '+d.build_date;
   const wdk=$('#wifi-durum-kutu');
   if(wdk){
     if(d.wifi_ssid){
@@ -1296,22 +1329,22 @@ function renderUI(d){
     bahceKapi2Acik = acik[1]; bahceKapi2Kapali = kapali[1];
     const bahceBtnMetin = bahceHareketVar ? 'Dur' : (bahceAcikSayilirmi ? 'Kapat' : 'Aç');
     const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
-    const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin;
+    const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin; { const tb2=$('#bahce-toggle-btn'); [dtb,tb2].forEach(b=>{ if(b) b.classList.toggle('btn-on', !!bahceHareketVar); }); }
   }
-  $('#lamba-btn').textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--');
-  { const sudepoAcik=esp8266Ok&&!!d.nano.lamp; const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.textContent = (sudepoAcik?'🟡':'⚪')+' Sudepo Lamba'; }
-  { const klb=$('#konteyner-lamba-btn'); if(klb) klb.textContent = 'Veranda Lamba: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); }
-  { const verandaAcik=!!(d.konteyner&&d.konteyner.lamba); const dklb=$('#db-konteyner-lamba-btn'); if(dklb) dklb.textContent = (verandaAcik?'🟡':'⚪')+' Veranda Lamba'; }
+  $('#lamba-btn').textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--'); $('#lamba-btn').classList.toggle('btn-on', esp8266Ok&&!!d.nano.lamp);
+  { const sudepoAcik=esp8266Ok&&!!d.nano.lamp; const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.classList.toggle('btn-on', sudepoAcik); }
+  { const klb=$('#konteyner-lamba-btn'); if(klb){ klb.textContent = 'Veranda Lamba: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); klb.classList.toggle('btn-on', !!(d.konteyner&&d.konteyner.lamba)); } }
+  { const verandaAcik=!!(d.konteyner&&d.konteyner.lamba); const dklb=$('#db-konteyner-lamba-btn'); if(dklb) dklb.classList.toggle('btn-on', verandaAcik); }
   $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
   { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
   { const ss=$('#sum-sudepo'); if(ss) ss.textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Aktif' : 'Kapalı'; }
   { const sk=$('#sum-konteyner'); if(sk) sk.textContent = (d.konteyner&&d.konteyner.enabled!==false) ? 'Aktif' : 'Kapalı'; }
-  { const pb=$('#panic-btn'); if(pb) pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; }
+  { const pb=$('#panic-btn'); if(pb){ pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; pb.classList.toggle('btn-on', !!(d.alarm&&d.alarm.panic)); } }
   { const ams=$('#alarm-mod-sel'); if(ams && d.alarm && d.alarm.mode) ams.value=String(d.alarm.mode); }
-  { const amb=$('#alarm-mute-btn'); if(amb) amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; }
+  { const amb=$('#alarm-mute-btn'); if(amb){ amb.textContent = (d.alarm&&d.alarm.muted) ? 'Susturma Kaldir' : 'Sustur/Sireni Kapat'; amb.classList.toggle('btn-on', !!(d.alarm&&d.alarm.muted)); } }
   { const msb=$('#moisture-settings-toggle-btn'); if(msb) msb.textContent = mo.output ? 'Kapat' : 'Aç'; }
   { const sab=$('#moisture-settings-auto-btn'); if(sab) sab.textContent = mo.auto ? 'Otomatik' : 'Manuel'; }
-  if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb) tb.textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı'; const st=$('#sum-telegram'); if(st) st.textContent=telegramAktifBilinen?'Açık':'Kapalı'; }
+  if(typeof d.telegram_aktif==='boolean'){ telegramAktifBilinen=d.telegram_aktif; const tb=$('#telegram-ac-kapa-btn'); if(tb){ tb.textContent=telegramAktifBilinen?'Bildirimler Açık':'Bildirimler Kapalı'; tb.classList.toggle('btn-on', telegramAktifBilinen); } const st=$('#sum-telegram'); if(st) st.textContent=telegramAktifBilinen?'Açık':'Kapalı'; }
   // Nem verileri - ESP8266 uzerinden geliyor, ayni tazelik esigiyle korunur
   // (bkz. level/sicaklik icin yukarida yapilan esp8266Baglı fix'i - kullanici
   // ayni donmus-deger sorununun nem icin de var oldugunu bildirdi)
@@ -1410,13 +1443,12 @@ function renderUI(d){
   const ads=$('#adaptor-durum'); if(ads&&ag.adaptor_bagli!=null) ads.textContent = ag.adaptor_bagli ? 'Bağlı' : 'Kesili';
   const alBtn=$('#acil-lamba-btn');
   if(alBtn){
-    alBtn.textContent = ag.acil_lamba ? '🔴 ACİL LAMBA AÇIK (Kapat)' : '⚪ Acil Durum Lambası (Kapalı)';
-    alBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
+    alBtn.textContent = ag.acil_lamba ? 'ACİL LAMBA AÇIK (Kapat)' : 'Acil Durum Lambası (Kapalı)';
+    alBtn.classList.toggle('btn-on', !!ag.acil_lamba);
   }
   const dalBtn=$('#db-acil-lamba-btn');
   if(dalBtn){
-    dalBtn.textContent = ag.acil_lamba ? '🔴 Acil Lamba' : '⚪ Acil Lamba';
-    dalBtn.style.background = ag.acil_lamba ? 'var(--danger)' : '';
+    dalBtn.classList.toggle('btn-on', !!ag.acil_lamba);
   }
   const bkv=$('#batarya-kesme'); if(bkv&&!bkv.matches(':focus')&&!yakinKorumali('batarya-kesme')&&bat.kesme_volt!=null) bkv.value=bat.kesme_volt;
   const bgv=$('#batarya-geri'); if(bgv&&!bgv.matches(':focus')&&!yakinKorumali('batarya-geri')&&bat.geri_volt!=null) bgv.value=bat.geri_volt;
@@ -1754,7 +1786,7 @@ function telegramAcKapa(){
   if (wsKomutGonder('TELEGRAM_TOGGLE', null)) return; // /api/status yenilemesi renderUI ile butonu zaten gunceller
   api('/api/telegram/ayar?aktif='+(telegramAktifBilinen?0:1)).then(d=>{
     telegramAktifBilinen=d.aktif;
-    $('#telegram-ac-kapa-btn').textContent=telegramAktifBilinen?'🔔 Bildirimler Açık':'🔕 Bildirimler Kapalı';
+    $('#telegram-ac-kapa-btn').textContent=telegramAktifBilinen?'Bildirimler Açık':'Bildirimler Kapalı'; $('#telegram-ac-kapa-btn').classList.toggle('btn-on', telegramAktifBilinen);
   });
 }
 

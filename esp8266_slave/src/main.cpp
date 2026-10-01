@@ -1699,6 +1699,34 @@ String durumJson() {
   return j;
 }
 
+// ===== PANO TEMASI (ESP32 web_ui.h ile ayni blok) - PROGMEM: ESP8266 RAM'inde yer tutmasin (RAM'de olunca acilista bellek yetmeyip cokuyordu) =====
+static const char PANO_CSS[] PROGMEM = R"css(/* === PANO TEMASI (ESP32 web_ui.h ve Sudepo main.cpp handleCSS AYNI blok - birini degistirince digerini de guncelle) ===
+   Eski, koyu boyali elektrik panosu: lekeli boya + pas izi + citik + gren + kenar kararmasi; kartlar cerceve+civata plakasi, basliklar yaslanmis etiket. */
+:root,.dark{--bg:#060607;--card:#0b0c0f;--text:#e5e7eb;--muted:#9ca3af;--border:#3a3f48;--border-strong:#5b616c;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#101216;--shadow:0 2px 8px rgba(0,0,0,.8);--grid-dot:rgba(150,160,180,.05)}
+body{color-scheme:dark;background-color:#08090a;background-attachment:fixed;background-image:radial-gradient(ellipse at 50% 38%,rgba(0,0,0,0) 30%,rgba(0,0,0,.85) 100%),linear-gradient(180deg,rgba(150,72,26,.30),rgba(150,72,26,0) 42%) 7% 0/5px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.22),rgba(150,72,26,0) 42%) 23% 0/3px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.26),rgba(150,72,26,0) 42%) 58% 0/6px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.28),rgba(150,72,26,0) 42%) 81% 0/4px 100% no-repeat,linear-gradient(180deg,rgba(150,72,26,.2),rgba(150,72,26,0) 42%) 94% 0/3px 100% no-repeat,repeating-linear-gradient(118deg,transparent 0 170px,rgba(255,255,255,.05) 171px,transparent 173px,transparent 310px,rgba(255,255,255,.035) 311px,transparent 312px),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27700%27%20height%3D%27700%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.007%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%20.75%20%200%200%200%200%20.78%20%200%200%200%200%20.85%20%201.1%200%200%200%20-.38%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E'),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27500%27%20height%3D%27500%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.012%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%200%20%200%200%200%200%200%20%200%200%200%200%200%20%201.3%200%200%200%20-.55%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E'),url('data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27160%27%20height%3D%27160%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.9%27%20numOctaves%3D%272%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%201%20%200%200%200%200%201%20%200%200%200%200%201%20%200%200%200%20.16%200%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E');background-size:auto,auto,auto,auto,auto,auto,700px 700px,500px 500px,160px 160px}
+.card,details.card{background-color:transparent;border-width:4px;border-style:solid;border-top-color:#6a707c;border-right-color:#4b515c;border-bottom-color:#3a3f48;border-radius:6px;box-shadow:0 0 0 2px #000,inset 0 0 0 1px #000,inset 0 2px 0 rgba(255,255,255,.07),inset 0 0 24px rgba(0,0,0,.6),0 5px 14px rgba(0,0,0,.9);background-repeat:no-repeat;background-image:radial-gradient(circle 4.5px at 12px 12px,#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at calc(100% - 12px) 12px,#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at 12px calc(100% - 12px),#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%),radial-gradient(circle 4.5px at calc(100% - 12px) calc(100% - 12px),#a3a9b4 0,#59606c 38%,#16181d 75%,transparent 82%)}
+.card h3,.card>summary,details.card>summary{text-transform:uppercase;letter-spacing:1.6px;font-family:Consolas,'DejaVu Sans Mono','Courier New',monospace;font-size:13px;font-weight:700;color:#dcd2ac;text-shadow:0 1px 0 #000,0 0 7px rgba(220,210,172,.18)}
+.card h3{padding-bottom:6px;border-bottom:1px dashed #454a54}
+.btn{padding:10px 12px;border:1px solid #000;border-radius:9px;cursor:pointer;font-weight:600;background-color:#020203;background-image:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,0) 45%,rgba(0,0,0,.4));color:#a3a8b2;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.5);transition:transform .08s ease,box-shadow .25s,color .25s;filter:none}
+.btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.6);filter:none}
+/* Kapaliyken TUM butonlar sonuk gri (LED sonuk hissi); anlam tonu (--t) sadece basilirken ve durum acikken (btn-on) yanar: primary/mavi=genel islem, accent/yesil=olumlu, warn/turuncu=dikkat, danger/kirmizi=tehlikeli */
+.btn{color:#7d828c}
+.btn-primary,.btn-mavi{--t:96,165,250}.btn-accent,.btn-yesil{--t:34,230,96}.btn-danger,.btn-kirmizi{--t:255,85,85}.btn-warn,.btn-turuncu{--t:255,190,70}
+.btn:active{color:rgb(var(--t,200,205,215));text-shadow:0 0 5px rgb(var(--t,200,205,215)),0 0 12px rgba(var(--t,200,205,215),.6)}
+.btn-primary,.btn-accent,.btn-danger,.btn-warn,.btn-yesil,.btn-turuncu,.btn-mavi,.btn-kirmizi{background-color:#020203}
+/* Durum (acik/aktif): zemin siyah, yazi + cevre --t tonunda neon, yavasca nefes alir. Varsayilan yesil; ton-kirmizi=tehlike aktif, ton-amber=uyari durumu, ton-mavi=bilgi/bahce kapisi */
+.btn.btn-on{--t:34,230,96;font-weight:800;color:rgb(var(--t));text-shadow:0 0 4px rgb(var(--t)),0 0 10px rgba(var(--t),.8),0 0 20px rgba(var(--t),.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 6px 1px rgba(var(--t),.6),0 0 22px 5px rgba(var(--t),.35);animation:btnNefes 3.6s ease-in-out infinite}
+.btn.btn-on.ton-kirmizi{--t:255,85,85}.btn.btn-on.ton-amber{--t:255,190,70}.btn.btn-on.ton-mavi{--t:70,150,255}.btn.btn-on.sabit{animation:none}
+@keyframes btnNefes{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 5px 1px rgba(var(--t),.45),0 0 16px 3px rgba(var(--t),.22);text-shadow:0 0 3px rgb(var(--t)),0 0 7px rgba(var(--t),.7),0 0 14px rgba(var(--t),.5)}}
+@media(prefers-reduced-motion:reduce){.btn.btn-on{animation:none}}
+.nav,.sekmeler,.dark .sekmeler{background:rgba(5,5,6,.35)}
+body .nav button,body .sekme-btn{background:transparent;border:1px solid #3a3f48;color:#a3a8b2;box-shadow:none}
+body .nav button.active,body .sekme-btn.aktif{background:transparent;color:#9ec3f5;border-color:#60a5fa;text-shadow:0 0 6px rgba(96,165,250,.8);box-shadow:0 0 8px rgba(96,165,250,.45)}
+input,select,.input,textarea{background:#060708;border:1px solid #3a3f48;color:#e5e7eb}
+.tema-btn{display:none}
+/* === /PANO TEMASI === */
+)css";
+
 // ============ CSS ============
 void handleCSS() {
   // ESP32 Merkez Kontrol paneliyle AYNI tasarim dili (renk tokenlari, kart/
@@ -1706,6 +1734,9 @@ void handleCSS() {
   // arayuzu gorsel olarak tutarli olsun. Koyu/acik tema burada ESP32'deki
   // gibi prefers-color-scheme DEGIL, mevcut elle-secilen .dark class'iyla
   // calismaya devam ediyor (bu sayfanin zaten calisan tema butonu var).
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/css", "");
   String css = ":root{--bg:#f6f8fa;--card:#fff;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb;--border-strong:#4f7fe0;--primary:#2563eb;--accent:#10b981;--warn:#f59e0b;--danger:#ef4444;--danger-bg:#ffebee;--danger-bg-t:rgba(255,235,238,.6);--tab-bg:#eef2f7;--shadow:0 1px 3px rgba(0,0,0,.1);--grid-dot:rgba(79,127,224,.12)}";
   css += ".dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#374151;--border-strong:#4a72c0;--primary:#60a5fa;--accent:#34d399;--warn:#fbbf24;--danger:#f87171;--danger-bg:#3a2222;--danger-bg-t:rgba(58,34,34,.6);--tab-bg:#1a2433;--shadow:0 1px 3px rgba(0,0,0,.4);--grid-dot:rgba(96,165,250,.16)}";
   css += "*{margin:0;padding:0;box-sizing:border-box}";
@@ -1720,6 +1751,7 @@ void handleCSS() {
   css += ".dark .sekmeler{background:rgba(11,18,32,.75)}";
   css += ".sekme-btn{padding:8px 12px;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;cursor:pointer;font-size:13px}";
   css += ".sekme-btn.aktif{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += ".card{background:var(--card);border:2.5px solid var(--border-strong);border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}";
   css += ".card h3{color:var(--text);margin-bottom:8px;font-size:15px;font-weight:700;letter-spacing:.2px}";
   css += ".zaman-bilgisi{color:var(--muted);margin-bottom:10px;font-size:12px;text-align:center}";
@@ -1733,6 +1765,7 @@ void handleCSS() {
   css += ".depo{width:170px;height:230px;background:var(--tab-bg);border-radius:20px 20px 10px 10px;position:relative;overflow:hidden;border:3px solid var(--primary)}";
   css += ".su{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,#42a5f5,#1976d2);transition:height 1s;border-radius:0 0 8px 8px}";
   css += ".su-dalga{position:absolute;bottom:100%;left:-50%;width:200%;height:15px;background:rgba(255,255,255,.3);border-radius:50%;animation:dalga 3s ease-in-out infinite}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += "@keyframes dalga{0%{transform:translateX(0)}50%{transform:translateX(25%) translateY(-5px)}100%{transform:translateX(0)}}";
   css += ".seviye-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;font-weight:bold;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.5);z-index:2}";
   css += ".info{padding:14px;background:var(--tab-bg);border-radius:10px;margin:10px 0}";
@@ -1757,6 +1790,7 @@ void handleCSS() {
   // butonlarda daha canli ve gercekci olsun"). Renk siniflari background-color
   // kullanir (background shorthand DEGIL) ki ustteki parlaklik katmani kalsin.
   css += ".btn{flex:1;color:white;padding:10px 12px;border-radius:9px;border:1px solid rgba(0,0,0,.18);font-size:14px;cursor:pointer;font-weight:600;min-width:120px;background-image:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 45%,rgba(0,0,0,.10) 100%);box-shadow:0 2px 0 rgba(0,0,0,.22),0 5px 10px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += ".btn:active{transform:translateY(2px);box-shadow:inset 0 2px 5px rgba(0,0,0,.35);filter:brightness(.93)}";
   css += ".btn-yesil{background-color:var(--accent)}.btn-turuncu{background-color:var(--warn);color:#3d2c02}.btn-mavi{background-color:var(--primary);width:100%;margin-top:12px}.btn-kirmizi{background-color:var(--danger);width:100%;margin-top:10px}";
   css += ".btn-satir .btn-mavi,.btn-satir .btn-kirmizi{width:auto;margin-top:0}";
@@ -1784,6 +1818,7 @@ void handleCSS() {
   // sensorlerde kalburum gibi buyuk ledler olsun"). .led ile ayni .on/.ok/
   // .pending kurallarini kullanir, kaynak sirasi .led'den SONRA oldugundan kazanir.
   css += ".led-big{width:17px;height:17px;box-shadow:inset 0 -2px 3px rgba(0,0,0,.35),0 1px 1px rgba(255,255,255,.2);background:radial-gradient(circle at 35% 30%,#7b8494,#374151 75%)}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += ".led-big.on{background:radial-gradient(circle at 35% 30%,#ffc2c2,var(--danger) 55%,#5c0e0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--danger),0 0 14px 5px rgba(239,68,68,.55)}";
   css += ".led-big.ok{background:radial-gradient(circle at 35% 30%,#c3ffdf,var(--accent) 55%,#053f21 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--accent),0 0 14px 5px rgba(16,185,129,.55)}";
   css += ".led-big.pending{background:radial-gradient(circle at 35% 30%,#ffe9b3,var(--warn) 55%,#5c3d0e 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 0 6px 2px var(--warn),0 0 14px 5px rgba(251,191,36,.55);animation:pulse 1.2s infinite}";
@@ -1798,6 +1833,7 @@ void handleCSS() {
   // Checkbox gruplari (Zaman Bazli Tetikleyiciler / Mod Senaryolari): checkbox+yazi
   // ayni satirda, dikeyde ortalanmis, birden fazla checkbox yan yana kirilarak dizilir.
   css += ".cb-grid{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += ".cb-grid p{flex-basis:100%;margin:0 0 4px;color:var(--muted);font-size:12px}";
   css += ".cb{display:flex;align-items:center;gap:6px;margin-top:0;font-size:13px;color:var(--text);width:auto}";
   // NOT: genel "input,select{width:100%;padding:11px;border:...}" kurali
@@ -1810,6 +1846,7 @@ void handleCSS() {
   css += "table{width:100%;border-collapse:collapse;font-size:12px}";
   css += "th{text-align:left;color:var(--muted);padding:6px 4px;border-bottom:2px solid var(--border)}";
   css += "td{padding:8px 4px;border-bottom:1px solid var(--border)}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += ".belirsiz-satir{background:rgba(255,152,0,.12)}";
   css += ".uyari-metni{color:var(--warn);font-weight:bold}";
   css += ".duzenle-form{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0}";
@@ -1829,13 +1866,18 @@ void handleCSS() {
   css += "details.card>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;padding:16px;margin-bottom:0;font-size:15px;font-weight:700;color:var(--text);letter-spacing:.2px}";
   css += "details.card>summary::-webkit-details-marker{display:none}";
   css += "details.card>summary::before{content:'\\25B8';display:inline-block;font-size:12px;color:var(--muted);transition:transform .15s}";
+  server.sendContent(css); css = ""; // heap parcalanmasina karsi parca parca gonder
   css += "details.card[open]>summary::before{transform:rotate(90deg)}";
   css += "details.card>*:not(summary){margin-left:16px;margin-right:16px}";
   css += "details.card>summary{margin-left:0;margin-right:0}";
   css += "details.card>*:last-child{margin-bottom:16px}";
   css += "details.card>h3:first-of-type,details.card>p:first-of-type{margin-top:16px}";
-  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  server.send(200, "text/css", css);
+  css += ".topbar .meta{font-size:12px;color:var(--muted)}";
+  // ESP32 Merkez Kontrol ile AYNI pano temasi (bkz esp32_master/include/web_ui.h "PANO TEMASI" blogu - ikisi senkron tutulur)
+  // Pano temasi PROGMEM'den parca parca gonderilir: tek String'e eklemek heap'e sigmayip CSS'i kesiyordu (2026-10-01)
+  server.sendContent(css);
+  server.sendContent_P(PANO_CSS);
+  server.sendContent("");
 }
 
 // ============ HTML/JS (firmware'e gomulu - bkz web_content.h) ============
