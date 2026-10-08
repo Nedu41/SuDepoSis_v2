@@ -5,7 +5,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiMulti.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h> // PILOT (2026-09-27) - bkz komutCalistir yakinindaki not
@@ -263,12 +262,52 @@ String zamanJsonAyikla(const String& j) {
   return (son >= 0) ? j.substring(i, son) : "";
 }
 
-// ESP8266'nin RTC'sinden guncel gun-sayisini okur (HTTP /zaman/oku uzerinden,
-// 2026-09-15 oncesi RS485 idi). Basarisiz olursa false doner.
+// ============ ZAMAN KAYNAKLARI (2026-10-08) ============
+// Bahcede iki kart arasindaki TEK baglanti RS485 olabilir (ortak WiFi yok),
+// o yuzden saat RS485 uzerinden de akar:
+//  1) Kalburum'un kendi internet saati (NTP) - varsa en guvenilir,
+//  2) Sudepo'nun durum mesajindaki EP=<yerel epoch> alani (RTC veya yazilim
+//     saati), millis() ile ilerletilir,
+//  3) (eski yol) HTTP /zaman/oku - sadece ortak WiFi varsa.
+// Epoch hep YEREL (UTC+3) saniye - gmtime_r ile dogrudan yerel alanlar cikar.
+static bool kalburumNtpBaslatildi = false;
+void kalburumNtpPoll() {
+  if (WiFi.status() != WL_CONNECTED) { kalburumNtpBaslatildi = false; return; }
+  if (!kalburumNtpBaslatildi) { configTime(0, 0, "pool.ntp.org", "time.google.com"); kalburumNtpBaslatildi = true; }
+}
+uint32_t kalburumYerelEpoch() { // sadece GERCEK internet saati; 0 = yok
+  time_t t = time(nullptr);
+  return (t >= 1700000000) ? (uint32_t)t + 10800UL : 0;
+}
+uint32_t sudepoEpochBaz = 0;
+unsigned long sudepoEpochMs = 0;
+uint32_t kalburumZamanEpoch() { // en iyi mevcut saat; 0 = hicbiri yok
+  uint32_t e = kalburumYerelEpoch();
+  if (e) return e;
+  if (sudepoEpochBaz) return sudepoEpochBaz + (millis() - sudepoEpochMs) / 1000UL;
+  return 0;
+}
+bool kendiZamanStr(String& out) {
+  uint32_t e = kalburumZamanEpoch();
+  if (!e) return false;
+  time_t t = e;
+  struct tm tmS;
+  gmtime_r(&t, &tmS);
+  char b[24];
+  snprintf(b, sizeof(b), "%02d/%02d/%04d %02d:%02d:%02d", tmS.tm_mday, tmS.tm_mon + 1, tmS.tm_year + 1900, tmS.tm_hour, tmS.tm_min, tmS.tm_sec);
+  out = String(b);
+  return true;
+}
+
+// Guncel gun-sayisini okur: once kendi saati (NTP/RS485), yoksa Sudepo'dan
+// HTTP /zaman/oku. Basarisiz olursa false doner.
 bool simdikiGunSayisi(long& out) {
-  String reply;
-  if (!sudepoHttpGet("/zaman/oku", reply)) return false;
-  String zaman = zamanJsonAyikla(reply);
+  String zaman;
+  if (!kendiZamanStr(zaman)) {
+    String reply;
+    if (!sudepoHttpGet("/zaman/oku", reply)) return false;
+    zaman = zamanJsonAyikla(reply);
+  }
   int g, a, y;
   if (!zamanTarihAyristir(zaman, g, a, y)) return false;
   out = gunSayisi(y, a, g);
@@ -287,6 +326,7 @@ unsigned long zamanCacheSonGuncellemeMs = 0;
 void zamanCacheGuncelle() {
   if (zamanCacheSonGuncellemeMs != 0 && millis() - zamanCacheSonGuncellemeMs < ZAMAN_CACHE_YENILEME_MS) return;
   zamanCacheSonGuncellemeMs = millis();
+  if (kendiZamanStr(zamanCacheStr)) return; // NTP veya RS485 EP - HTTP gerekmiyor
   String reply;
   if (sudepoHttpGet("/zaman/oku", reply, 500)) {
     String zaman = zamanJsonAyikla(reply);
@@ -2403,6 +2443,9 @@ void parse_esp8266_data(String payload) {
       sensorData.sensor_err = (value == "1");
     } else if (key == "RTC") {
       sensorData.rtc_ok = (value == "1");
+    } else if (key == "EP") {
+      uint32_t ep = (uint32_t)strtoul(value.c_str(), nullptr, 10);
+      if (ep > 1700000000UL) { sudepoEpochBaz = ep; sudepoEpochMs = millis(); }
     } else if (key == "LEAK") {
       alarmStatus.leak_alarm = (value == "1");
     } else if (key == "FILL") {
@@ -2494,13 +2537,24 @@ Rs485State rs485_state = RS485_IDLE;
 unsigned long rs485_state_start_ms = 0;
 String rs485_pending_msg = "";
 
+// Internet saati (bkz yukaridaki ZAMAN KAYNAKLARI): RS485 ile SET_ZAMAN=<yerel
+// epoch> gonderilir (Sudepo RTC'si yoksa yazilim saatini kurar, sapmissa RTC'yi duzeltir).
+static bool rs485_zaman_gonderildi = false;
+static unsigned long rs485_son_zaman_ms = 0;
+// ACK gelmezse 60sn'de bir denenir, ACK gelirse 10dk (yazilim saati kaymasi
+// ESP8266'da gunde birkac sn) - RS485 hattini gereksiz mesgul etmemek icin.
+static unsigned long rs485_zaman_aralik_ms = 60000UL;
+
 void rs485_poll() {
   unsigned long now = millis();
-  
+
   switch (rs485_state) {
     case RS485_IDLE:
       if (now - last_rs485_update_ms >= RS485_UPDATE_INTERVAL) {
         last_rs485_update_ms = now;
+        uint32_t yerelEpoch = kalburumYerelEpoch();
+        bool zamanGonder = yerelEpoch != 0 &&
+                           (rs485_son_zaman_ms == 0 || now - rs485_son_zaman_ms >= rs485_zaman_aralik_ms);
         {
           RS485Kilit kilit;
           // KRITIK: ESP8266 kendi periyodik durumunu da bagimsiz bir zamanlayicida
@@ -2509,7 +2563,15 @@ void rs485_poll() {
           // yerine bu BAYAT veriyi okuyabiliyorduk - ekranin "gec guncellenmesi"
           // hissinin buyuk kismi buradan geliyordu.
           while (Serial1.available()) Serial1.read();
-          rs485_send("GET_STATUS\n");
+          if (zamanGonder) {
+            char zbuf[32];
+            snprintf(zbuf, sizeof(zbuf), "SET_ZAMAN=%lu\n", (unsigned long)yerelEpoch);
+            rs485_send(zbuf);
+            rs485_son_zaman_ms = now;
+            rs485_zaman_gonderildi = true;
+          } else {
+            rs485_send("GET_STATUS\n");
+          }
         }
         rs485_state = RS485_WAIT_ESP;
         rs485_state_start_ms = now;
@@ -2527,7 +2589,10 @@ void rs485_poll() {
           RS485Kilit kilit;
           msg = rs485_read_line();
         }
-        if (msg.length() > 0) {
+        if (rs485_zaman_gonderildi) {
+          rs485_zaman_gonderildi = false; // yanit "ACK:SET_ZAMAN", durum mesaji degil - ayristirilmaz
+          rs485_zaman_aralik_ms = (msg.indexOf("ACK:SET_ZAMAN") >= 0) ? 600000UL : 60000UL;
+        } else if (msg.length() > 0) {
           parse_rs485_message(msg);
         } else {
           DEBUG_PRINTLN("[RS485] ESP8266 no response");
@@ -5297,14 +5362,12 @@ void setup_ota() {
 // WiFi & MQTT KURULUM
 // ============================================================
 
-WiFiMulti wifiMulti;
-
 // wifiReconnectPoll()'un bloklamadan sirayla denedigi aday ag listesi -
 // her adayin kendi kanal/BSSID'si de tutulur (2026-09-27, bkz yukaridaki
 // genel WiFi notu) - varsa taramasiz/hizli/AP'yi rahatsiz etmeyen baglanti
 // icin kullanilir. wifiReconnectAdaylariOlustur() boot'ta VE bir gecmis
 // aday basariyla aktif olunca (wifiGecmisiAktifYap sonrasi) tekrar cagrilir.
-#define WIFI_RECONNECT_ADAY_MAX (1 + WIFI_GECMIS_SAYISI)
+#define WIFI_RECONNECT_ADAY_MAX (2 + WIFI_GECMIS_SAYISI) // +1 ozel ag, +1 sabit WIFI_SSID2
 String wifiReconnectSsid[WIFI_RECONNECT_ADAY_MAX];
 String wifiReconnectPass[WIFI_RECONNECT_ADAY_MAX];
 uint8_t wifiReconnectChannel[WIFI_RECONNECT_ADAY_MAX];
@@ -5313,10 +5376,11 @@ int wifiReconnectAdaySayisi = 0;
 
 void wifiReconnectAdaylariOlustur() {
   wifiReconnectAdaySayisi = 0;
-  if (savedSSID.length() == 0) return; // ozel ag yok - varsayilan aglarda round-robin yok (WiFiMulti zaten hallediyor)
-  wifiReconnectSsid[0] = savedSSID; wifiReconnectPass[0] = savedPass;
-  wifiReconnectChannel[0] = savedChannel; memcpy(wifiReconnectBSSID[0], savedBSSID, 6);
-  wifiReconnectAdaySayisi = 1;
+  if (savedSSID.length() > 0) {
+    wifiReconnectSsid[0] = savedSSID; wifiReconnectPass[0] = savedPass;
+    wifiReconnectChannel[0] = savedChannel; memcpy(wifiReconnectBSSID[0], savedBSSID, 6);
+    wifiReconnectAdaySayisi = 1;
+  }
   for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
     if (wifiGecmisSsid[i].length() == 0) continue;
     int k = wifiReconnectAdaySayisi;
@@ -5324,76 +5388,86 @@ void wifiReconnectAdaylariOlustur() {
     wifiReconnectChannel[k] = wifiGecmisChannel[i]; memcpy(wifiReconnectBSSID[k], wifiGecmisBSSID[i], 6);
     wifiReconnectAdaySayisi++;
   }
+  // Sabit varsayilan ikinci ag (orn. EncanA01 mobil hotspot) - ozel ag
+  // kayitli olsun olmasin HER ZAMAN aday listesine eklenir (2026-10-08,
+  // kullanici talebi: "bahcede Emiliya olmayacak, EncanA01 olacak, otomatik
+  // en guclu kayitli aga baglansin"). Kanal/BSSID onbellegi yok - ilk
+  // denemede tarama gerekir ama STA kopma/reconnect aninda zaten AP acik
+  // degil (bkz apModunaGec), kimseyi rahatsiz etmez.
+  {
+    int k = wifiReconnectAdaySayisi;
+    wifiReconnectSsid[k] = WIFI_SSID2; wifiReconnectPass[k] = WIFI_PASSWORD2;
+    wifiReconnectChannel[k] = 0; memset(wifiReconnectBSSID[k], 0, 6);
+    wifiReconnectAdaySayisi++;
+  }
 }
 
 void wifi_connect() {
-  // ESP8266'daki gibi: AP her zaman acik (STA basarisiz olsa da paneline
-  // erisim kaybolmasin), STA kayitli ag varsa ona baglanir.
+  // FIX (2026-10-08, kullanici sikayeti: "bahcede AP'ye telefonla
+  // baglanmakta cok sorun yasiyorum"): AP ARTIK HER ZAMAN ACIK DEGIL.
+  // ESP32 TEK radyoyu AP+STA arasinda paylasir (bkz asagidaki wifiReconnectPoll
+  // yorumu) - surekli acik AP, her STA tarama/baglanma/kanal-degisiminde bagli
+  // telefonu rahatsiz ediyordu, ustune ESP32'nin anten/PA gucu de telefon
+  // menzili icin sinirli. Artik normal calismada SADECE STA var, AP tamamen
+  // KAPALI - AP SADECE BOOT butonuna ~2sn basili tutulunca acilir (bkz
+  // bootButonPoll/apModunaGec), 15dk hareketsizlikte otomatik restart ile
+  // STA'ya doner. Bu sayede asagidaki tarama da AP'yi hic rahatsiz etmez.
   wifiCredYukle();
   wifiGecmisYukle();
   bool ozelAg = savedSSID.length() > 0;
 
   DEBUG_PRINTLN("[WiFi] Connecting...");
+  WiFi.mode(WIFI_STA);
 
-  WiFi.mode(WIFI_AP_STA);
-  // WiFi.setSleep(false) BILEREK KULLANILMIYOR: modem-sleep'i kapatmak WiFi
-  // radyosunu SUREKLI tam guc/aktif modda tutar (normalde sinyal araliklarinda
-  // kisilip ortalama akimi dusurur) - bu kartin besleme kaynagi zaten marjinal
-  // oldugu sahada dogrulandi (bkz proje hafizasi: USB'de acilis brownout'u,
-  // orijinal DC beslemede "anlik dusus sonra duzeldi"). Sureki yuksek WiFi
-  // akimi bu marjinal kaynakta kalici/tekrar eden brownout'u tetikleyebilir -
-  // bir kez denenip bu riskten dolayi geri alindi. Besleme guclendirilirse
-  // (kondansator/daha iyi adaptor) IR zamanlama iyilestirmesi icin tekrar
-  // denenebilir, ama o zamana kadar KAPALI kalmali.
-  // AP kanali ARTIK SABIT 6 DEGIL (2026-09-27 FIX, bkz asagidaki genel not):
-  // son basarili STA baglantisinin kanaliyla ayni baslatilir - boylece
-  // ESP32'nin TEK radyosunun AP'yi STA kanaliyla eslesmeye zorlamasi
-  // (Espressif resmi davranisi) sadece ILK baglantida olur, sonraki her
-  // reconnect zaten dogru kanalda oldugundan AP'ye bagli istemci dusmez.
-  uint8_t apKanal = (ozelAg && savedChannel >= 1 && savedChannel <= 13) ? savedChannel : 6;
-  // WiFi.softAP sessizce basarisiz olabilir (ornegin AP_PASSWORD 8 karakterden
-  // kisaysa WPA2 gereksinimini karsilamaz) - donus degeri kontrol edilmezse
-  // cihaz farkedilmeden sifresiz/varsayilan (ESP_xxxxxx) AP'ye duser. Bir kez
-  // basimiza geldi (bkz proje hafizasi), o yuzden artik loglaniyor.
-  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, apKanal, 0, 4)) {
-    DEBUG_PRINTLN("[WiFi] UYARI: softAP baslatilamadi! (sifre >=8 karakter mi?)");
+  // Kayitli TUM aglari (ozel ag + gecmis + sabit WIFI_SSID/WIFI_SSID2) tek
+  // listede topla, bir kez tara, EN GUCLU (RSSI) sinyalli olana baglan -
+  // kullanici talebi (2026-10-08): "bahcede Emiliya olmayacak, EncanA01
+  // olacak, otomatik en guclu kayitli aga baglansinlar".
+  // FIX (2026-10-08, kullanici bulgusu: "surekli kendine RST atiyor" -
+  // guc kesmekle de duzelmedi, kod seviyesinde bir hataydi): dizi boyutu
+  // "2 + WIFI_GECMIS_SAYISI" idi ama ozel ag(1) + gecmis(GECMIS_SAYISI) +
+  // WIFI_SSID(1) + WIFI_SSID2(1) = 3 + GECMIS_SAYISI eleman yaziliyordu -
+  // stack buffer overflow (String dizisi sinirlarin disina tasma), bu da
+  // bellek bozulmasiyla rastgele crash/panic/reset dongusune yol aciyordu.
+  String adaySsid[3 + WIFI_GECMIS_SAYISI];
+  String adayPass[3 + WIFI_GECMIS_SAYISI];
+  int adaySayisi = 0;
+  if (ozelAg) { adaySsid[adaySayisi] = savedSSID; adayPass[adaySayisi] = savedPass; adaySayisi++; }
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (wifiGecmisSsid[i].length() == 0) continue;
+    adaySsid[adaySayisi] = wifiGecmisSsid[i]; adayPass[adaySayisi] = wifiGecmisPass[i]; adaySayisi++;
   }
-  WiFi.softAPConfig(
-    IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
-    IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
-    IPAddress(255, 255, 255, 0)
-  );
+  adaySsid[adaySayisi] = WIFI_SSID; adayPass[adaySayisi] = WIFI_PASSWORD; adaySayisi++;
+  adaySsid[adaySayisi] = WIFI_SSID2; adayPass[adaySayisi] = WIFI_PASSWORD2; adaySayisi++;
+
+  int taramaSayisi = WiFi.scanNetworks();
+  int enIyiAday = -1, enIyiTarama = -1; int32_t enIyiRssi = -999;
+  for (int a = 0; a < adaySayisi; a++) {
+    for (int t = 0; t < taramaSayisi; t++) {
+      if (WiFi.SSID(t) == adaySsid[a] && WiFi.RSSI(t) > enIyiRssi) {
+        enIyiRssi = WiFi.RSSI(t); enIyiAday = a; enIyiTarama = t;
+      }
+    }
+  }
+
+  if (enIyiAday >= 0) {
+    DEBUG_PRINT("[WiFi] Secilen ag: "); DEBUG_PRINT(adaySsid[enIyiAday]); DEBUG_PRINT(" (RSSI "); DEBUG_PRINT(enIyiRssi); DEBUG_PRINTLN(")");
+    // Tarama sonucundan GERCEK kanal/BSSID aliniyor - ikinci bir tarama
+    // gerekmeden dogrudan/hizli baglanma (WiFi.begin(ssid,pass,channel,bssid)).
+    uint8_t* bssid = WiFi.BSSID(enIyiTarama);
+    WiFi.begin(adaySsid[enIyiAday].c_str(), adayPass[enIyiAday].c_str(), WiFi.channel(enIyiTarama), bssid);
+  } else if (adaySayisi > 0) {
+    DEBUG_PRINTLN("[WiFi] Kayitli aglardan hicbiri taramada gorunmedi, ilk aday deneniyor");
+    WiFi.begin(adaySsid[0].c_str(), adayPass[0].c_str());
+  }
+  WiFi.scanDelete();
 
   wifiReconnectAdaylariOlustur();
-  if (ozelAg) {
-    // Kanal/BSSID onbellegi varsa (daha once en az bir kez baglanilmis)
-    // TARAMASIZ dogrudan baglanma denenir (~1.5sn, AP'yi rahatsiz etmez) -
-    // yoksa (ilk kez kaydedilen ag) normal WiFi.begin() tarama yapar.
-    if (savedChannel >= 1 && savedChannel <= 13 && !bssidBosMu(savedBSSID)) {
-      WiFi.begin(savedSSID.c_str(), savedPass.c_str(), savedChannel, savedBSSID);
-    } else {
-      WiFi.begin(savedSSID.c_str(), savedPass.c_str());
-    }
-  } else {
-    // Ozel ag yoksa iki varsayilan ag denenir (WIFI_SSID/WIFI_SSID2) -
-    // WiFiMulti taranan aglar arasindan menzilde/bilinen olana baglanir.
-    wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
-    wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
-  }
 
-  // FIX (kullanici sikayeti, 2026-09-08: "flasliyorum ama web sayfa
-  // acilmiyor, aga baglanamiyor"): "20 deneme x 100ms = azami 2sn" varsayimi
-  // YANLISTI - wifiMulti.run() menzil disi/erisilemez bir SSID icin TEK
-  // BASINA birkac saniye surebiliyor (tarama+baglanma denemesi), bu yuzden
-  // asil sure "20 x run() suresi" olup DAKIKALARCA surebiliyordu - o sure
-  // boyunca setup() web sunucusunu (setupWebServer/server.begin()) HENUZ
-  // CAGIRMADIGI icin AP acik olsa bile sayfa hic acilmiyordu. Artik GERCEK
-  // duvar-saati ile sinirlanir (azami ~4sn) - STA o sürede baglanamazsa
-  // setup() devam eder, wifiReconnectPoll() (loop() icinde) arka planda
-  // denemeye devam eder.
+  // Duvar-saati siniri (~4sn) - STA o surede baglanamazsa setup() devam eder,
+  // wifiReconnectPoll() (loop() icinde) arka planda denemeye devam eder.
   unsigned long wifiBaslangicMs = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - wifiBaslangicMs < 4000) {
-    if (!ozelAg) wifiMulti.run(); // ozelAg'de WiFi.begin() zaten yukarida dogrudan cagrildi
     DEBUG_PRINT(".");
     yield();
   }
@@ -5402,12 +5476,11 @@ void wifi_connect() {
     wifiChannelBilgisiGuncelle(); // gercek kanal/BSSID'yi yakala (ilk baglantiysa tarama sonucu, degilse onbellek dogrulandi)
   }
 
-  // Statik IP sadece varsayilan/birincil ag (WIFI_SSID) icin gecerli - hem
-  // ozel kaydedilmis ag hem de ikincil varsayilan ag (WIFI_SSID2, farkli bir
-  // fiziksel ag/router - orn. telefon hotspot'u) muhtemelen tamamen farkli
-  // bir subnet/gateway kullanir, config.h'daki sabit IP orada gecersiz olur
-  // ve baglantiyi bozar - o durumlarda DHCP'ye birakilir.
-  if (WiFi.status() == WL_CONNECTED && !ozelAg && WiFi.SSID() == String(WIFI_SSID)) {
+  // Statik IP sadece sabit birincil ag (WIFI_SSID) icin gecerli - diger
+  // tum adaylar (ozel ag, gecmis, WIFI_SSID2 mobil hotspot) muhtemelen
+  // tamamen farkli bir subnet/gateway kullanir, config.h'daki sabit IP
+  // orada gecersiz olur ve baglantiyi bozar - o durumlarda DHCP'ye birakilir.
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == String(WIFI_SSID)) {
     WiFi.config(
       IPAddress(WIFI_STATIC_IP_OCTET_1, WIFI_STATIC_IP_OCTET_2, WIFI_STATIC_IP_OCTET_3, WIFI_STATIC_IP_OCTET_4),
       IPAddress(WIFI_GATEWAY_OCTET_1, WIFI_GATEWAY_OCTET_2, WIFI_GATEWAY_OCTET_3, WIFI_GATEWAY_OCTET_4),
@@ -5423,10 +5496,81 @@ void wifi_connect() {
     DEBUG_PRINTLN(WiFi.localIP());
   } else {
     DEBUG_PRINTLN();
-    DEBUG_PRINTLN("[WiFi] STA baglanamadi, sadece AP modunda calisiyor");
+    DEBUG_PRINTLN("[WiFi] STA baglanamadi - AP kapali, BOOT butonuna ~2sn basili tutarak AP moduna girilebilir");
   }
-  DEBUG_PRINT("[WiFi] AP IP: ");
-  DEBUG_PRINTLN(WiFi.softAPIP());
+}
+
+// ============ AP MODU (buton-tetikli, 2026-10-08) ============
+// bkz config.h RGB_LED_PIN/AP_MODU_* yorumu - AP artik surekli acik degil,
+// sadece BOOT butonuna ~2sn basili tutulunca acilir, 15dk hareketsizlikte
+// (hic AP istemcisi yoksa) otomatik ESP.restart() ile STA'ya doner. Restart
+// tercih edildi (yazilimsal AP->STA gecisi degil) cunku: (1) zilin LEDC'sini
+// tekrar dogru sekilde attach etmek icin en guvenilir yol, (2) bu projede
+// WiFi stack'inin mod degisiminde garip durumlarda kalma geçmişi var (bkz
+// kanal/BSSID sorunlari, proje hafizasi).
+bool apModuAktif = false;
+unsigned long apModuBaslangicMs = 0;
+
+void apModunaGec() {
+  if (apModuAktif) return;
+  apModuAktif = true;
+  apModuBaslangicMs = millis();
+  DEBUG_PRINTLN("[AP-MODU] BOOT butonu ile AP moduna giriliyor");
+
+  // Zili sustur + GPIO48'i LEDC'den ayir - RGB LED (neopixelWrite/RMT) ayni
+  // pine cikacak, ikisi birlikte calisamaz (bkz config.h yorumu).
+  zilAdim = 0;
+  zilSesKapat();
+#if ZIL_HOPARLOR_VAR
+  ledcDetachPin(ZIL_HOPARLOR_PIN);
+#endif
+
+  // STA zaten bagliysa onun kanalinda ac (kanal cakismasi olmasin), degilse 6.
+  uint8_t apKanal = (WiFi.status() == WL_CONNECTED) ? WiFi.channel() : 6;
+  WiFi.mode(WIFI_AP_STA);
+  if (!WiFi.softAP(AP_SSID, AP_PASSWORD, apKanal, 0, 4)) {
+    DEBUG_PRINTLN("[AP-MODU] UYARI: softAP baslatilamadi! (sifre >=8 karakter mi?)");
+  }
+  WiFi.softAPConfig(
+    IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
+    IPAddress(AP_IP_OCTET_1, AP_IP_OCTET_2, AP_IP_OCTET_3, AP_IP_OCTET_4),
+    IPAddress(255, 255, 255, 0)
+  );
+}
+
+// BOOT butonu (GPIO0) - calisma anindan normal INPUT_PULLUP buton gibi
+// okunmasi guvenli (strapping sadece gercek boot anindaki rolu, bkz
+// esp32-arduino-donanim skill'i). ~2sn basili tutulunca AP moduna girilir.
+void bootButonPoll() {
+  static unsigned long basilmaBaslangicMs = 0;
+  static bool oncekiBasiliMi = false;
+  bool basiliMi = (digitalRead(AP_MODU_BUTON_PIN) == LOW);
+  if (basiliMi && !oncekiBasiliMi) basilmaBaslangicMs = millis();
+  if (basiliMi && !apModuAktif && millis() - basilmaBaslangicMs >= AP_MODU_BUTON_BASILI_MS) {
+    apModunaGec();
+  }
+  oncekiBasiliMi = basiliMi;
+}
+
+// AP modundayken RGB LED'i kullanicinin istedigi desenle yanip söndürür
+// (0.4sn acik / 1sn kapali) VE 15dk'da hic AP istemcisi yoksa otomatik
+// restart ile STA'ya doner (guvenlik: surekli acik AP saldiri yuzeyi +
+// unutulma riski).
+#define AP_MODU_LED_ACIK_MS 400UL
+#define AP_MODU_LED_KAPALI_MS 1000UL
+void apModuLedPoll() {
+  if (!apModuAktif) return;
+  if (millis() - apModuBaslangicMs >= AP_MODU_TIMEOUT_MS) {
+    DEBUG_PRINTLN("[AP-MODU] 15dk zaman asimi, STA'ya donmek icin restart ediliyor");
+    ESP.restart();
+  }
+  unsigned long faz = (millis() - apModuBaslangicMs) % (AP_MODU_LED_ACIK_MS + AP_MODU_LED_KAPALI_MS);
+  bool acik = faz < AP_MODU_LED_ACIK_MS;
+  // Camgobegi (0,160,160) - GPIO48'deki LED WS2812, neopixelWrite() ile calisiyor
+  // (sahada dogrulandi). DIKKAT: bu fonksiyonun ILK cagrisi AP modunda,
+  // ledcDetachPin'den SONRA olmali - setup()'ta daha once cagrilirsa RMT
+  // pine erken baglanir, sonraki LEDC attach pini calar ve LED yanmaz.
+  neopixelWrite(RGB_LED_PIN, 0, acik ? 160 : 0, acik ? 160 : 0);
 }
 
 // wifi_connect() SADECE setup()'ta bir kez calisiyordu - STA baglantisi
@@ -5480,9 +5624,16 @@ void wifiReconnectPoll() {
     // aktif ag yap (NVS + aday listesi tutarli kalsin, bir sonraki
     // kopmada dogru sirayla/kanalla denensin).
     wifiChannelBilgisiGuncelle();
-    if (sonDenenenAday > 0) {
-      wifiGecmisiAktifYap(sonDenenenAday - 1); // aday listesinde 1..N = gecmis[0..N-1]
-      wifiReconnectAdaylariOlustur();
+    // ISME gore eslestirme (index aritmetigine guvenmek yerine) - liste artik
+    // [ozel ag (varsa)] + [gecmis] + [sabit WIFI_SSID2] seklinde, sonDenenenAday
+    // hangi "turden" oldugunu dogrudan soylemiyor. Sadece GECMISTEN gelen bir
+    // aday basarili olduysa onu aktif ag yap - sabit WIFI_SSID2'ye (secrets.h)
+    // baglanildiysa gecmise/NVS'e YAZILMAZ, sabit kalir (2026-10-08).
+    String baglananSsid = WiFi.SSID();
+    if (baglananSsid != savedSSID && baglananSsid != String(WIFI_SSID2)) {
+      for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+        if (wifiGecmisSsid[i] == baglananSsid) { wifiGecmisiAktifYap(i); wifiReconnectAdaylariOlustur(); break; }
+      }
     }
   }
   oncekiBagliMi = bagliMi;
@@ -5582,6 +5733,8 @@ void setup() {
   konteynerModSenaryoYukle();
   bateryaAyarlariYukle();
 
+  pinMode(AP_MODU_BUTON_PIN, INPUT_PULLUP); // BOOT butonu - AP moduna manuel giris
+
   // WiFi Connect
   wifi_connect();
   setup_ota();
@@ -5663,6 +5816,9 @@ void loop() {
   }
 
   wifiReconnectPoll(); // STA koparsa periyodik (15sn'de bir) yeniden baglanmayi dener
+  kalburumNtpPoll();   // STA varsa internet saati (RS485 ile Sudepo'ya aktarilir)
+  bootButonPoll();     // BOOT butonu ~2sn basili tutulunca AP moduna girer
+  apModuLedPoll();     // AP modundayken RGB LED blink + 15dk timeout
 
   // Web Server handle
   server.handleClient();

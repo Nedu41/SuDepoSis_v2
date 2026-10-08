@@ -260,6 +260,15 @@
 // "ding-dong" çalar - klasik kapı zili, motor/limit switch ile aynı Nano'ya
 // bağlı. Nano'nun yedek pinlerinden biri (D10) kullanılıyor.
 #define BAHCE_ZIL_BUTON_PIN 10   // D10 - INPUT_PULLUP, basılınca LOW
+
+// ============ AP MODU GORSEL GOSTERGE (2026-10-08) ============
+// GPIO2 - NodeMCU modulunun dahili mavi LED'i, AKTIF-LOW (digitalWrite(LOW)
+// = yanik). Baska hicbir #define bu pini kullanmiyor. AP acikken (gecici
+// 5dk pencere veya ilk-kurulum suresiz AP) blink eder - esp32_master'daki
+// RGB LED'in ayni amacli, tek-renk karsiligi.
+#define AP_LED_PIN 2
+#define AP_LED_ACIK_MS 400UL
+#define AP_LED_KAPALI_MS 1000UL
 #define BAHCE_ZIL_POLL_ARALIK_MS 400
 // Limit switch okumasi bu sureden eskiyse (Nano yanit vermiyor) limit'e gore
 // KARAR VERILMEZ - hareket yalnizca zaman asimi/asiri akim ile sonlanir.

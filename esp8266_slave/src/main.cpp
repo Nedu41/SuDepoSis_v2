@@ -488,6 +488,53 @@ bool mdnsAktif = false;
 // WiFiManager tarzi fallback: baglanamazsa STA tamamen kapatilir (saf AP),
 // periyodik olarak kisa bir pencerede tekrar denenir.
 bool staAPOnlyFallback = false;
+// AP'nin "gecici" (5dk) acik oldugu zamani tutar - 0 = gecici degil (ya
+// surekli kapali ya da ilk-kurulum durumunda suresiz acik). STA basarisiz
+// olunca setup()'ta set edilir, apGeciciKapamaPoll() (loop icinde) 5dk sonra
+// AP'yi kapatip bu alani tekrar 0'a ceker (bkz asagisi).
+unsigned long apGeciciAcilisMs = 0;
+#define AP_GECICI_SURE_MS (5UL*60UL*1000UL)
+// AP bir kez 5dk dolup kapandiktan sonra wifiFallbackPoll() bir daha ONU
+// ACMAMALI (aksi halde her 2dk'lik round-robin denemesi AP'yi WIFI_AP_STA'ya
+// alip gecici-kapatma mantigini anlamsiz kilardi) - sadece arka planda sessiz
+// STA retry'a devam eder.
+bool apBirDahaAcilmasin = false;
+void apGeciciKapamaPoll() {
+  // FIX (2026-10-08, kullanici bulgusu: "Emiliya'ya bagli gorunuyor ama mavi
+  // LED hala blink ediyordu"): STA, wifiFallbackPoll()'un 2dk'lik round-robin
+  // denemesine hic girmeden KENDILIGINDEN (ESP8266 SDK'nin arka plan
+  // baglanmasiyla) de baglanabiliyor - o zaman AP'yi kapatan tek yer
+  // (wifiFallbackPoll basari bloğu) hic calismiyor, AP 5dk tavanina kadar
+  // acik kaliyordu. Artik STA bagli oldugu HER AN (bekleme suresi olmadan)
+  // AP varsa hemen kapatilir - asagidaki 5dk/istemci-sayaci SADECE "STA hala
+  // baglanamadi" durumu icin gecerli kalir.
+  if (WiFi.status() == WL_CONNECTED && (apGeciciAcilisMs != 0 || WiFi.getMode() == WIFI_AP_STA || WiFi.getMode() == WIFI_AP)) {
+    DEBUG_PRINTLN("[WIFI] STA zaten bagli, AP hemen kapatiliyor");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    apGeciciAcilisMs = 0;
+    apBirDahaAcilmasin = true;
+    return;
+  }
+  if (apGeciciAcilisMs == 0) return;
+  if (WiFi.softAPgetStationNum() > 0) { apGeciciAcilisMs = millis(); return; } // biri bagliyken sure uzar
+  if (millis() - apGeciciAcilisMs < AP_GECICI_SURE_MS) return;
+  DEBUG_PRINTLN("[WIFI] AP 5dk doldu, kapatiliyor - STA retry arka planda sessizce devam eder");
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  apGeciciAcilisMs = 0;
+  apBirDahaAcilmasin = true;
+}
+
+// Dahili mavi LED - AP acik oldugu surece (gecici 5dk pencere VEYA ilk-kurulum
+// suresiz AP) blink eder, STA-only modda surekli sonuk. AKTIF-LOW (bkz config.h).
+void apLedPoll() {
+  WiFiMode_t mod = WiFi.getMode();
+  bool apAcik = (mod == WIFI_AP || mod == WIFI_AP_STA);
+  if (!apAcik) { digitalWrite(AP_LED_PIN, HIGH); return; }
+  unsigned long faz = millis() % (AP_LED_ACIK_MS + AP_LED_KAPALI_MS);
+  digitalWrite(AP_LED_PIN, (faz < AP_LED_ACIK_MS) ? LOW : HIGH);
+}
 String mdnsHostname() {
   String h = String(WIFI_AP_SSID);
   h.toLowerCase();
@@ -501,9 +548,23 @@ void olcumYap();
 void kayitlariSiniraGetir(int maxKayit);
 
 // ============ ZAMAN YARDIMCILARI ============
+// Yazilim saati (2026-10-08): RTC yoksa/bozuksa Kalburum'un internet saatini
+// RS485 uzerinden (SET_ZAMAN=<yerel epoch>) alip millis() ile yurutur.
+// RTC calisiyorsa her zaman RTC kullanilir.
+uint32_t yazilimEpochBaz = 0;
+unsigned long yazilimMillisBaz = 0;
+bool zamanGecerli() {
+  if (rtcHazir) return true;
+  return yazilimEpochBaz != 0;
+}
+DateTime zamanNow() {
+  if (rtcHazir) return rtc.now();
+  return DateTime(yazilimEpochBaz + (millis() - yazilimMillisBaz) / 1000UL);
+}
+
 String simdikiZamanStr() {
-  if (!rtcHazir) return "RTC yok";
-  DateTime now = rtc.now();
+  if (!zamanGecerli()) return "RTC yok";
+  DateTime now = zamanNow();
   if (now.year() < 2024 || now.year() > 2099) { rtcHazir = false; return "RTC gecersiz"; }
   char buf[24];
   snprintf(buf, sizeof(buf), "%02d/%02d/%04d %02d:%02d:%02d", now.day(), now.month(), now.year(), now.hour(), now.minute(), now.second());
@@ -511,8 +572,8 @@ String simdikiZamanStr() {
 }
 
 String simdikiTarihISO() {
-  if (!rtcHazir) return "";
-  DateTime now = rtc.now();
+  if (!zamanGecerli()) return "";
+  DateTime now = zamanNow();
   if (now.year() < 2024 || now.year() > 2099) return "";
   char buf[16];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d", now.year(), now.month(), now.day());
@@ -520,8 +581,8 @@ String simdikiTarihISO() {
 }
 
 String simdikiYilAy() {
-  if (!rtcHazir) return "";
-  DateTime now = rtc.now();
+  if (!zamanGecerli()) return "";
+  DateTime now = zamanNow();
   if (now.year() < 2024 || now.year() > 2099) return "";
   char buf[10];
   snprintf(buf, sizeof(buf), "%04d-%02d", now.year(), now.month());
@@ -612,8 +673,8 @@ void alarmLoguKontrolEt() {
 }
 
 bool geceModuMu() {
-  if (!rtcHazir) return false;
-  DateTime now = rtc.now();
+  if (!zamanGecerli()) return false;
+  DateTime now = zamanNow();
   int saat = now.hour();
   int b = ayar.geceBaslangicSaat, e = ayar.geceBitisSaat;
   if (b == e) return false;
@@ -628,9 +689,9 @@ bool geceModuMu() {
 // (sulama programlayicilari tipik olarak gunduz/aksam calisir, ihtiyac olursa
 // genisletilebilir).
 bool moistureKontrolPenceresindeMi() {
-  if (!rtcHazir) return false;
+  if (!zamanGecerli()) return false;
   if (ayar.moistureKontrolGunMask == 0) return false;
-  DateTime now = rtc.now();
+  DateTime now = zamanNow();
   if (!(ayar.moistureKontrolGunMask & (1 << now.dayOfTheWeek()))) return false;
   int simdiDk = now.hour() * 60 + now.minute();
   int baslangicDk = ayar.moistureKontrolBaslangicSaat * 60 + ayar.moistureKontrolBaslangicDakika;
@@ -1075,6 +1136,20 @@ void masterGonder() {
       (bahceZilMandalliMi() ? 4 : 0) | (bahceKilitAktif ? 8 : 0) |
       (((bahceSwSonBasariliMs != 0) && (millis() - bahceSwSonBasariliMs < BAHCE_SW_TAZELIK_MS)) ? 16 : 0)
   );
+  // EP=<yerel epoch>: bahcede ortak WiFi yokken Kalburum saati buradan alir
+  // (RS485 tek baglanti). Sadece saat gecerliyse ve buffer'da pay varsa eklenir
+  // (sonundaki '\n' korunur - bkz yukaridaki taşma notu).
+  // Her mesaja degil 60sn'de BIR eklenir: 9600 baud'da ~15 bayt = ~15ms, her
+  // mesajda eklenince 400ms okuma sinirinda "Partial message" artiyordu.
+  static unsigned long sonEpMs = 0;
+  if (zamanGecerli() && (sonEpMs == 0 || millis() - sonEpMs >= 60000UL)) {
+    sonEpMs = millis();
+    size_t n = strlen(buf);
+    if (n > 0 && buf[n - 1] == '\n' && n + 18 < sizeof(buf)) {
+      buf[n - 1] = '\0';
+      snprintf(buf + n - 1, sizeof(buf) - (n - 1), ",EP=%lu\n", (unsigned long)zamanNow().unixtime());
+    }
+  }
   rs485Gonder(buf);
 }
 
@@ -1329,6 +1404,22 @@ void rs485KomutDinle() {
         if (komut == "GET_STATUS") {
           masterGonder();
           response = "ACK:" + komut;
+        } else if (komut.startsWith("SET_ZAMAN=")) {
+          // Kalburum'un internet saati (yerel epoch). Sadece kendi RTC'miz
+          // yoksa uygulanir - calisan RTC'ye dokunulmaz.
+          uint32_t ep = (uint32_t)strtoul(komut.c_str() + 10, nullptr, 10);
+          if (ep > 1700000000UL) {
+            if (!rtcHazir) {
+              yazilimEpochBaz = ep;
+              yazilimMillisBaz = millis();
+            } else {
+              // RTC calisiyor ama pili bitmis/kaymis olabilir (derleme tarihine
+              // sifirlanir, yil gecerli gorunur) - 2dk'dan fazla sapmissa duzelt.
+              long fark = (long)rtc.now().unixtime() - (long)ep;
+              if (fark > 120 || fark < -120) rtc.adjust(DateTime(ep));
+            }
+          }
+          response = "ACK:SET_ZAMAN";
         } else if (komut == "LAMBA_ON") {
           nanoLambaKontrol(true);
           response = "ACK:" + komut;
@@ -2272,7 +2363,9 @@ void handleAlarmLogTam() {
 }
 void handleWifiDurum() {
   bool b = (WiFi.status() == WL_CONNECTED);
-  server.send(200, "application/json", "{\"tanimli\":" + String(strlen(wifiAyar.ssid)>0?"true":"false") + ",\"ssid\":\"" + String(wifiAyar.ssid) + "\",\"bagli\":" + String(b?"true":"false") + ",\"ip\":\"" + (b?WiFi.localIP().toString():"-") + "\",\"sifreVar\":" + String(strlen(wifiAyar.sifre)>0?"true":"false") + "}");
+  WiFiMode_t mod = WiFi.getMode();
+  const char* modStr = (mod == WIFI_AP) ? "AP" : (mod == WIFI_AP_STA) ? "AP_STA" : (mod == WIFI_STA) ? "STA" : "OFF";
+  server.send(200, "application/json", "{\"tanimli\":" + String(strlen(wifiAyar.ssid)>0?"true":"false") + ",\"ssid\":\"" + String(wifiAyar.ssid) + "\",\"bagli\":" + String(b?"true":"false") + ",\"ip\":\"" + (b?WiFi.localIP().toString():"-") + "\",\"sifreVar\":" + String(strlen(wifiAyar.sifre)>0?"true":"false") + ",\"wifiMode\":\"" + modStr + "\",\"apStationNum\":" + String(WiFi.softAPgetStationNum()) + ",\"apGeciciAcilisMs\":" + String(apGeciciAcilisMs) + "}");
 }
 // Kayitli WiFi gecmisini listeler - SADECE SSID doner, sifreler cihazda
 // kalir (istemciye asla gonderilmez, "gecmis_bagla" sunucu tarafinda
@@ -2503,17 +2596,65 @@ void handleConfigJS() {
     "const K=" + String(ayar.depoKapasiteLitre, 0) + ";");
 }
 
+// Kayitli aglari (aktif + gecmis) tek seferde tarar, EN GUCLU (RSSI) sinyalli
+// olani secer - kullanici talebi (2026-10-08): "ilk acilista guclu bir
+// kayitli ag varsa ona baglansin". Tarama sirasinda AP henuz acilmadigindan
+// (bkz asagidaki setupWiFi - AP sadece STA basarisiz olursa acilir) kimseyi
+// rahatsiz etmez. Hicbiri taramada gorunmezse aktif agi (wifiAyar.ssid)
+// dogrudan dener (WiFi.begin kendi ici tarama yapar, nadir durum).
+// Donus degeri: -1 = kayitli ag yok, 0 = aktif ag (wifiAyar.ssid),
+// 1..WIFI_GECMIS_SAYISI = gecmis[idx-1] - cagiran taraf (setup()) >0 ise
+// wifiGecmisiAktifYap() ile EEPROM'daki "aktif ag" alanini guncellemeli,
+// aksi halde arayuz GERCEKTE baglanilan agi degil eski wifiAyar.ssid'i
+// gosterir (2026-10-08, kullanici bulgusu: "EncanA01'e bagliyken arayuzde
+// Emiliya yaziyordu").
+int wifiEnGucluKayitliAgiSec(char* outSsid, char* outSifre) {
+  if (strlen(wifiAyar.ssid) == 0) return -1;
+  const char* adaySsid[1 + WIFI_GECMIS_SAYISI];
+  const char* adaySifre[1 + WIFI_GECMIS_SAYISI];
+  int adaySayisi = 0;
+  adaySsid[0] = wifiAyar.ssid; adaySifre[0] = wifiAyar.sifre; adaySayisi = 1;
+  for (int i = 0; i < WIFI_GECMIS_SAYISI; i++) {
+    if (strlen(wifiAyar.gecmis[i].ssid) == 0) continue;
+    adaySsid[adaySayisi] = wifiAyar.gecmis[i].ssid; adaySifre[adaySayisi] = wifiAyar.gecmis[i].sifre; adaySayisi++;
+  }
+
+  int taramaSayisi = WiFi.scanNetworks();
+  int enIyiAday = -1; int32_t enIyiRssi = -999;
+  for (int a = 0; a < adaySayisi; a++) {
+    for (int t = 0; t < taramaSayisi; t++) {
+      if (WiFi.SSID(t) == String(adaySsid[a]) && WiFi.RSSI(t) > enIyiRssi) {
+        enIyiRssi = WiFi.RSSI(t); enIyiAday = a;
+      }
+    }
+  }
+  WiFi.scanDelete();
+
+  int secilen = (enIyiAday >= 0) ? enIyiAday : 0;
+  strncpy(outSsid, adaySsid[secilen], 31); outSsid[31] = '\0';
+  strncpy(outSifre, adaySifre[secilen], 31); outSifre[31] = '\0';
+  DEBUG_PRINT("[WIFI] Secilen ag: "); DEBUG_PRINT(outSsid);
+  if (enIyiAday >= 0) { DEBUG_PRINT(" (RSSI "); DEBUG_PRINT(enIyiRssi); DEBUG_PRINTLN(")"); } else { DEBUG_PRINTLN(" (taramada gorunmedi, dogrudan deneniyor)"); }
+  return secilen; // 0 = aktif ag, 1..N = gecmis[idx-1]
+}
+
 // ============ WiFi KURULUMU ============
+// FIX (2026-10-08, kullanici talebi): AP ARTIK HER ZAMAN ACIK DEGIL. Once
+// SADECE STA denenir (en guclu kayitli ag, yukaridaki fonksiyon); AP sadece
+// setup()'ta STA basarisiz olursa acilir VE o zaman da SURESIZ degil - 5dk
+// sonra otomatik kapanir (bkz apGeciciKapamaPoll). Sudepo konteynerden uzakta
+// calisabildigi ve internet onun icin kritik olmadigindan (kullanici notu),
+// surekli acik bir AP'nin guvenlik/anten-kirliligi maliyetine degmiyor.
+int wifiIlkSecilenAday = -1; // setup()'ta STA baglantisi basarili olunca EEPROM guncellemesi icin
 void setupWiFi() {
   WiFi.softAPdisconnect(true); WiFi.mode(WIFI_OFF); delay(200);
-  WiFi.mode(WIFI_AP_STA); WiFi.setSleepMode(WIFI_NONE_SLEEP); delay(100);
-  bool ok = WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, WIFI_AP_HIDDEN);
-  if (ok) { DEBUG_PRINT("AP: "); DEBUG_PRINTLN(WIFI_AP_SSID); DEBUG_PRINT("IP: "); DEBUG_PRINTLN(WiFi.softAPIP()); }
-  if (strlen(wifiAyar.ssid) > 0) {
+  WiFi.mode(WIFI_STA); WiFi.setSleepMode(WIFI_NONE_SLEEP); delay(100);
+  char secSsid[32] = {0}, secSifre[32] = {0};
+  wifiIlkSecilenAday = wifiEnGucluKayitliAgiSec(secSsid, secSifre);
+  if (wifiIlkSecilenAday >= 0) {
     String host = mdnsHostname();
     WiFi.hostname(host.c_str());
-    DEBUG_PRINT("STA: "); DEBUG_PRINTLN(wifiAyar.ssid);
-    WiFi.begin(wifiAyar.ssid, wifiAyar.sifre);
+    WiFi.begin(secSsid, secSifre);
   }
 }
 
@@ -2601,7 +2742,9 @@ void wifiFallbackPoll() {
   if (strlen(ssid) == 0) return; // aktif ag her zaman dolu (yukaridaki guard), buraya dusmemeli
 
   DEBUG_PRINT("[WIFI] Fallback: deneniyor: "); DEBUG_PRINTLN(ssid);
-  WiFi.mode(WIFI_AP_STA);
+  // AP bir kez 5dk dolup kapandiysa (apBirDahaAcilmasin) bir daha ACILMAZ -
+  // sadece sessiz STA retry (bkz apGeciciKapamaPoll/apBirDahaAcilmasin yorumu).
+  WiFi.mode(apBirDahaAcilmasin ? WIFI_STA : WIFI_AP_STA);
   WiFi.begin(ssid, sifre);
   unsigned long baslaMs = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < WIFI_FALLBACK_DENEME_SURESI_MS) {
@@ -2611,6 +2754,17 @@ void wifiFallbackPoll() {
   if (WiFi.status() == WL_CONNECTED) {
     DEBUG_PRINTLN("[WIFI] Fallback basarili, STA baglandi");
     staAPOnlyFallback = false;
+    // FIX (2026-10-08, kullanici bulgusu: "madem baglandi neden mavi LED
+    // yaniyordu"): WiFi.mode(WIFI_AP_STA) ile denendigi icin baglanti
+    // basarili olsa da mod AP_STA'da KALIYORDU - softAP teknik olarak hala
+    // aktifti (apLedPoll bunu "AP acik" sanip blink etmeye devam ediyordu).
+    // Zaman asimina (apGeciciKapamaPoll) birakmadan, basarili olur olmaz
+    // HEMEN sadece STA'ya don + gecici-AP durumunu temizle.
+    if (apGeciciAcilisMs != 0 || WiFi.getMode() == WIFI_AP_STA) {
+      WiFi.softAPdisconnect(true);
+      WiFi.mode(WIFI_STA);
+      apGeciciAcilisMs = 0;
+    }
     // FIX (kullanici sikayeti 2026-09-25: "gercekte Emiliya'ya bagli ama
     // arayuzde hala EncanA01 gorunuyor"): handleWifiDurum() HER ZAMAN
     // wifiAyar.ssid'i (kaydedilmis "aktif ag" alani) gosterir, WiFi.SSID()
@@ -2618,8 +2772,8 @@ void wifiFallbackPoll() {
     // guncellenip EEPROM'a yazilmazsa arayuz gercek durumu yansitmaz.
     if (kullanilanAday > 0) wifiGecmisiAktifYap(kullanilanAday - 1);
   } else {
-    DEBUG_PRINTLN("[WIFI] Fallback basarisiz, saf AP'ye donuluyor");
-    WiFi.mode(WIFI_AP);  // radyoyu tekrar sadece AP icin serbest birak
+    DEBUG_PRINTLN("[WIFI] Fallback basarisiz");
+    WiFi.mode(apBirDahaAcilmasin ? WIFI_STA : WIFI_AP);  // AP kapandiysa saf STA'da kal, yoksa AP'yi serbest birak
   }
 }
 
@@ -2641,6 +2795,9 @@ void ntpOtomatikPoll() {
       struct tm tmS;
       localtime_r(&t, &tmS);
       rtc.adjust(DateTime(tmS.tm_year + 1900, tmS.tm_mon + 1, tmS.tm_mday, tmS.tm_hour, tmS.tm_min, tmS.tm_sec));
+    } else {
+      yazilimEpochBaz = (uint32_t)t + 10800UL; // RTC yok: kendi NTP'si de yazilim saatini besler
+      yazilimMillisBaz = millis();
     }
     ntpSonSenkronMs = simdi;
     ntpConfigTetiklendi = false;
@@ -2724,29 +2881,48 @@ void setup() {
     delay(200);
     olcumYap();
   }
+  pinMode(AP_LED_PIN, OUTPUT);
+  digitalWrite(AP_LED_PIN, HIGH); // baslangicta sonuk (AKTIF-LOW)
   setupWiFi();
 
   // FIX: STA baglantisini bekle - mDNS icin gecerli IP gerekli.
   // WiFi.begin() asenkron calisir; IP almadan MDNS.begin() yapilirsa
-  // sudepo.local cozulemez.
+  // sudepo.local cozulemez. Artik AP bu bekleme sirasinda ACIK DEGIL (saf
+  // STA), o yuzden eski "AP+STA radyo paylasimi 12-14sn surer" riski yok -
+  // 20sn ust sinir zararsiz sekilde korundu (erken baglanirsa donguden hemen cikar).
   if (strlen(wifiAyar.ssid) > 0) {
     unsigned long baslaMs = millis();
-    // 20sn (2026-09-24 olculdu): AP+STA ayni radyoyu paylastigindan el
-    // sikisma+DHCP 8sn'de bitmiyordu, gercekte ~12-14sn suruyor - eskiden
-    // 8sn'de vazgecilip yanlislikla "baglanamadi" denip saf AP'ye dusuluyordu.
     while (WiFi.status() != WL_CONNECTED && millis() - baslaMs < 20000) {
       delay(100);
       yield();  // watchdog reset
     }
-    // FIX (2026-09-24): kayitli ag menzil disindaysa (sahada/bahcede) STA'yi
-    // acik birakmak radyoyu mesgul edip AP'yi tepkisiz birakiyordu - STA'yi
-    // tamamen kapat, saf AP'ye don. wifiFallbackPoll() periyodik tekrar dener.
+    // FIX (2026-10-08, kullanici bulgusu: "EncanA01'e bagliyken arayuzde
+    // Emiliya yaziyordu"): wifiEnGucluKayitliAgiSec() GECMISTEN bir aday
+    // sectiyse (wifiIlkSecilenAday>0) VE baglanti basarili olduysa, bunu
+    // AKTIF AG yap - aksi halde handleWifiDurum() (hep wifiAyar.ssid okur)
+    // yanlis/eski bilgi gosterir.
+    if (WiFi.status() == WL_CONNECTED && wifiIlkSecilenAday > 0) {
+      wifiGecmisiAktifYap(wifiIlkSecilenAday - 1);
+    }
+    // FIX (2026-10-08, kullanici talebi): STA basarisiz olursa AP acilir AMA
+    // SURESIZ DEGIL - 5dk sonra (bkz apGeciciKapamaPoll) AP otomatik kapanir,
+    // STA retry arka planda sessizce devam eder. Sudepo WiFi'siz de (sadece
+    // Nano/RS485/lokal) calisabildigi ve genelde uzakta oldugu icin
+    // (kullanici notu: "internet onun icin kritik degil") surekli acik bir
+    // AP'nin guvenlik/anten maliyetine degmiyor.
     if (WiFi.status() != WL_CONNECTED) {
-      DEBUG_PRINTLN("[WIFI] STA baglanamadi, saf AP moduna donuluyor");
+      DEBUG_PRINTLN("[WIFI] STA baglanamadi, AP moduna geciliyor (5dk gecerli)");
       WiFi.mode(WIFI_AP);
+      WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, WIFI_AP_HIDDEN);
       staAPOnlyFallback = true;
+      apGeciciAcilisMs = millis();
       wifiFallbackSonDenemeMs = millis();  // ilk fallback denemesi de tam araligi beklesin
     }
+  } else {
+    // Hic kayitli ag yok (ilk kurulum) - AP SURESIZ acik kalmali, aksi halde
+    // cihaz hic ayarlanamaz hale gelir.
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, WIFI_AP_HIDDEN);
   }
 
   // FIX: mDNS'i WiFi baglantisi SONRASINDA baslat (gecerli IP ile).
@@ -3015,14 +3191,18 @@ void loop() {
   ArduinoOTA.handle(); server.handleClient();
   wsServer.loop(); // WebSocket pilot (port 81)
 
-  // AP her zaman acik olmali (STA baglantisindan bagimsiz). Nadiren heap
-  // parcalanmasi/RF sorunu ile AP dusebiliyor - periyodik kontrol edip
-  // gerekirse yeniden baslatiyoruz.
+  // AP SADECE acik olmasi gereken durumlarda (gecici 5dk penceresi veya hic
+  // kayitli ag yokken suresiz) izlenir. Eskiden "AP her zaman acik olmali"
+  // diye kosulsuz yeniden aciyordu (2026-10-08): STA baglandiktan sonra
+  // bilerek kapatilan AP'yi 30sn icinde geri aciyor, kapatma mantigiyla
+  // cakisip LED'i yeniden blink ettiriyordu. Nadiren heap/RF sorunu ile
+  // dusen AP'yi toparlama amaci korunuyor.
   static unsigned long sonApKontrolMs = 0;
   unsigned long simdiMs = millis();
   if (simdiMs - sonApKontrolMs >= 30000UL) {
     sonApKontrolMs = simdiMs;
-    if (!(WiFi.getMode() & WIFI_AP)) {
+    bool apAcikOlmali = (apGeciciAcilisMs != 0) || (strlen(wifiAyar.ssid) == 0);
+    if (apAcikOlmali && !(WiFi.getMode() & WIFI_AP)) {
       DEBUG_PRINTLN("[WIFI] AP kapaliydi, yeniden baslatiliyor");
       WiFi.mode(WIFI_AP_STA);
       WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, WIFI_AP_HIDDEN);
@@ -3066,6 +3246,8 @@ void loop() {
   ntpOtomatikPoll();  // WiFi STA varsa RTC'yi saatte bir arka planda internetten tazeler (non-blocking)
   wifiKopmaTespitPoll();  // Bagliyken aktif ag kaybolursa (30sn) fallback moduna gecisi tetikler
   wifiFallbackPoll();  // Saf AP'ye dusulduyse 2dk'da bir kisa STA denemesi
+  apGeciciKapamaPoll();  // STA basarisiz oldugunda acilan AP'yi 5dk sonra kapatir
+  apLedPoll();  // Mavi LED - AP aciksa blink, degilse sonuk
   server.handleClient();
   rs485KomutDinle();
   server.handleClient();  // FIX: RS485 dinleme sonrası web isteklerini işle
