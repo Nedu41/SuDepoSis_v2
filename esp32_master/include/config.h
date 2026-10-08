@@ -467,6 +467,18 @@
 #define ZIL_LEDC_KANAL 0
 #define ZIL_TON_DING_HZ 1150
 #define ZIL_TON_DONG_HZ 870
+
+// ============ AP MODU (buton-tetikli, 2026-10-08) ============
+// GPIO48 ayni zamanda kartin uzerindeki entegre WS2812 RGB LED (YD-ESP32-S3
+// klonu) - zil (yukarida) LEDC/PWM ile, RGB LED ise neopixelWrite()/RMT ile
+// surulur, ikisi AYNI pine ayni anda yazamaz. AP modunda zil ledcDetachPin
+// ile pinden ayrilir, RGB LED devreye girer (bkz apModunaGec/apModuLedPoll).
+#define RGB_LED_PIN 48
+#define AP_MODU_BUTON_PIN 0        // BOOT/FLASH butonu - strapping pin ama
+                                    // calisma anindan (boot sonrasi) normal
+                                    // INPUT_PULLUP buton gibi okunmasi guvenli
+#define AP_MODU_BUTON_BASILI_MS 2000UL   // 2sn basili tutunca AP moduna gir
+#define AP_MODU_TIMEOUT_MS (15UL*60UL*1000UL) // 15dk hareketsizlikte otomatik STA'ya don (restart)
 #define BAHCE_KAPI_BUTON_COOLDOWN_MS 3000 // ACIL_BUTON_COOLDOWN ile ayni mantik - RS485'i art arda bloke etmesin
 // 2026-09-18: basis-sayma (kisa/cift tik) semasindan basili-tutma suresine
 // dayali semaya gecildi - kisa basis SAG kapi, UZUN basis (bu sure) IKI kapi
