@@ -14,3 +14,6 @@ firmware.bin
 
 # Gizli bilgiler (WiFi/OTA/MQTT sifreleri) - secrets.h.example sablon olarak kalir
 secrets.h
+
+# Kisisel editor calisma alani
+*.code-workspace
