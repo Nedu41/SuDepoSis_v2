@@ -226,6 +226,20 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
       <span style="font-size:12px">🌤️ <span id="db-hava">Yükleniyor...</span></span>
     </div>
     <div class="grid">
+      <div class="card" style="grid-column:span 2"><h3>Kontrol</h3>
+        <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
+          <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
+          <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px">
+          <button class="btn ton-mavi" style="min-width:0" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Kapı Aç</button>
+          <button class="btn" style="min-width:0" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba</button>
+          <button class="btn btn-danger ton-kirmizi" style="min-width:0;grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">Acil Lamba</button>
+          <button class="btn" style="min-width:0" id="db-alarm-btn" onclick="toggleAlarm()">Sudepo Zonu: Alarm</button>
+          <button class="btn" style="min-width:0" id="db-konteyner-alarm-btn" onclick="toggleKonteynerAlarm()">Konteyner Zonu: Alarm</button>
+          <button class="btn btn-danger ton-kirmizi" style="min-width:0;grid-column:span 2" id="db-panic-btn" onclick="togglePanic()">Panik</button>
+        </div>
+      </div>
       <div class="card tikla" style="grid-column:span 2" onclick="gitAyar('ayar-sudepo')">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
           <h3 style="margin-bottom:0">Sudepo Zonu Sensörleri</h3>
@@ -273,17 +287,6 @@ details.card:not(.zone-sudepo):not(.zone-konteyner):nth-of-type(12){border-left:
         <div class="ledbar" id="ledbar-depo"></div>
         <div class="row" style="margin-top:8px">
           <button class="btn" id="db-sudepo-lamba-btn" onclick="event.stopPropagation();toggleLamba()">Sudepo Lamba</button>
-        </div>
-      </div>
-      <div class="card"><h3>Bahçe Kapısı</h3>
-        <div class="row" style="justify-content:center;gap:16px;font-size:12px;color:var(--muted)">
-          <span>Kapı 1: <b id="db-bahce-durum1" style="color:var(--text)">-</b></span>
-          <span>Kapı 2: <b id="db-bahce-durum2" style="color:var(--text)">-</b></span>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px">
-          <button class="btn ton-mavi" style="min-width:0" id="db-bahce-toggle-btn" onclick="bahceKapiToggle()">Aç</button>
-          <button class="btn" style="min-width:0" id="db-konteyner-lamba-btn" onclick="toggleKonteynerLamba()">Veranda Lamba</button>
-          <button class="btn btn-danger ton-kirmizi" style="min-width:0;grid-column:span 2" id="db-acil-lamba-btn" onclick="toggleAcilLamba()">Acil Lamba</button>
         </div>
       </div>
       <div class="card tikla" onclick="gitAyar('ayar-anaguc')"><h3>Ana Güç</h3><div class="kpi" id="kpi-ana-guc">--</div><div style="margin-top:8px;font-size:12px;color:var(--muted)" id="ana-guc-durum">-</div></div>
@@ -1329,14 +1332,18 @@ function renderUI(d){
     bahceKapi2Acik = acik[1]; bahceKapi2Kapali = kapali[1];
     const bahceBtnMetin = bahceHareketVar ? 'Dur' : (bahceAcikSayilirmi ? 'Kapat' : 'Aç');
     const tb=$('#bahce-toggle-btn'); if(tb) tb.textContent = bahceBtnMetin;
-    const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceBtnMetin; { const tb2=$('#bahce-toggle-btn'); [dtb,tb2].forEach(b=>{ if(b) b.classList.toggle('btn-on', !!bahceHareketVar); }); }
+    const dtb=$('#db-bahce-toggle-btn'); if(dtb) dtb.textContent = bahceHareketVar ? 'Dur' : 'Kapı ' + bahceBtnMetin; { const tb2=$('#bahce-toggle-btn'); [dtb,tb2].forEach(b=>{ if(b) b.classList.toggle('btn-on', !!bahceHareketVar); }); }
   }
   $('#lamba-btn').textContent = 'Sudepo Lamba: ' + (esp8266Ok ? (d.nano.lamp ? 'Kapat' : 'Aç') : '--'); $('#lamba-btn').classList.toggle('btn-on', esp8266Ok&&!!d.nano.lamp);
   { const sudepoAcik=esp8266Ok&&!!d.nano.lamp; const dslb=$('#db-sudepo-lamba-btn'); if(dslb) dslb.classList.toggle('btn-on', sudepoAcik); }
   { const klb=$('#konteyner-lamba-btn'); if(klb){ klb.textContent = 'Veranda Lamba: ' + ((d.konteyner&&d.konteyner.lamba) ? 'Kapat' : 'Aç'); klb.classList.toggle('btn-on', !!(d.konteyner&&d.konteyner.lamba)); } }
   { const verandaAcik=!!(d.konteyner&&d.konteyner.lamba); const dklb=$('#db-konteyner-lamba-btn'); if(dklb) dklb.classList.toggle('btn-on', verandaAcik); }
-  $('#alarm-btn').textContent = 'Sudepo Zonu: ' + ((d.alarm&&d.alarm.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç');
-  { const kab=$('#konteyner-alarm-btn'); if(kab) kab.textContent = 'Konteyner Zonu: ' + ((d.konteyner&&d.konteyner.enabled!==false) ? 'Alarmı Kapat' : 'Alarmı Aç'); }
+  // Alarm aç/kapa: kapalı = kırmızı, açık = yeşil; ikisi de nefes alan parlama (Standart 1 teması) (metin eylemi söyler, toggleAlarm bunu okur)
+  { const sAcik=!!(d.alarm&&d.alarm.enabled!==false), kAcik=!!(d.konteyner&&d.konteyner.enabled!==false);
+    const alarmBtn=(id,acik,metin)=>{ const b=$(id); if(!b) return; if(metin) b.textContent=metin+(acik?'Alarmı Kapat':'Alarmı Aç'); b.classList.add('btn-on'); b.classList.toggle('ton-kirmizi',!acik); };
+    alarmBtn('#alarm-btn',sAcik,'Sudepo Zonu: '); alarmBtn('#konteyner-alarm-btn',kAcik,'Konteyner Zonu: ');
+    alarmBtn('#db-alarm-btn',sAcik); alarmBtn('#db-konteyner-alarm-btn',kAcik); }
+  { const dpb=$('#db-panic-btn'); if(dpb){ const p=!!(d.alarm&&d.alarm.panic); dpb.textContent=p?'Panik Açık':'Panik'; dpb.classList.toggle('btn-on',p); } }
   { const ss=$('#sum-sudepo'); if(ss) ss.textContent = (d.alarm&&d.alarm.enabled!==false) ? 'Aktif' : 'Kapalı'; }
   { const sk=$('#sum-konteyner'); if(sk) sk.textContent = (d.konteyner&&d.konteyner.enabled!==false) ? 'Aktif' : 'Kapalı'; }
   { const pb=$('#panic-btn'); if(pb){ pb.textContent = (d.alarm&&d.alarm.panic) ? 'Panik Açık' : 'Panik'; pb.classList.toggle('btn-on', !!(d.alarm&&d.alarm.panic)); } }
